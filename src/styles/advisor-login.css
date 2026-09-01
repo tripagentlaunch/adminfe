@@ -1,0 +1,71 @@
+/* =============================================================================
+ * TripAgent — src/styles/advisor-login.css
+ * Ported from web/js/advisor-login.js's injectStyles() (the `.tal-*` design
+ * system). That file built this exact CSS as a JS string array and injected
+ * it into <head> at runtime via a <style id="ta-advisor-login-styles"> tag;
+ * here it ships as a real stylesheet instead. Content is byte-identical —
+ * only the JS-string-array-join wrapper was removed. Ivory maison, restrained
+ * — consumes the same tokens.css the rest of the Workbench already uses
+ * (--serif/--eyebrow/--sans, --gold accent); no new design system.
+ * ===========================================================================*/
+.tal-shell{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+background:var(--canvas, var(--ivory));}
+.tal-card{width:100%;max-width:408px;background:var(--card);border:1px solid var(--line);
+border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:36px 32px 30px;
+animation:tal-rise .28s var(--ease);}
+@keyframes tal-rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.tal-card--loading{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;
+padding:48px 32px;color:var(--taupe);font-family:var(--sans);font-size:13.5px;}
+.tal-brand{display:flex;align-items:center;gap:8px;margin-bottom:18px;color:var(--gold-ink);}
+.tal-brand span{font-family:var(--serif);font-weight:600;font-size:16px;color:var(--ink);}
+.tal-eyebrow{font-family:var(--eyebrow);font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+color:var(--gold-ink);margin:0 0 6px;}
+.tal-title{font-family:var(--serif);font-weight:600;font-size:26px;line-height:1.15;color:var(--ink);
+margin:0 0 8px;letter-spacing:-.01em;}
+.tal-sub{font-family:var(--sans);font-size:13px;line-height:1.55;color:var(--taupe);margin:0 0 22px;}
+.tal-field{display:block;margin:0 0 16px;}
+.tal-field label{display:block;font-family:var(--sans);font-size:12px;font-weight:600;
+letter-spacing:.02em;color:var(--taupe);margin:0 0 7px;}
+.tal-field input{width:100%;box-sizing:border-box;font-family:var(--sans);font-size:15px;
+color:var(--ink);background:var(--ivory);border:1px solid var(--line-2);border-radius:var(--radius);
+padding:12px 14px;transition:border-color var(--dur) var(--ease),box-shadow var(--dur) var(--ease);}
+.tal-field input:focus{outline:none;border-color:var(--gold-deep);box-shadow:0 0 0 3px var(--gold-bg);}
+.tal-pwrow{position:relative;}
+.tal-pwrow input{padding-right:42px;}
+.tal-pw-toggle{position:absolute;top:0;right:0;bottom:0;width:40px;display:flex;align-items:center;
+justify-content:center;background:none;border:none;cursor:pointer;color:var(--taupe);padding:0;}
+.tal-pw-toggle:hover{color:var(--ink);}
+.tal-form-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:-8px 0 16px;}
+.tal-forgot{font-family:var(--sans);font-size:12.5px;
+color:var(--gold-ink);text-decoration:none;margin:0;background:none;border:none;
+padding:0;cursor:pointer;}
+.tal-forgot:hover{text-decoration:underline;}
+.tal-autofill{font-family:var(--sans);font-size:12.5px;
+color:var(--taupe);text-decoration:none;margin:0;background:none;border:none;
+padding:0;cursor:pointer;}
+.tal-autofill:hover{text-decoration:underline;color:var(--ink);}
+.tal-autofill:disabled{opacity:.6;cursor:default;}
+.tal-error{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:12.5px;
+color:var(--danger-ink);background:var(--danger-bg);border:1px solid var(--line);border-radius:var(--radius);
+padding:10px 12px;margin:2px 0 16px;}
+.tal-success{display:flex;align-items:center;gap:8px;font-family:var(--sans);font-size:12.5px;
+color:var(--ink);background:var(--gold-bg);border:1px solid var(--line);border-radius:var(--radius);
+padding:10px 12px;margin:2px 0 16px;}
+.tal-btn{width:100%;font-family:var(--sans);font-weight:600;font-size:14px;color:#fff;
+background:var(--gold-deep);border:none;border-radius:var(--radius);padding:13px 16px;cursor:pointer;
+transition:opacity var(--dur) var(--ease);}
+.tal-btn:hover{opacity:.92;}
+.tal-btn[disabled]{opacity:.55;cursor:default;}
+.tal-btn--ghost{background:none;color:var(--ink);border:1px solid var(--line-2);}
+.tal-hint{font-family:var(--sans);font-size:12px;line-height:1.55;color:var(--muted);margin:18px 0 0;}
+.tal-spin{width:22px;height:22px;border-radius:999px;border:2.5px solid var(--line-2);
+border-top-color:var(--gold-deep);animation:tal-spin .7s linear infinite;display:inline-block;}
+@keyframes tal-spin{to{transform:rotate(360deg)}}
+.tal-modal-backdrop{position:fixed;inset:0;background:rgba(20,16,10,.45);display:flex;
+align-items:center;justify-content:center;padding:24px;z-index:1000;animation:tal-fade .18s var(--ease);}
+@keyframes tal-fade{from{opacity:0}to{opacity:1}}
+.tal-modal{width:100%;max-width:380px;background:var(--card);border:1px solid var(--line);
+border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:28px 26px 24px;
+animation:tal-rise .22s var(--ease);}
+.tal-modal-row{display:flex;gap:10px;margin-top:4px;}
+.tal-modal-row .tal-btn{width:auto;flex:1;}

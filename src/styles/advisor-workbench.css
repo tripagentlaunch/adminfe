@@ -1,0 +1,664 @@
+/* =============================================================================
+ * TripAgent — src/styles/advisor-workbench.css
+ * Ported from web/js/advisor.js's injectStyles() (the `.taw-*` design system,
+ * lines ~268-724). That file built this exact CSS as a JS string and injected
+ * it into <head> at runtime via a <style id="ta-advisor-styles"> tag; here it
+ * ships as a real stylesheet instead. Content is byte-identical — only the
+ * JS-string-concatenation wrapper was removed.
+ *
+ * Surfaces/text/accents/lines/type all inherit from the GLOBAL tokens
+ * (tokens.css). Only scoped aliases that this module references by a local
+ * name are declared here, each re-pointed to a global token — no invented
+ * colours, no redeclared globals.
+ * ===========================================================================*/
+.taw{--line2:var(--line-2);
+--sage:var(--success);--terracotta:var(--danger);
+--accent:var(--cognac);--good:var(--success);--bad:var(--danger);--warn:var(--gold);
+--whisper:var(--shadow-sm);
+font-family:var(--sans);
+color:var(--ink);background:var(--ivory);min-height:100vh;-webkit-font-smoothing:antialiased;
+/* flex column so .taw-main (and, on Workbench, its grid) can actually
+   stretch to fill the viewport instead of just matching each OTHER's
+   height within a content-sized row — 2026-08-31, see .taw-main and
+   .taw-cols-3 below. */
+display:flex;flex-direction:column;}
+.taw *{box-sizing:border-box;}
+.taw :where(button){font-family:inherit;}
+.taw button{cursor:pointer;}
+.taw ::-webkit-scrollbar{width:10px;height:10px;}
+.taw ::-webkit-scrollbar-thumb{background:var(--line2);border-radius:20px;border:2px solid transparent;background-clip:padding-box;}
+.taw ::-webkit-scrollbar-thumb:hover{background:rgba(26,23,18,0.28);background-clip:padding-box;border:2px solid transparent;}
+
+/* top bar */
+.taw-top{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:18px;padding:16px 26px;
+background:rgba(251,248,241,.86);backdrop-filter:blur(14px);
+border-bottom:1px solid var(--line);}
+.taw-tabs{display:flex;gap:4px;padding:4px;}
+.taw-tab{position:relative;border:0;background:transparent;color:var(--taupe);font-family:var(--eyebrow);font-weight:500;font-size:12px;letter-spacing:.12em;text-transform:uppercase;
+min-height:44px;padding:9px 16px;border-radius:0;transition:.18s;display:flex;align-items:center;gap:8px;border-bottom:1.5px solid transparent;}
+.taw-tab:hover{color:var(--ink);}
+.taw-tab.is-active{color:var(--ink);border-bottom-color:var(--gold);}
+.taw-tab .pill{font-family:ui-sans-serif,system-ui,sans-serif;font-size:10px;background:var(--champagne);color:var(--ink);padding:1px 7px;border-radius:20px;font-weight:600;letter-spacing:.02em;}
+.taw-tab.is-active .pill{background:var(--gold-bg);color:var(--gold);}
+.taw-spacer{flex:1;}
+.taw-advisor{display:flex;align-items:center;gap:11px;font-family:var(--eyebrow);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--taupe);}
+.taw-ava{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:14px;color:var(--ink);
+background:var(--champagne);border:1px solid var(--line2);}
+.taw-sel{background:var(--card);color:var(--ink);border:1px solid var(--line2);border-radius:9px;padding:8px 11px;font-size:12.5px;font-family:inherit;transition:.15s;}
+.taw-sel:focus{border-color:var(--gold);}
+
+/* layout */
+/* flex:1 (2026-08-31) — .taw is now a flex column (see above); this lets
+   .taw-main stretch to fill whatever height is left after .area-header,
+   down to the viewport bottom. display:flex/column here too so a route
+   whose direct content should fill the rest of THIS box (e.g. Workbench's
+   grid, via .taw-cols-3's own flex:1 below) can opt in the same way. */
+.taw-main{max-width:1480px;margin:0 auto;padding:8px 12px;flex:1;display:flex;flex-direction:column;}
+.taw-grid{display:grid;gap:12px;}
+.taw-cols-2{grid-template-columns:380px 1fr;}
+/* 2fr/5fr/2fr (2026-08-31, WorkbenchTab v2): Queue | Itinerary Builder |
+   Traveller Profile+Summary — Itinerary Builder is "considerable width,
+   but not too much," ~5/9 of the row, per the layout discussion.
+   align-items left at stretch (grid's default — no override needed) so
+   all three columns fill the row's full height, per follow-up feedback,
+   instead of each sizing to its own content. flex:1 (2026-08-31 v2) makes
+   the GRID ITSELF fill the rest of .taw-main's now-viewport-height box —
+   stretch alone only equalized columns to each OTHER, not to the page. */
+.taw-cols-3{grid-template-columns:2fr 5fr 2fr;flex:1;}
+.taw-cols-q{grid-template-columns:1fr 420px;}
+@media(max-width:1100px){.taw-cols-2,.taw-cols-3,.taw-cols-q{grid-template-columns:1fr;}}
+/* Right-column wrapper for WorkbenchTab's 3rd grid cell (Traveller
+   Profile stacked above Summary) — one grid item containing two cards.
+   Stretches to the row's full height (see .taw-cols-3 above); Summary
+   stays its natural/fixed height (flex default), Traveller Profile gets
+   .taw-grow to absorb whatever's left. */
+.taw-col-stack{display:flex;flex-direction:column;gap:12px;height:100%;}
+.taw-grow{flex:1;}
+
+/* cards */
+/* Densified 2026-08-28 — Advisor Workbench adopted Jira's density
+   philosophy (option 1 of the discussion in design_reference_jira memory),
+   then tightened FURTHER same day on follow-up feedback ("still a lot of
+   spacing/padding") plus an explicit switch off serif for these headings:
+   card titles are now --sans/600/14px (was --serif/500/16px, originally
+   --serif/600/21px), padding/gaps cut again (card header 8px 12px, card
+   body 12px, grid gap 12px). Border-radius stepped down from --radius
+   (12px) to --radius-sm (10px) for a flatter, more table-like edge. This
+   is a deliberate divergence FROM the earlier "spacious card" house
+   style, not a bug fix — see the memory for the fuller discussion. */
+.taw-card{background:var(--card);border:1px solid var(--line);
+border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
+.taw-card-h{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);}
+.taw-card-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);}
+.taw-card-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}
+.taw-card-b{padding:12px;}
+.taw-card-b.flush{padding:0;}
+
+/* buttons */
+.taw-btn{border:1px solid var(--line2);background:transparent;color:var(--ink);border-radius:10px;
+padding:10px 16px;font-size:12px;font-family:var(--eyebrow);font-weight:500;letter-spacing:.1em;text-transform:uppercase;transition:transform .16s var(--ease),box-shadow .16s var(--ease),background .16s,border-color .16s,color .16s;display:inline-flex;align-items:center;gap:8px;}
+.taw-btn:hover{border-color:var(--ink);background:var(--bone);}
+.taw-btn:active{transform:translateY(0);}
+.taw-btn:disabled{opacity:.45;cursor:not-allowed;background:transparent;box-shadow:none;transform:none;}
+.taw-btn--primary{border:1px solid var(--gold-deep);background:linear-gradient(180deg,var(--gold) 0%,var(--gold-deep) 100%);color:var(--ink);box-shadow:0 1px 0 rgba(255,253,247,.35) inset,0 4px 14px -6px rgba(120,92,18,.55),0 1px 2px rgba(23,19,16,.10);}
+.taw-btn--primary:hover{background:linear-gradient(180deg,#C8A23A 0%,var(--gold-deep) 100%);border-color:var(--gold-deep);transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
+.taw-btn--primary:active{transform:translateY(0);box-shadow:0 1px 0 rgba(255,253,247,.25) inset,0 2px 8px -4px rgba(120,92,18,.5);}
+.taw-btn--accent{border:1px solid var(--gold);background:var(--gold-bg);color:var(--gold);}
+.taw-btn--accent:hover{background:var(--champagne);border-color:var(--gold);}
+.taw-btn--ghost{background:transparent;border-color:var(--line);}
+.taw-btn--ghost:hover{background:var(--bone);border-color:var(--line2);}
+.taw-btn--danger{border-color:rgba(178,85,47,.4);color:var(--terracotta);background:var(--danger-bg);}
+.taw-btn--danger:hover{background:#F1DACF;border-color:var(--terracotta);}
+.taw-btn--sm{padding:7px 12px;font-size:10.5px;border-radius:8px;}
+.taw-btn--block{width:100%;justify-content:center;min-height:44px;}
+
+/* inputs */
+.taw-field{display:flex;flex-direction:column;gap:6px;}
+.taw-field label{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.18em;color:var(--taupe);font-weight:500;}
+.taw-input,.taw-select{background:var(--card);border:1px solid var(--line2);color:var(--ink);border-radius:9px;
+padding:10px 12px;font-size:13.5px;transition:.15s;width:100%;font-family:inherit;}
+.taw-input:focus,.taw-select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(184,144,31,.12);}
+.taw-input::placeholder{color:var(--muted);}
+
+/* AutosuggestInput dropdown (flight airport / hotel city typeahead) */
+.taw-typeahead{position:relative;}
+.taw-typeahead-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
+background:var(--card);border:1px solid var(--line2);border-radius:9px;box-shadow:var(--whisper);
+max-height:240px;overflow-y:auto;padding:4px;}
+.taw-typeahead-item{display:block;width:100%;text-align:left;background:transparent;border:0;
+border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--ink);cursor:pointer;transition:.12s;}
+.taw-typeahead-item:hover,.taw-typeahead-item.is-active{background:var(--bone);}
+.taw-typeahead-empty{display:flex;align-items:center;gap:8px;padding:9px 10px;font-size:12px;color:var(--muted);}
+.taw-row{display:grid;gap:12px;}
+.taw-row-3{grid-template-columns:1fr 1fr 1fr;}
+.taw-row-2{grid-template-columns:1fr 1fr;}
+.taw-row-4{grid-template-columns:repeat(4,1fr);}
+@media(max-width:680px){.taw-row-3,.taw-row-4{grid-template-columns:1fr 1fr;}}
+
+/* search desk subtabs */
+.taw-desk-tabs{display:flex;gap:4px;padding:4px;background:var(--bone);border:1px solid var(--line);border-radius:11px;}
+.taw-desk-tab{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;border:0;background:transparent;color:var(--taupe);font-family:var(--eyebrow);font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:9px;border-radius:8px;transition:.16s;}
+.taw-desk-tab:hover{color:var(--ink);}
+.taw-desk-tab.is-active{background:var(--card);color:var(--ink);box-shadow:var(--whisper);border:1px solid var(--line);}
+
+/* Itinerary Builder's AI-draft segment cards (2026-08-31) — one per
+   flight/hotel pick, with the advisor-facing reasoning line and, when
+   `mismatch` is set on that segment, a flagged treatment (terracotta
+   border/background + a "Check against enquiry" pill) — the "AI draft vs.
+   what was actually asked" check this screen exists for. See
+   lib/mockEnquiries.ts for the seed data and WorkbenchTab.tsx for the
+   render logic. */
+.taw-draft{display:flex;flex-direction:column;gap:12px;}
+.taw-draft-seg{border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--card);}
+.taw-draft-seg.is-mismatch{border-color:var(--terracotta);background:var(--danger-bg);}
+.taw-draft-seg-h{display:flex;align-items:center;gap:10px;}
+.taw-draft-seg-t{font-family:var(--sans);font-weight:600;font-size:14px;color:var(--ink);}
+.taw-draft-seg-s{font-size:12px;color:var(--muted);margin-top:2px;}
+.taw-draft-flag{display:inline-flex;align-items:center;gap:5px;margin-left:auto;flex:none;font-family:var(--eyebrow);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;color:var(--terracotta);background:var(--card);border:1px solid var(--terracotta);border-radius:999px;padding:4px 9px;white-space:nowrap;}
+.taw-draft-reason{font-size:12.5px;color:var(--taupe);font-style:italic;margin-top:8px;line-height:1.5;}
+.taw-draft-mismatch-note{font-size:12px;color:var(--terracotta);margin-top:6px;line-height:1.5;}
+
+/* result cards */
+.taw-results{display:flex;flex-direction:column;gap:12px;max-height:560px;overflow:auto;padding-right:4px;}
+.taw-res{display:grid;grid-template-columns:1fr auto;gap:14px;padding:16px 18px;border:1px solid var(--line);
+border-radius:12px;background:var(--card);transition:.16s;}
+.taw-res:hover{border-color:var(--line2);box-shadow:var(--whisper);}
+.taw-res-main{min-width:0;}
+.taw-res-title{font-size:15px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.taw-res-sub{font-size:12px;color:var(--taupe);margin-top:6px;display:flex;gap:14px;flex-wrap:wrap;}
+.taw-res-sub b{color:var(--ink);font-weight:600;}
+.taw-icrow{display:inline-flex;align-items:center;gap:5px;}
+.taw-res-side{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:9px;}
+.taw-res-net{font-family:var(--serif);font-size:22px;font-weight:600;letter-spacing:.01em;color:var(--ink);}
+.taw-res-net small{display:block;font-family:var(--eyebrow);font-size:8.5px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.18em;margin-top:2px;}
+
+/* chips / badges (tonal, refined) */
+.taw-chip{font-size:9.5px;font-family:var(--eyebrow);font-weight:500;padding:3px 9px;border-radius:20px;letter-spacing:.1em;text-transform:uppercase;border:1px solid transparent;}
+.taw-chip--intl{background:var(--info-bg);color:var(--info);}
+.taw-chip--dom{background:var(--bone);color:var(--taupe);}
+.taw-chip--ref{background:var(--success-bg);color:var(--sage);}
+.taw-chip--noref{background:var(--danger-bg);color:var(--terracotta);}
+.taw-chip--star{background:var(--gold-bg);color:var(--gold);}
+.taw-chip--flight{background:var(--info-bg);color:var(--info);}
+.taw-chip--hotel{background:var(--success-bg);color:var(--sage);}
+.taw-chip--visa{background:var(--gold-bg);color:var(--gold);}
+.taw-chip--tier{background:var(--gold-bg);color:var(--gold);border-color:rgba(184,144,31,.3);}
+.taw-chip--fare{background:var(--gold-bg);color:var(--gold-ink);border-color:rgba(184,144,31,.25);font-weight:600;}
+.taw-chip--sla-ok{background:var(--success-bg);color:var(--sage);border-color:rgba(91,122,91,.3);display:inline-flex;align-items:center;gap:4px;}
+.taw-chip--sla-breach{background:var(--danger-bg);color:var(--terracotta);border-color:rgba(178,59,59,.32);font-weight:600;display:inline-flex;align-items:center;gap:4px;}
+
+/* flight shopping bar (FLT-011 filters / FLT-012 sort) */
+.taw-shopbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;margin-bottom:10px;background:var(--bone);border:1px solid var(--line);border-radius:11px;}
+.taw-shopbar-sp{flex:1;min-width:6px;}
+.taw-segrp{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px;}
+.taw-seg{border:0;background:transparent;color:var(--taupe);font-family:var(--sans);font-size:12px;font-weight:500;padding:6px 11px;border-radius:7px;cursor:pointer;transition:.14s;}
+.taw-seg:hover{color:var(--ink);}
+.taw-seg.is-on{background:var(--ink);color:var(--ivory);}
+.taw-toggle{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);color:var(--taupe);font-family:var(--sans);font-size:12px;font-weight:500;padding:6px 11px;border-radius:9px;cursor:pointer;transition:.14s;}
+.taw-toggle:hover{color:var(--ink);}
+.taw-toggle.is-on{background:var(--success-bg);color:var(--sage);border-color:rgba(91,122,91,.35);}
+.taw-select--sm{padding:6px 9px;font-size:12px;height:auto;min-height:34px;border-radius:9px;}
+.taw-sortlab{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--muted);font-weight:500;}
+.taw-shopcount{font-size:11px;color:var(--muted);margin:0 2px 9px;font-family:var(--eyebrow);letter-spacing:.08em;text-transform:uppercase;}
+
+/* Wave-1 fare/PDP detail expander (flight-fares / flight-shop / hotel-property) */
+.taw-dx{margin-top:12px;border-top:1px dashed var(--line2);padding-top:12px;}
+.taw-dx-tabs{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:11px;}
+.taw-dx-tab{border:1px solid var(--line);background:var(--card);color:var(--taupe);font-family:var(--sans);font-size:11.5px;font-weight:500;padding:5px 11px;border-radius:8px;cursor:pointer;transition:.14s;}
+.taw-dx-tab:hover{color:var(--ink);border-color:var(--line2);}
+.taw-dx-tab.is-on{background:var(--gold-bg);color:var(--gold-ink);border-color:rgba(184,144,31,.3);font-weight:600;}
+.taw-dx-body{font-size:12.5px;color:var(--ink);line-height:1.55;}
+.taw-dx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.taw-dx-fam{border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--card);}
+.taw-dx-fam.is-rec{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-bg);}
+.taw-dx-fam h5{margin:0 0 3px;font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
+.taw-dx-fam .px{font-family:var(--serif);font-size:18px;color:var(--ink);margin:6px 0 8px;}
+.taw-dx-fam ul{margin:0;padding:0;list-style:none;}
+.taw-dx-fam li{font-size:11.5px;color:var(--taupe);padding:2px 0;display:flex;align-items:center;gap:6px;}
+.taw-dx-rule{padding:9px 12px;border:1px solid var(--line);border-radius:9px;background:var(--bone);margin-bottom:8px;}
+.taw-dx-rule .k{font-family:var(--eyebrow);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.taw-dx-rule .v{font-size:12.5px;color:var(--ink);margin-top:3px;}
+.taw-dx-anc{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--line);border-radius:9px;margin-bottom:7px;background:var(--card);}
+.taw-dx-anc .lab{font-size:12.5px;color:var(--ink);}
+.taw-dx-anc .px{font-family:var(--serif);font-size:15px;color:var(--gold-ink);}
+.taw-dx-seatmap{display:flex;flex-direction:column;gap:5px;}
+.taw-dx-seatrow{display:flex;gap:5px;align-items:center;}
+.taw-dx-seat{width:26px;height:26px;border-radius:6px;border:1px solid var(--line2);display:grid;place-items:center;font-size:9px;color:var(--taupe);background:var(--card);}
+.taw-dx-seat.occ{background:var(--bone);color:var(--muted);opacity:.5;}
+.taw-dx-seat.prem{border-color:var(--gold);color:var(--gold-ink);background:var(--gold-bg);}
+.taw-dx-prov{font-size:10.5px;color:var(--muted);margin-top:9px;font-family:var(--eyebrow);letter-spacing:.06em;}
+.taw-dx-ai{background:var(--info-bg);border:1px solid rgba(74,107,122,.22);border-radius:9px;padding:9px 12px;font-size:12px;color:var(--ink);display:flex;gap:7px;align-items:flex-start;}
+.taw-dx-ai b{color:var(--info);font-family:var(--eyebrow);font-size:9px;letter-spacing:.14em;text-transform:uppercase;}
+.taw-linkbtn{border:0;background:none;color:var(--gold-ink);font-family:var(--sans);font-size:11.5px;font-weight:600;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:5px;text-decoration:underline;text-decoration-color:rgba(184,144,31,.4);}
+.taw-linkbtn:hover{color:var(--gold);}
+
+/* member 360 */
+.taw-m360{display:flex;flex-direction:column;gap:18px;}
+.taw-m360-hero{display:flex;align-items:center;gap:15px;}
+.taw-m360-ava{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:22px;color:var(--ink);
+background:var(--champagne);border:1px solid var(--line2);}
+.taw-m360-name{font-family:var(--serif);font-size:24px;font-weight:600;letter-spacing:.01em;color:var(--ink);display:flex;align-items:center;}
+.taw-m360-meta{font-size:12px;color:var(--taupe);margin-top:4px;}
+.taw-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.taw-stat{background:var(--bone);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+.taw-stat .k{font-family:var(--eyebrow);font-size:9px;text-transform:uppercase;letter-spacing:.18em;color:var(--taupe);font-weight:500;}
+.taw-stat .v{font-family:var(--serif);font-size:20px;font-weight:600;color:var(--ink);margin-top:4px;}
+.taw-tags{display:flex;flex-wrap:wrap;gap:7px;}
+.taw-tag{font-size:11.5px;background:var(--card);border:1px solid var(--line);color:var(--taupe);padding:4px 11px;border-radius:8px;}
+.taw-sec-label{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.2em;color:var(--taupe);font-weight:500;margin-bottom:9px;}
+
+/* enquiry list */
+/* Scroll stays functional, the physical scrollbar is just hidden — Queue
+   still scrolls with more items than fit, it just doesn't show a track. */
+.taw-enq{display:flex;flex-direction:column;max-height:600px;overflow:auto;padding-right:4px;scrollbar-width:none;-ms-overflow-style:none;}
+.taw-enq::-webkit-scrollbar{display:none;}
+/* Rows, not cards (2026-09-01) — no per-item border/background/radius;
+   items are separated by a border-bottom divider instead, last row has
+   none so it doesn't dangle a line against the list's own bottom edge. */
+.taw-enq-item{text-align:left;width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;
+border-radius:0;padding:10px;transition:.16s;color:inherit;}
+.taw-enq-item:last-child{border-bottom:none;}
+.taw-enq-item:hover{background:var(--ivory);}
+.taw-enq-item.is-active{background:var(--champagne);box-shadow:inset 3px 0 0 var(--gold);}
+.taw-enq-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.taw-enq-name{font-family:var(--sans);font-weight:600;font-size:13.5px;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.taw-enq-msg{font-size:12.5px;color:var(--taupe);margin-top:4px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.taw-enq-foot{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;}
+.taw-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px rgba(184,144,31,.14);}
+
+/* cart */
+.taw-cart{display:flex;flex-direction:column;}
+.taw-cart-line{display:grid;grid-template-columns:auto 1fr auto;gap:13px;align-items:center;padding:15px 18px;border-bottom:1px solid var(--line);}
+.taw-cart-line:last-child{border-bottom:0;}
+.taw-cart-ic{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--taupe);background:var(--bone);border:1px solid var(--line);}
+.taw-cart-t{font-size:14px;font-weight:600;color:var(--ink);}
+.taw-cart-s{font-size:11.5px;color:var(--muted);margin-top:3px;}
+.taw-cart-x{border:0;background:transparent;color:var(--muted);display:grid;place-items:center;line-height:1;padding:8px;min-width:34px;min-height:34px;border-radius:7px;transition:.15s;}
+.taw-cart-x:hover{color:var(--terracotta);background:var(--danger-bg);}
+/* CartPanel `bare` mode (2026-08-31) — nested inside the consolidated
+   Itinerary Builder card in WorkbenchTab, so it needs its own light
+   divider/header instead of a full Card. */
+.taw-cart-bare{margin-top:16px;padding-top:12px;border-top:1px solid var(--line);}
+.taw-cart-bare-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.taw-empty{text-align:center;color:var(--muted);font-size:13px;padding:16px 12px;line-height:1.5;}
+.taw-empty .ic-badge{display:flex;justify-content:center;margin-bottom:8px;}
+.taw-empty .ic-badge>.ic{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--radius-pill);background:var(--bone);color:var(--gold-ink);}
+/* Densified/switched off serif 2026-08-28 alongside .taw-card-h h3 —
+   title moved --serif→--sans and stepped down again (21px/600 →
+   16px/500 → 14px/600) on follow-up "still a lot of spacing" + "switch
+   out the serifs" feedback. Kept bold (600) so it still reads as a
+   heading against the message text below it — the "empty states are
+   prominent" emphasis logic from the Jira pass still holds, just via
+   weight/color now rather than size, matching how Jira itself does it. */
+.taw-empty .title{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);margin-bottom:4px;}
+.taw-empty .message{font-size:13px;color:var(--muted);max-width:36ch;margin:0 auto;}
+/* size="page" (Empty.tsx) — for an empty state that IS the entire route
+   content (e.g. ConsolePlaceholder), not one inset panel among other
+   populated cards. Still the biggest/boldest text on its own screen,
+   scaled down proportionally with the rest of this pass. */
+.taw-empty--page{padding:24px 16px;}
+.taw-empty--page .ic-badge>.ic{width:44px;height:44px;}
+.taw-empty--page .title{font-size:18px;font-weight:700;}
+.taw-empty--page .message{font-size:13.5px;max-width:44ch;}
+
+/* quote breakdown */
+.taw-quote-lines{display:flex;flex-direction:column;}
+.taw-ql{padding:15px 22px;border-bottom:1px solid var(--line);}
+.taw-ql-h{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.taw-ql-label{font-size:14px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.taw-ql-sell{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ink);}
+.taw-ql-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:11px;}
+.taw-ql-cell{background:var(--bone);border:1px solid var(--line);border-radius:8px;padding:8px 11px;}
+.taw-ql-cell .k{font-family:var(--eyebrow);font-size:8.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--taupe);font-weight:500;}
+.taw-ql-cell .v{font-size:13px;font-weight:600;color:var(--ink);margin-top:3px;}
+.taw-ql-note{font-size:11px;color:var(--muted);margin-top:10px;line-height:1.55;font-style:italic;}
+
+.taw-totals{padding:10px 22px 16px;}
+.taw-tline{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:13.5px;border-bottom:1px solid var(--line);}
+.taw-tline:last-of-type{border-bottom:0;}
+.taw-tline .lab{color:var(--taupe);display:flex;align-items:center;gap:7px;}
+.taw-tline .val{font-weight:600;color:var(--ink);}
+.taw-tline.is-grand{margin-top:8px;padding-top:15px;border-top:1px solid var(--line2);border-bottom:0;}
+.taw-tline.is-grand .lab{color:var(--ink);font-family:var(--eyebrow);font-size:11px;letter-spacing:.16em;text-transform:uppercase;font-weight:500;}
+.taw-tline.is-grand .val{font-family:var(--serif);font-size:28px;font-weight:700;color:var(--ink);}
+.taw-tline.is-tcs .val{color:var(--gold);}
+
+.taw-yield{margin:16px 22px 0;padding:16px 18px;border-radius:12px;border:1px solid rgba(91,122,91,.3);
+background:var(--success-bg);display:flex;align-items:center;justify-content:space-between;gap:12px;}
+.taw-yield .lab{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.18em;color:var(--sage);font-weight:500;}
+.taw-margin{display:inline-flex;align-items:center;gap:4px;font-family:var(--sans);font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid transparent;letter-spacing:.01em;}
+.taw-margin--ok{background:var(--success-bg);color:var(--sage);border-color:rgba(91,122,91,.35);}
+.taw-margin--low{background:var(--danger-bg);color:var(--terracotta);border-color:rgba(178,59,59,.32);}
+.taw-margin--high{background:var(--gold-bg);color:var(--gold-ink);border-color:rgba(184,144,31,.3);}
+
+/* visa document checklist (CX-023) */
+.taw-vchk{margin-top:11px;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--bone);}
+.taw-vchk-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;}
+.taw-vchk-lbl{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--taupe);font-weight:500;}
+.taw-vchk-prog{font-size:11px;color:var(--gold-ink);font-weight:600;}
+.taw-vchk-list{display:flex;flex-direction:column;gap:5px;}
+.taw-vchk-item{display:flex;align-items:center;gap:9px;text-align:left;width:100%;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:8px 10px;cursor:pointer;transition:.14s;font-family:var(--sans);font-size:12.5px;color:var(--ink);}
+.taw-vchk-item:hover{border-color:var(--line2);}
+.taw-vchk-item.is-on{background:var(--success-bg);border-color:rgba(91,122,91,.35);}
+.taw-vchk-item.is-on .taw-vchk-txt{color:var(--sage);text-decoration:line-through;text-decoration-color:rgba(91,122,91,.5);}
+.taw-vchk-box{flex:none;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--line2);display:inline-flex;align-items:center;justify-content:center;color:#FFFFFF;background:var(--card);}
+.taw-vchk-item.is-on .taw-vchk-box{background:var(--sage);border-color:var(--sage);}
+.taw-yield .net{font-family:var(--serif);font-size:26px;font-weight:700;color:var(--sage);}
+.taw-yield .pctv{font-size:11.5px;color:var(--sage);font-weight:500;margin-top:3px;}
+.taw-rationale{margin:16px 22px 0;font-size:12px;color:var(--taupe);line-height:1.65;background:var(--bone);
+border:1px solid var(--line);border-left:2px solid var(--gold);border-radius:8px;padding:12px 14px;font-style:italic;}
+
+.taw-flags{display:flex;gap:8px;flex-wrap:wrap;margin:0 22px;}
+.taw-flag{font-family:var(--eyebrow);font-size:9.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;padding:5px 12px;border-radius:20px;}
+.taw-flag--pkg{background:var(--gold-bg);color:var(--gold);border:1px solid rgba(184,144,31,.3);}
+.taw-flag--tcs{background:var(--warn-bg);color:var(--cognac);border:1px solid rgba(156,107,63,.3);}
+.taw-flag--disc{background:var(--bone);color:var(--taupe);border:1px solid var(--line);}
+
+/* orders board */
+.taw-board{display:grid;grid-template-columns:340px 1fr;gap:22px;}
+@media(max-width:1000px){.taw-board{grid-template-columns:1fr;}}
+.taw-orders{display:flex;flex-direction:column;gap:11px;max-height:660px;overflow:auto;padding-right:4px;}
+.taw-order-item{text-align:left;width:100%;border:1px solid var(--line);background:var(--card);
+border-radius:12px;padding:15px 16px;transition:.16s;color:inherit;}
+.taw-order-item:hover{border-color:var(--line2);background:var(--ivory);}
+.taw-order-item.is-active{border-color:var(--gold);box-shadow:inset 3px 0 0 var(--gold),var(--whisper);}
+.taw-order-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.taw-order-id{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--taupe);}
+.taw-order-tot{font-family:var(--serif);font-weight:600;font-size:19px;color:var(--ink);margin-top:9px;}
+
+.taw-status{font-family:var(--eyebrow);font-size:9px;font-weight:500;letter-spacing:.14em;padding:4px 10px;border-radius:20px;text-transform:uppercase;}
+.taw-status--CONFIRMING{background:var(--warn-bg);color:var(--cognac);}
+.taw-status--PARTIALLY_BOOKED{background:var(--info-bg);color:var(--info);}
+.taw-status--BOOKED{background:var(--success-bg);color:var(--sage);}
+.taw-status--TICKETED{background:var(--success-bg);color:var(--sage);}
+.taw-status--FAILED{background:var(--danger-bg);color:var(--terracotta);}
+.taw-status--CANCELLED{background:var(--bone);color:var(--taupe);}
+.taw-status--QUOTED{background:var(--bone);color:var(--taupe);}
+
+/* legs + timeline */
+.taw-legs{display:flex;flex-direction:column;gap:10px;}
+.taw-leg{display:grid;grid-template-columns:auto 1fr auto;gap:13px;align-items:center;padding:14px 16px;
+border:1px solid var(--line);border-radius:11px;background:var(--card);transition:.2s;}
+.taw-leg-ic{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;color:var(--taupe);background:var(--bone);border:1px solid var(--line);}
+.taw-leg-t{font-size:14px;font-weight:600;color:var(--ink);}
+.taw-leg-ref{font-size:11px;color:var(--muted);margin-top:3px;font-family:ui-monospace,Menlo,monospace;}
+.taw-legstat{font-family:var(--eyebrow);font-size:8.5px;font-weight:500;letter-spacing:.12em;padding:4px 9px;border-radius:18px;text-transform:uppercase;}
+.taw-legstat--PENDING{background:var(--bone);color:var(--taupe);}
+.taw-legstat--BOOKING{background:var(--warn-bg);color:var(--cognac);}
+.taw-legstat--BOOKED{background:var(--success-bg);color:var(--sage);}
+.taw-legstat--FAILED{background:var(--danger-bg);color:var(--terracotta);}
+.taw-legstat--COMPENSATING{background:var(--gold-bg);color:var(--gold);}
+.taw-legstat--COMPENSATED{background:var(--bone);color:var(--taupe);}
+
+.taw-timeline{position:relative;padding-left:22px;margin-top:4px;}
+.taw-timeline:before{content:'';position:absolute;left:7px;top:6px;bottom:6px;width:1px;background:var(--line2);}
+.taw-tl{position:relative;padding:8px 0 8px 4px;}
+.taw-tl:before{content:'';position:absolute;left:-19px;top:12px;width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px rgba(184,144,31,.16);}
+.taw-tl.is-fail:before{background:var(--terracotta);box-shadow:0 0 0 3px rgba(178,85,47,.16);}
+.taw-tl.is-good:before{background:var(--sage);box-shadow:0 0 0 3px rgba(91,122,91,.16);}
+.taw-tl-type{font-family:var(--eyebrow);font-size:10.5px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--ink);}
+.taw-tl-msg{font-size:12px;color:var(--taupe);margin-top:3px;line-height:1.5;}
+.taw-tl-at{font-size:10px;color:var(--muted);margin-top:2px;font-family:ui-monospace,Menlo,monospace;}
+
+/* toggle switch */
+.taw-toggle{display:inline-flex;align-items:center;gap:10px;font-family:var(--eyebrow);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe);cursor:pointer;user-select:none;}
+.taw-sw{width:40px;height:22px;border-radius:20px;background:var(--champagne);border:1px solid var(--line2);position:relative;transition:.2s;flex:none;}
+.taw-sw:after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--card);box-shadow:var(--whisper);transition:.2s;}
+.taw-toggle.is-on{color:var(--ink);}
+.taw-toggle.is-on .taw-sw{background:var(--gold);border-color:var(--gold);}
+.taw-toggle.is-on .taw-sw:after{left:20px;}
+
+.taw-failbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 16px;border:1px solid var(--line);
+border-radius:12px;background:var(--bone);margin-bottom:16px;}
+.taw-failbar .leg-pick{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--taupe);}
+
+/* spinner / loading */
+.taw-spin{width:15px;height:15px;border-radius:50%;border:2px solid rgba(26,23,18,.18);border-top-color:var(--ink);animation:tawspin .7s linear infinite;display:inline-block;}
+.taw-btn--primary .taw-spin{border-color:rgba(26,23,18,.25);border-top-color:var(--ink);}
+@keyframes tawspin{to{transform:rotate(360deg);}}
+.taw-skel{background:linear-gradient(90deg,var(--bone) 25%,var(--champagne) 37%,var(--bone) 63%);background-size:400% 100%;
+animation:tawsh 1.3s ease infinite;border-radius:9px;}
+@keyframes tawsh{0%{background-position:100% 0;}100%{background-position:-100% 0;}}
+
+.taw-banner{display:flex;align-items:center;gap:10px;padding:12px 15px;border-radius:11px;font-size:12.5px;margin-bottom:16px;}
+.taw-banner--err{background:var(--danger-bg);border:1px solid rgba(178,85,47,.28);color:var(--terracotta);}
+.taw-banner--info{background:var(--info-bg);border:1px solid rgba(92,122,138,.28);color:var(--info);}
+
+.taw-modal-overlay{position:fixed;inset:0;background:rgba(23,19,16,.45);display:flex;align-items:center;justify-content:center;z-index:2000;}
+.taw-modal-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;width:100%;max-width:380px;box-shadow:0 20px 50px -12px rgba(23,19,16,.35);display:flex;flex-direction:column;gap:14px;}
+.taw-modal-title{font-family:var(--serif);font-size:19px;font-weight:600;color:var(--ink);}
+.taw-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px;}
+
+/* toasts */
+.ta-adv-toasts{position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;flex-direction:column;gap:10px;}
+.ta-toast{font-family:ui-sans-serif,system-ui,sans-serif;font-size:13px;font-weight:600;color:var(--ink);padding:13px 17px;border-radius:11px;
+min-width:230px;max-width:380px;box-shadow:0 10px 30px -14px rgba(26,23,18,.22);transform:translateY(14px);opacity:0;transition:.28s;
+background:var(--card);border:1px solid var(--line2);border-left:3px solid var(--taupe);}
+.ta-toast.is-in{transform:translateY(0);opacity:1;}
+.ta-toast--success{border-left-color:var(--sage);}
+.ta-toast--error{border-left-color:var(--terracotta);}
+.ta-toast--info{border-left-color:var(--info);}
+
+.taw-muted{color:var(--muted);}
+
+/* small select variant (queue reassign) */
+.taw-sel--sm{padding:6px 9px;font-size:11.5px;border-radius:8px;}
+
+/* servicing & escalation queue */
+.taw-qfilters{display:flex;gap:8px;flex-wrap:wrap;}
+.taw-qfilter{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line2);background:var(--card);color:var(--taupe);border-radius:var(--radius-pill);padding:7px 13px;font-family:var(--eyebrow);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;cursor:pointer;transition:.15s;}
+.taw-qfilter:hover{border-color:var(--ink);color:var(--ink);}
+.taw-qfilter.is-active{background:var(--ink);color:var(--bone);border-color:var(--ink);}
+.taw-qfilter .n{font-family:inherit;background:rgba(0,0,0,.08);border-radius:999px;padding:1px 7px;font-size:10px;}
+.taw-qfilter.is-active .n{background:rgba(255,255,255,.18);}
+.taw-qlist{display:flex;flex-direction:column;gap:10px;margin-top:14px;}
+.taw-qrow{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;border:1px solid var(--line);border-radius:13px;background:var(--card);padding:14px;flex-wrap:wrap;}
+.taw-qrow.is-snoozed{opacity:.7;}
+.taw-qrow-main{min-width:0;flex:1 1 320px;}
+.taw-qrow-top{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+.taw-qlink{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line2);background:var(--bone);color:var(--ink);border-radius:8px;padding:3px 9px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;cursor:pointer;transition:.15s;}
+.taw-qlink:hover{border-color:var(--gold);}
+.taw-qtype{font-weight:600;font-size:13.5px;color:var(--ink);text-transform:capitalize;}
+.taw-qstate{font-family:var(--eyebrow);font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid var(--line2);background:var(--bone);color:var(--taupe);}
+.taw-qstate.ok{background:var(--success-bg);color:var(--success-ink);border-color:transparent;}
+.taw-qstate.warn{background:var(--warn-bg);color:var(--warn-ink);border-color:transparent;}
+.taw-qstate.err{background:var(--danger-bg);color:var(--danger-ink);border-color:transparent;}
+.taw-qstate.info{background:var(--info-bg);color:var(--info-ink);border-color:transparent;}
+.taw-qbadge{font-family:var(--eyebrow);font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:500;padding:3px 8px;border-radius:999px;background:var(--champagne);color:var(--ink);}
+.taw-qrow-meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:9px;font-size:12px;color:var(--taupe);align-items:center;}
+.taw-qsla{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--bone);color:var(--taupe);}
+.taw-qsla.ok{color:var(--success-ink);}
+.taw-qsla.warn{color:var(--warn-ink);}
+.taw-qsla.err{background:var(--danger-bg);color:var(--danger-ink);}
+.taw-qrow-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;}
+
+/* reconciliation / settlements (recon-advisor-ui) — reuses taw-q, taw-stat, taw-tline
+   chrome; only a handful of scoped helpers are declared here. */
+.taw-recon-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;}
+@media(max-width:900px){.taw-recon-grid{grid-template-columns:1fr 1fr;}}
+.taw-recon-stat{background:var(--bone);border:1px solid var(--line);border-radius:12px;padding:14px 16px;}
+.taw-recon-stat .k{font-family:var(--eyebrow);font-size:9px;text-transform:uppercase;letter-spacing:.16em;color:var(--taupe);font-weight:500;}
+.taw-recon-stat .v{font-family:var(--serif);font-size:22px;font-weight:600;color:var(--ink);margin-top:5px;}
+.taw-recon-stat .v.is-bad{color:var(--terracotta);}
+.taw-recon-stat .v.is-good{color:var(--sage);}
+.taw-recon-stat .v.is-warn{color:var(--gold-ink);}
+.taw-recon-stat .sub{font-size:10.5px;color:var(--muted);margin-top:3px;}
+.taw-recon-sec{margin-top:22px;}
+.taw-recon-sec-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px;}
+.taw-recon-sec-h .ttl{font-family:var(--serif);font-size:17px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px;}
+.taw-recon-sec-h .ct{font-family:var(--eyebrow);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--taupe);font-weight:500;}
+.taw-recon-tablewrap{overflow:auto;border:1px solid var(--line);border-radius:12px;background:var(--card);}
+.taw-recon-table{width:100%;border-collapse:collapse;font-size:12.5px;}
+.taw-recon-table th{font-family:var(--eyebrow);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--taupe);font-weight:500;text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);background:var(--bone);}
+.taw-recon-table th.num,.taw-recon-table td.num{text-align:right;font-variant-numeric:tabular-nums;}
+.taw-recon-table td{padding:11px 12px;border-bottom:1px solid var(--line);color:var(--ink);vertical-align:top;}
+.taw-recon-table tr:last-child td{border-bottom:0;}
+.taw-recon-table tbody tr:hover td{background:var(--bone);}
+.taw-recon-ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--taupe);}
+.taw-recon-delta{font-weight:600;font-variant-numeric:tabular-nums;}
+.taw-recon-delta.is-pos{color:var(--sage);}
+.taw-recon-delta.is-neg{color:var(--terracotta);}
+.taw-recon-delta.is-zero{color:var(--muted);}
+.taw-recon-state{display:inline-block;font-family:var(--eyebrow);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid transparent;white-space:nowrap;}
+.taw-recon-state--open{background:var(--danger-bg);color:var(--danger-ink);}
+.taw-recon-state--resolved{background:var(--success-bg);color:var(--success-ink);}
+.taw-recon-state--written_off{background:var(--bone);color:var(--taupe);border-color:var(--line2);}
+.taw-recon-state--pending{background:var(--warn-bg);color:var(--warn-ink);}
+.taw-recon-state--settled{background:var(--success-bg);color:var(--success-ink);}
+.taw-recon-state--exception{background:var(--danger-bg);color:var(--danger-ink);}
+.taw-recon-notice{font-size:11.5px;color:var(--muted);font-style:italic;background:var(--bone);border:1px solid var(--line);border-radius:9px;padding:11px 13px;line-height:1.55;}
+.taw-recon-gate{text-align:center;color:var(--muted);font-size:13px;padding:46px 22px;line-height:1.7;}
+.taw-recon-gate .ic{display:flex;justify-content:center;color:var(--muted-deco);margin-bottom:13px;}
+
+/* analytics panel (per-advisor) — reuses taw-recon-stat / taw-recon-table chrome. */
+.taw-recon-table tr.is-self{background:var(--champagne);}
+.taw-recon-table tr.is-self td{font-weight:600;color:var(--ink);}
+.taw-anl-you{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--cognac);}
+.taw-anl-funnel{display:flex;flex-direction:column;gap:2px;}
+.taw-anl-funnel-row{display:flex;align-items:center;gap:12px;padding:11px 14px;background:var(--bone);border:1px solid var(--line);border-radius:10px;}
+.taw-anl-funnel-row .lbl{font-size:12.5px;color:var(--ink);flex:1;}
+.taw-anl-funnel-row .n{font-family:var(--serif);font-size:17px;font-weight:600;color:var(--ink);min-width:70px;text-align:right;}
+.taw-anl-funnel-row .pc{font-size:10.5px;color:var(--muted);min-width:140px;text-align:right;}
+
+/* visa desk (VISA lifecycle) — reuses taw-q* queue chrome + taw-vchk* checklist. */
+.taw-vstate{font-family:var(--eyebrow);font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:999px;border:1px solid transparent;}
+.taw-vstate--submitted{background:var(--info-bg);color:var(--info-ink);}
+.taw-vstate--in_review{background:var(--warn-bg);color:var(--warn-ink);}
+.taw-vstate--approved{background:var(--success-bg);color:var(--success-ink);}
+.taw-vstate--rejected{background:var(--danger-bg);color:var(--danger-ink);}
+.taw-vstate--draft,.taw-vstate--docs_pending{background:var(--bone);color:var(--taupe);border-color:var(--line2);}
+.taw-vdocs{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--taupe);}
+.taw-vmeter{width:64px;height:5px;border-radius:999px;background:var(--champagne);overflow:hidden;}
+.taw-vmeter>i{display:block;height:100%;background:var(--sage);transition:width .25s;}
+.taw-vdecide{display:flex;gap:8px;align-items:center;}
+.taw-vgate{font-size:11px;color:var(--muted);font-style:italic;display:inline-flex;align-items:center;gap:5px;}
+.taw-fade-in{animation:tawfade var(--dur-slow) var(--ease);}
+@keyframes tawfade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+/* Staggered reveal — apply .taw-stagger to a grid/list container, and
+   style={{ '--i': index }} on each mapped child. Capped at 8 items so a
+   large grid doesn't feel sluggish (max +360ms regardless of size). */
+.taw-stagger > *{opacity:0;animation:tawfade var(--dur-slow) var(--ease) both;animation-delay:calc(min(var(--i,0),8) * 45ms);}
+
+/* BarChart (ui/BarChart.jsx) — horizontal bars for categorical/magnitude data. */
+.taw-barchart{display:flex;flex-direction:column;gap:10px;}
+.taw-barchart-row{display:flex;align-items:center;gap:10px;}
+.taw-barchart-label{flex:0 0 auto;min-width:120px;font-size:12.5px;color:var(--taupe);text-transform:capitalize;}
+.taw-barchart-track{flex:1;height:9px;border-radius:999px;background:var(--champagne);overflow:hidden;}
+.taw-barchart-fill{display:block;height:100%;border-radius:999px;transition:width var(--dur) var(--ease);}
+.taw-barchart-value{flex:0 0 auto;font-size:12.5px;font-weight:600;color:var(--ink);min-width:36px;text-align:right;}
+
+/* Donut (ui/Donut.jsx) — proportion-of-whole SVG donut + legend. */
+.taw-donut-wrap{display:flex;align-items:center;gap:18px;flex-wrap:wrap;}
+.taw-donut-legend{display:flex;flex-direction:column;gap:6px;}
+.taw-donut-legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--taupe);}
+.taw-donut-dot{width:9px;height:9px;border-radius:999px;flex:none;}
+.taw-donut-legend-value{margin-left:auto;font-weight:600;color:var(--ink);}
+
+/* proposals (sales-craft) + leads (routing) panels — advisor breadth.
+   SELL-ONLY compare grid; no margin chrome anywhere here. */
+.taw-prop-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px;}
+.taw-prop-opt{border:1px solid var(--line2);border-radius:14px;background:var(--card);padding:16px;position:relative;display:flex;flex-direction:column;gap:8px;}
+.taw-prop-opt.is-rec{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-bg);}
+.taw-prop-rec{position:absolute;top:-10px;left:14px;font-family:var(--eyebrow);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;background:var(--gold);color:#fff;padding:3px 9px;border-radius:999px;}
+.taw-prop-lab{font-family:var(--serif);font-size:19px;font-weight:600;color:var(--ink);}
+.taw-prop-blurb{font-size:12px;color:var(--taupe);}
+.taw-prop-lines{display:flex;flex-direction:column;gap:4px;margin-top:4px;}
+.taw-prop-line{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--ink);border-bottom:1px solid var(--line);padding:5px 0;}
+.taw-prop-grand{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-top:6px;padding-top:8px;border-top:1px solid var(--line2);}
+.taw-prop-grand .lab{font-family:var(--eyebrow);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--taupe);}
+.taw-prop-grand .val{font-family:var(--serif);font-size:20px;font-weight:600;color:var(--ink);}
+.taw-prop-opt-actions{display:flex;gap:6px;margin-top:auto;padding-top:8px;flex-wrap:wrap;}
+.taw-prop-empty{font-size:12.5px;color:var(--muted);font-style:italic;padding:14px;border:1px dashed var(--line2);border-radius:12px;text-align:center;}
+.taw-prop-list{display:flex;flex-direction:column;gap:8px;}
+.taw-prop-row{display:flex;align-items:center;gap:12px;justify-content:space-between;border:1px solid var(--line);border-radius:11px;background:var(--card);padding:11px 14px;cursor:pointer;transition:.15s;}
+.taw-prop-row:hover{border-color:var(--gold);}
+.taw-prop-row.is-active{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink);}
+.taw-prop-vbadge{font-family:var(--eyebrow);font-size:9px;letter-spacing:.08em;text-transform:uppercase;padding:2px 7px;border-radius:999px;background:var(--champagne);color:var(--ink);}
+.taw-handoff{font-size:12.5px;color:var(--ink);line-height:1.55;background:var(--success-bg);border:1px solid var(--line);border-left:3px solid var(--sage);border-radius:10px;padding:11px 13px;margin-top:8px;}
+.taw-handoff .k{font-family:var(--eyebrow);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--success-ink);font-weight:600;margin-bottom:5px;display:flex;align-items:center;gap:6px;}
+
+/* journeys (Concierge Care lifecycle) — reuses taw-board/taw-orders/
+   taw-order-item for the list+detail split and taw-timeline for touchpoints;
+   only the stage stepper and a couple of touchpoint-row bits are new here. */
+.taw-jny-stepper{display:flex;align-items:center;gap:3px;margin-top:12px;}
+.taw-jny-step{flex:1;height:4px;border-radius:999px;background:var(--champagne);}
+.taw-jny-step.done{background:linear-gradient(90deg,#D9A93B,var(--gold-deep));}
+.taw-jny-step.cur{background:var(--gold-deep);}
+.taw-jny-steplabels{display:flex;justify-content:space-between;margin-top:7px;}
+.taw-jny-steplbl{font-family:var(--eyebrow);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-deco);}
+.taw-jny-steplbl.cur{color:var(--gold-ink);font-weight:700;}
+.taw-jny-meta{display:flex;gap:16px;margin-top:12px;font-size:12px;color:var(--taupe);flex-wrap:wrap;}
+.taw-jny-meta b{color:var(--ink);font-weight:600;}
+.taw-jny-meta .is-pending{color:var(--gold-ink);}
+.taw-jny-meta .is-pending b{color:var(--gold-ink);}
+.taw-jny-chan{font-family:var(--eyebrow);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--taupe);display:inline-flex;align-items:center;gap:5px;}
+.taw-jny-tpfoot{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap;}
+.taw-tl.is-muted:before{background:var(--muted-deco);box-shadow:0 0 0 3px rgba(155,147,132,.16);}
+
+/* Supplier Broadcast (RFQ) panel — layout only; everything else reuses the
+   taw-* vocabulary above (Card/banner/badge/button classes). */
+.rfq-panel-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+.rfq-stepper{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
+.rfq-step{font-family:var(--eyebrow);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-radius:999px;background:var(--bone);}
+.rfq-step.is-active{color:var(--ink);background:var(--champagne);}
+.rfq-step.is-done{color:var(--taupe);}
+.rfq-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
+.rfq-bid{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--card);}
+.rfq-bid.is-recommended{border-color:var(--gold);}
+.rfq-bid.is-awarded{border-color:var(--gold-deep);background:var(--champagne);}
+.rfq-bid.is-losing{opacity:.5;}
+.rfq-bid-h{display:flex;justify-content:space-between;gap:10px;}
+.rfq-bid-price{font-family:var(--serif);font-weight:600;font-size:18px;}
+.rfq-inbox{display:flex;flex-direction:column;gap:10px;}
+.rfq-inrow{border-bottom:1px solid var(--line);padding-bottom:10px;}
+
+/* Area header/tabs — a title row plus an underline-style tab strip,
+   modeled on a specific Jira space-page layout. Originally built for
+   /console only (2026-08-28); generalized the same day to a shared
+   ".area-*" pattern when Advisor Workbench adopted the same visual
+   treatment — both areas' layouts render this, just with their own title/
+   tab list. No icon next to the title — dropped 2026-08-28 on feedback
+   that global-level pages shouldn't have one. Spacing/type use the
+   Jira-aligned scale from ShellChrome's sidebar (4/8/12/16/24/32px,
+   11/14/16/20-24px) — see design_reference_jira memory. This is a
+   distinct, deliberate alternative to any pill-style sub-nav — do not mix
+   the two treatments on one page.
+
+   Full-bleed divider (2026-08-28): .area-header now renders as a sibling
+   BEFORE .taw-main (not nested inside it — see console/layout.tsx and
+   (workbench)/layout.tsx), so it's a direct child of the unpadded .taw
+   wrapper and spans the full content-area width, flush against the global
+   sidebar. .area-tabs carries the divider (border-bottom) and bleeds edge-
+   to-edge via margin:0 -24px (cancels .area-header's own 24px side
+   padding, matching .taw-main's horizontal padding so tab labels still
+   align with the content below) + padding:0 24px (re-indents the tab
+   labels themselves). This only works because the -24px/24px pair matches
+   .taw-main's own padding exactly — if that padding value ever changes,
+   update both here.
+
+   Padding (2026-09-01, tightened from 20px/24px): 12px left/right, 8px
+   top on both .taw-main and .area-header (matches each other on purpose —
+   see the bleed note above for why the horizontal value in particular has
+   to stay in sync between the two). .area-header's bottom is 0, not 8px —
+   .taw-main's own 8px top padding already provides the gap after the
+   divider; giving both a bottom/top pair would stack into a redundant
+   16px gap instead of one 8px gap. */
+.area-header{display:flex;flex-direction:column;gap:24px;padding:8px 12px 0;}
+.area-title-row{display:flex;align-items:center;gap:8px;}
+.area-title-row h1{font-family:var(--sans);font-weight:600;font-size:16px;color:var(--ink);margin:0;}
+.area-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.area-tabs{display:flex;gap:24px;flex-wrap:wrap;margin:0 -12px;padding:0 12px;border-bottom:1px solid var(--line);}
+.area-tab{display:flex;align-items:center;gap:6px;font-family:var(--sans);font-weight:500;font-size:14px;color:var(--muted);padding:0 0 12px;border:none;background:none;cursor:pointer;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.area-tab:hover{color:var(--ink);}
+.area-tab.is-active{color:var(--ink);border-bottom-color:var(--gold);font-weight:600;}
+.area-tab.is-disabled{cursor:not-allowed;opacity:.45;}
+.area-tab.is-disabled:hover{color:var(--muted);}
+/* Overflow toggle (Advisor Workbench only, for now — 16 tabs wrap to two
+   rows). .area-tabs.is-collapsed clips whatever doesn't fit on one row
+   rather than wrapping; the toggle button just flips that class. */
+.area-tabs.is-collapsed{flex-wrap:nowrap;overflow:hidden;}
+.area-tabs-toggle{display:grid;place-items:center;width:28px;height:28px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--card);color:var(--muted);cursor:pointer;transition:background var(--dur) var(--ease),color var(--dur) var(--ease);}
+.area-tabs-toggle:hover{background:var(--bone);color:var(--ink);}
+.area-tabs-toggle svg{transition:transform var(--dur) var(--ease);}
+.area-tabs-toggle[aria-expanded="true"] svg{transform:rotate(180deg);}

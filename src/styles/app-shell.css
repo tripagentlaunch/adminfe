@@ -1,0 +1,104 @@
+/* =============================================================================
+ * TripAgent — src/styles/app-shell.css
+ * Ported from web/index.html's inline <style> (.ta-appnav/.ta-appnav-*),
+ * renamed to .ta-shell-* so it never collides with WorkbenchShell's own
+ * .taw-* nav one level below it. Same tokens.css variables throughout.
+ *
+ * 2026-08-28: reflowed from a horizontal top bar into a Jira-style global
+ * LEFT SIDEBAR — .ta-shell is now a row (sidebar + body) instead of a
+ * column (bar + body). Every class below kept its name; only the layout
+ * direction changed, so nothing outside this file needed to change.
+ *
+ * 2026-08-28 (same day): font sizes aligned to the Jira/Atlassian Design
+ * System scale — nav links and menu/account body text at 14px (body
+ * default), eyebrow/role/subtitle metadata at 11px (small), de-emphasized
+ * by --muted color rather than shrinking further. Brand wordmark (22px)
+ * already sat inside Jira's 20-24px title band, left unchanged.
+ *
+ * 2026-08-28 (same day): spacing aligned to the Jira/Atlassian `space`
+ * scale (4/8/12/16/24/32px, an 8px grid with a 4px half-step) — see the
+ * Spacing section in design_reference_jira memory. Every gap/padding below
+ * is one of those six steps, reused consistently rather than varied ad hoc.
+ * ===========================================================================*/
+.ta-shell { display: flex; align-items: stretch; min-height: 100vh; }
+.ta-shell-nav {
+  display: flex; flex-direction: column; align-items: stretch; gap: 24px;
+  width: 232px; flex: none; padding: 16px 12px;
+  border-right: 1px solid var(--line); background: var(--bone);
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  transition: width var(--dur) var(--ease);
+}
+.ta-shell-brand { display: flex; flex-direction: column; padding: 0 8px; color: var(--gold-ink); }
+.ta-shell-brand-row { display: flex; align-items: center; gap: 8px; }
+.ta-shell-word { font-family: var(--serif); font-weight: 600; font-size: 16px; line-height: 28px; letter-spacing: .005em; color: var(--ink); flex: 1; min-width: 0; }
+.ta-shell-collapse {
+  display: grid; place-items: center; flex: none; padding: 4px;
+  border: 1px solid var(--line); border-radius: 4px; background: var(--card);
+  color: var(--muted); cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.ta-shell-collapse:hover { background: var(--champagne); color: var(--ink); }
+.ta-shell-collapse[aria-expanded="false"] { color: var(--gold-ink); border-color: var(--line-2); }
+.ta-shell-tabs { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.ta-shell-tab {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--sans); font-weight: 500; font-size: 14px; color: var(--muted);
+  background: none; border: none; padding: 8px 12px; border-radius: var(--radius-sm);
+  cursor: pointer; text-decoration: none; text-align: left;
+  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ta-shell-tab svg { color: var(--muted); transition: color var(--dur) var(--ease); }
+.ta-shell-tab:hover svg, .ta-shell-tab.is-active svg { color: var(--ink); }
+
+/* Collapsed rail — icon-only, Jira-style. Session-only (ShellChrome's
+   `collapsed` state, no persistence): always resets to expanded on reload. */
+.ta-shell-nav.is-collapsed { width: 60px; padding: 16px 8px; }
+.ta-shell-nav.is-collapsed .ta-shell-brand { padding: 0; align-items: center; }
+.ta-shell-nav.is-collapsed .ta-shell-brand-row { flex-direction: column; gap: 12px; height: auto; }
+.ta-shell-nav.is-collapsed .ta-shell-word,
+.ta-shell-nav.is-collapsed .ta-shell-tab span,
+.ta-shell-nav.is-collapsed .acct-id,
+.ta-shell-nav.is-collapsed .acct-caret { display: none; }
+.ta-shell-nav.is-collapsed .ta-shell-tab { justify-content: center; padding: 8px; }
+.ta-shell-nav.is-collapsed .acct-trigger { justify-content: center; padding: 8px 0; }
+.ta-shell-nav.is-collapsed .acct-pop { left: calc(100% + 8px); right: auto; bottom: 0; min-width: 190px; }
+.ta-shell-tab:hover { background: var(--card); color: var(--ink); }
+.ta-shell-tab.is-active { color: var(--ink); background: var(--card); box-shadow: inset 2px 0 0 var(--gold); }
+.ta-shell-tab.is-disabled { cursor: not-allowed; opacity: .45; }
+.ta-shell-tab.is-disabled:hover { background: none; color: var(--muted); }
+.ta-shell-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+.ta-shell-body { flex: 1; min-width: 0; }
+
+/* Account menu — sits at the bottom of the global sidebar (.ta-shell-footer),
+   replacing the old .taw-advisor cluster (advisor switcher + avatar + role +
+   sign out) that used to live inline in the workbench sub-nav. See
+   AccountMenu.tsx. */
+.acct-menu { position: relative; width: 100%; }
+.acct-trigger {
+  display: flex; align-items: center; gap: 8px; background: none; border: none;
+  width: 100%; padding: 8px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.acct-trigger:hover { background: var(--card); }
+.acct-ava {
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--serif); font-weight: 600; font-size: 13px; color: var(--ink);
+  background: var(--champagne); border: 1px solid var(--line-2); flex: none;
+}
+.acct-id { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.25; flex: 1; min-width: 0; }
+.acct-name { font-family: var(--sans); font-weight: 600; font-size: 14px; color: var(--ink); }
+.acct-role { font-family: var(--eyebrow); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.acct-caret { color: var(--muted); transition: transform var(--dur) var(--ease); flex: none; }
+.acct-trigger[aria-expanded="true"] .acct-caret { transform: rotate(180deg); }
+.acct-pop {
+  position: absolute; bottom: calc(100% + 8px); left: 0; right: 0; min-width: 190px;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); padding: 4px; z-index: 70;
+}
+.acct-item {
+  display: block; width: 100%; text-align: left; background: none; border: none;
+  font-family: var(--sans); font-size: 14px; color: var(--ink); padding: 8px 12px;
+  border-radius: var(--radius-sm); cursor: pointer;
+}
+.acct-item:hover { background: var(--bone); }
+.acct-sep { height: 1px; background: var(--line); margin: 4px; }

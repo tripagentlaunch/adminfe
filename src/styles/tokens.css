@@ -1,0 +1,116 @@
+/* =============================================================================
+ * TripAgent — tokens.css
+ * THE canonical design system. One source of truth for the whole front end —
+ * color, type, spacing, radii, shadow, motion, focus, a11y. Every module
+ * consumes these variables; no module declares its own token block.
+ *
+ * Maison rules (non-negotiable):
+ *   · warm ivory surfaces, never a dark/black background, anywhere
+ *   · --ink is for text & hairline marks only; saturated accents (gold/cognac/
+ *     info) are FILLS/BORDERS, never text on a light surface
+ *   · every readable text token clears WCAG AA 4.5:1 on ivory
+ *   · money is always tabular + lining figures; font-synthesis is off so a
+ *     missing weight fails loudly instead of faux-bolding
+ * ===========================================================================*/
+:root {
+  /* ---- Surfaces (warm, never dark) ------------------------------------ */
+  --ivory: #FAF6EB;       /* warm parchment page */
+  --bone: #F1EAD8;        /* layered secondary surface */
+  --card: #FFFEFB;        /* near-white card, warm */
+  --champagne: #EBE1CB;   /* active fills */
+  /* Page canvas — a whisper of warmth top→bottom for depth (never dark). */
+  --canvas: radial-gradient(125% 85% at 50% -12%, #FFFDF7 0%, #FAF6EB 44%, #F2EBDA 100%);
+
+  /* ---- Text (all readable variants clear AA 4.5:1 on ivory) ----------- */
+  --ink: #171310;        /* deep espresso — primary text / hairline marks */
+  --taupe: #6E6656;      /* secondary text — 4.9:1 */
+  --muted: #7A7263;      /* tertiary text — retuned to ≥4.5:1 */
+  --muted-deco: #9B9384; /* DECORATIVE only (dots, rules) — never text */
+
+  /* ---- Accents (fill/border, never text on light) --------------------- */
+  --gold: #C0982A;       /* luminous primary accent */
+  --gold-deep: #A07C1B;  /* gold hover/edge */
+  --cognac: #9C6B3F;
+  --gold-ink: #785C12;   /* the only gold safe as text on ivory (AA) */
+  --gold-bg: #F4EBD4;
+
+  /* ---- Status (fill = -bg, text = -ink, all -ink clear 4.5:1) --------- */
+  --success: #5B7A5B; --success-bg: #E9EFE6; --success-ink: #3C5436;
+  --danger: #B2552F;  --danger-bg: #F6E7E0;  --danger-ink: #8C3E20;
+  --info: #5C7A8A;    --info-bg: #E7EEF1;    --info-ink: #395562;
+  --warn: #9C6B3F;    --warn-bg: #F1E7DA;    --warn-ink: #7C5430;
+  /* Aliases used across styles.css's Maison layer — same status hues, named
+     for their material rather than their meaning (a "sage" note, a
+     "terracotta" alert, a "cognac" secondary accent). */
+  --sage: #5B7A5B;        /* alias of --success */
+  --terracotta: #B2552F;  /* alias of --danger */
+  --cognac-bg: #F1E7DA; --cognac-ink: #7C5430;
+
+  /* ---- Lines ---------------------------------------------------------- */
+  --line: rgba(26, 23, 18, .10);
+  --line-2: rgba(26, 23, 18, .18);
+
+  /* ---- Type (IBM Plex family throughout — see styles.css's @import) --- */
+  --serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;          /* display + money */
+  --eyebrow: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;     /* tracked uppercase labels/tabs */
+  --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  --t-display: 54px; --t-h1: 38px; --t-h2: 28px; --t-h3: 21px; /* serif scale ~1.3 */
+  --t-body: 15px; --t-sm: 13px; --t-label: 12px;               /* sans/eyebrow */
+  --lh-display: 1.04; --lh-head: 1.14; --lh-body: 1.62;
+  --track-eyebrow: .18em;        /* couture tracking on eyebrows/tabs */
+  --track-display: -.012em;      /* tighten the serif display */
+
+  /* ---- Spacing (4px base) -------------------------------------------- */
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 18px; --sp-5: 26px; --sp-6: 38px; --sp-7: 56px;
+
+  /* ---- Layout ----------------------------------------------------------- */
+  --maxw: 1180px; /* content max-width, styles.css's Maison page shell */
+
+  /* ---- Radii ---------------------------------------------------------- */
+  --radius-sm: 10px; --radius: 12px; --radius-lg: 16px; --radius-pill: 999px;
+
+  /* ---- Shadow (a whisper, never heavy) ------------------------------- */
+  --shadow-sm: 0 1px 2px rgba(23, 19, 16, .05);
+  --shadow: 0 2px 5px -1px rgba(23, 19, 16, .06), 0 1px 0 rgba(23, 19, 16, .03);
+  --shadow-lg: 0 24px 50px -28px rgba(23, 19, 16, .40), 0 2px 8px -4px rgba(23, 19, 16, .08);
+
+  /* ---- Motion --------------------------------------------------------- */
+  --ease: cubic-bezier(.2, .6, .2, 1);
+  --dur-fast: 120ms; --dur: 200ms; --dur-slow: 320ms;
+
+  /* ---- Focus (one ring, replaces every outline:none) ------------------ */
+  --focus: 0 0 0 2px var(--ivory), 0 0 0 4px var(--gold-deep);
+}
+
+/* Faux-bold guard: with 500/600/700 loaded, never synthesize a weight. */
+html, body { -webkit-font-synthesis: none; font-synthesis: none; }
+body { background: var(--ivory); background-image: var(--canvas); background-attachment: fixed; color: var(--ink); font-family: var(--sans); }
+
+/* Serif display helper — large, tight, lining figures. */
+.ta-display { font-family: var(--serif); font-weight: 600; font-size: var(--t-display); line-height: var(--lh-display); letter-spacing: var(--track-display); }
+
+/* Money: tabular + lining figures everywhere. Add class="ta-num" to any figure. */
+.ta-num, [data-money] { font-variant-numeric: tabular-nums lining-nums; font-feature-settings: 'tnum' 1, 'lnum' 1; }
+
+/* Shared atoms modules can lean on immediately. */
+.ta-serif { font-family: var(--serif); }
+.ta-eyebrow { font-family: var(--eyebrow); font-size: var(--t-label); letter-spacing: var(--track-eyebrow); text-transform: uppercase; }
+
+/* One global accessible focus ring (luxury, ≥3:1) via keyboard only. */
+a:focus-visible, button:focus-visible, [role="tab"]:focus-visible,
+input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+  border-radius: var(--radius-sm);
+}
+
+/* Respect reduced-motion globally. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

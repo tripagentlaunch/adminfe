@@ -1,0 +1,25 @@
+/* =============================================================================
+ * TripAgent — src/app/globals.css
+ * tokens.css is THE design system (colors/type/spacing/shadow/motion — see
+ * its own docblock) — imported first so every other stylesheet can resolve
+ * its var(--...) references. styles.css is the "TripAgent Maison" visual
+ * layer built on top of those tokens.
+ *
+ * advisor-panel's src/main.jsx also globally imported index.css (unmodified
+ * Vite/React starter-template boilerplate — a `#root { width: 1126px }`
+ * counter-demo layout, dark-mode overrides, `#social` selectors — none of
+ * it specific to this product). Removed here rather than ported: Next.js
+ * has no #root element for it to apply to, and its only live effect was an
+ * accidental one — two components picked up its leftover `--accent` (a
+ * bright purple, #aa3bff) via inheritance instead of a real Maison token.
+ * Fixed at the source (OrdersBoard.tsx / QuoteBuilder.tsx now reference
+ * `--gold-ink`, the established token for a highlighted money figure) rather
+ * than kept working by accident.
+ * ===========================================================================*/
+@import "../styles/tokens.css";
+@import "../styles/styles.css";
+/* App.jsx (source) also imports this globally (line ~104) — it styles the
+ * "taw-" prefixed classes used throughout WorkbenchShell/AppShell's routed
+ * panels. Missing from the prior pass; added here to match source import
+ * order/scope exactly (a top-level global import, not scoped to /workbench). */
+@import "../styles/advisor-workbench.css";
