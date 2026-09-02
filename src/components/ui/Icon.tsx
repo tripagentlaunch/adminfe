@@ -44,6 +44,7 @@ const PATHS: Record<string, string> = {
   radar: "M12 12l6-3.5M12 3v3M12 21v-3M3 12h3M18 12h3M6 6l2 2M18 6l-2 2M6 18l2-2M18 18l-2-2M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
   "inbox-check": "M3 13h4l2 3h6l2-3h4M5 5h14l2 8v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4zM9.5 16.5l1.5 1.5 3-3",
   sidebar: "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 3v18",
+  swap: "M3 7h14M13 3l4 4-4 4M21 17H7M11 21l-4-4 4-4",
 };
 
 // Aliases so callers can use intent names.

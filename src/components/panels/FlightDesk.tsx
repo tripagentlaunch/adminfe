@@ -6,11 +6,11 @@
  * used by FlightDesk in the original module too).
  * ===========================================================================*/
 import { useEffect, useState } from "react";
-import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, flightShop, searchFlights, inr } from "../../services/api";
+import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { cx } from "../../lib/cx";
-import { errText, toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
-import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon } from "../ui";
+import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
+import { Dropdown, Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon } from "../ui";
 import { MOCK_FLIGHT_SEARCH_RESPONSE, mockFlightFares } from "../../lib/mockFlightSearch";
 
 // HARDCODED FALLBACK, not a real API call — GET /flights/autosuggest
@@ -21,6 +21,16 @@ import { MOCK_FLIGHT_SEARCH_RESPONSE, mockFlightFares } from "../../lib/mockFlig
 // endpoint was never flagged with the search()-style live snake_case
 // surprise) so renderAirportSuggestion() below needs no special-casing for
 // where an item came from.
+// CABIN_OPTIONS (2026-09-02) — the Cabin field was a native <select>, same
+// unstyleable-own-popup limitation the Flights desk-picker had (see
+// Dropdown.tsx's own docblock) — swapped for the same custom Dropdown.
+const CABIN_OPTIONS = [
+  { key: "economy", label: "Economy" },
+  { key: "premium_economy", label: "Premium Economy" },
+  { key: "business", label: "Business" },
+  { key: "first", label: "First" },
+];
+
 const DEFAULT_AIRPORT_SUGGESTIONS = [
   { country: "India", country_code: "IN", city: "New Delhi", airport_name: "Indira Gandhi International Airport", airport_code: "DEL", location: { lat: 28.5665, lon: 77.1031 }, popularity_score: 100, aliases: ["delhi"] },
   { country: "India", country_code: "IN", city: "Mumbai", airport_name: "Chhatrapati Shivaji Maharaj International Airport", airport_code: "BOM", location: { lat: 19.0896, lon: 72.8656 }, popularity_score: 98, aliases: ["mumbai", "bombay"] },
@@ -301,6 +311,12 @@ export function FlightDesk(props: any) {
     originCode: "DEL",
     destCode: "DXB",
     date: todayISO(21),
+    // returnDate (2026-09-02) — round-trip support, new: previously this
+    // desk was one-way only (a single `date`, no return leg anywhere in
+    // state or in the search params below). Defaults a week after the
+    // default departure so it's never invalid (before departure) out of
+    // the box.
+    returnDate: todayISO(28),
     pax: (member && member.preferences && member.preferences.pax) || 2,
     cabin: (member && member.preferences && member.preferences.cabin) || "economy",
   });
@@ -318,181 +334,234 @@ export function FlightDesk(props: any) {
   function toggleDetail(id: any) {
     setOpenOffer((cur: any) => (cur === id ? null : id));
   }
-  // Date-flex price calendar (Wave-1 flight-shop date_matrix, FLT-007/008).
-  const [matrix, setMatrix] = useState<any>(null);
-  const [matrixBusy, setMatrixBusy] = useState(false);
-  function loadMatrix() {
-    setMatrixBusy(true);
-    flightShop({
-      action: "date_matrix",
-      originCode: form.originCode.toUpperCase().trim(),
-      destCode: form.destCode.toUpperCase().trim(),
-      date: form.date,
-      mode: "nearby",
-      cabin: form.cabin,
-      pax: Number(form.pax) || 1,
-    })
-      .then((r: any) => {
-        setMatrix(r || {});
-        setMatrixBusy(false);
-      })
-      .catch((e: any) => {
-        setMatrixBusy(false);
-        toast("Date matrix failed: " + errText(e), "error");
-      });
-  }
+  // includeNearbyDates (2026-09-02) — replaces the earlier "Compare nearby
+  // dates" price-matrix link entirely (that whole flight-shop date_matrix
+  // flow — matrix/matrixBusy/loadMatrix — is gone). Per direct request:
+  // a plain checkbox before the Search button; when checked, the search
+  // ITSELF pulls flights from ±3 days around the chosen date, not just a
+  // price comparison you then have to act on separately.
+  const [includeNearbyDates, setIncludeNearbyDates] = useState(false);
 
   function set(k: string, v: any) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  function run() {
+  // swapOrigin() — the Switch button between From/To (2026-09-02).
+  function swapOrigin() {
+    setForm((f) => ({ ...f, originCode: f.destCode, destCode: f.originCode }));
+  }
+
+  // offsetDateStr(dateStr, days) — a date-string offset from an ARBITRARY
+  // base date, unlike advisorHelpers' todayISO() which only offsets from
+  // today. Needed for building the ±3-day nearby-dates window around
+  // whatever date the advisor actually chose.
+  function offsetDateStr(dateStr: string, days: number) {
+    const d = new Date(dateStr + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  // fetchOffersForDate(dateStr) — the real API call for ONE date, factored
+  // out of run() so it can be fired once (normal search) or in parallel
+  // across ±3 days (includeNearbyDates checked) without duplicating the
+  // USE_REAL_FLIGHTS branch.
+  function fetchOffersForDate(dateStr: string) {
+    const base: any = {
+      originCode: form.originCode.toUpperCase().trim(),
+      destCode: form.destCode.toUpperCase().trim(),
+      date: dateStr,
+      returnDate: form.returnDate,
+      pax: Number(form.pax) || 1,
+      cabin: form.cabin,
+    };
+    if (USE_REAL_FLIGHTS) return fastapiFlightSearch(base);
+    if (member && member.id) base.member_id = member.id;
+    if (props.advisorId) base.advisor_id = props.advisorId;
+    return searchFlights(base);
+  }
+
+  // run(dateOverride?) — 2026-09-02: takes an optional explicit date, and
+  // now ALSO fires ±3 extra searches when includeNearbyDates is checked,
+  // merging every date's real offers into one list (each offer tagged
+  // with `_searchDate` so FlightResults can show which day it's for).
+  // Replaces the earlier "Compare nearby dates" price-matrix flow
+  // entirely — that showed only an aggregate price per date and required
+  // a second click to actually search it; this pulls real flights for
+  // every date in one action.
+  function run(dateOverride?: string) {
+    const searchDate = dateOverride || form.date;
     setErr(null);
     setLoading(true);
     setRes(null);
     setOpenOffer(null);
-    setMatrix(null);
     setView({ sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" });
 
-    // Demo-data fallback (2026-09-01): only fires when the real call below
-    // fails — this is not a shortcut around the real API, which always runs
-    // first. There's no backend reachable from local dev, so this is what
-    // makes Search actually browsable here; captured live from the deployed
-    // advisor-panel (see lib/mockFlightSearch.ts's docblock) rather than
-    // invented, so it looks and behaves like a real result set.
-    function useMockResult() {
-      setRes(MOCK_FLIGHT_SEARCH_RESPONSE);
-      setLoading(false);
-      toast("Live API unreachable — showing demo flight data", "error");
-    }
+    const dates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
 
-    if (USE_REAL_FLIGHTS) {
-      fastapiFlightSearch({
-        originCode: form.originCode.toUpperCase().trim(),
-        destCode: form.destCode.toUpperCase().trim(),
-        date: form.date,
-        pax: Number(form.pax) || 1,
-        cabin: form.cabin,
-      })
-        .then((r: any) => {
-          setRes(r);
+    Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt).then((r: any) => ({ dt, r }))))
+      .then((results) => {
+        const ok = results.filter((x: any) => x.status === "fulfilled").map((x: any) => x.value);
+        if (!ok.length) {
+          // Every date's real call failed — no backend reachable from
+          // local dev, same as before. Falls back ONCE to the single
+          // captured mock result set (2026-09-01) rather than showing N
+          // identical copies of it stitched together across dates.
+          setRes(MOCK_FLIGHT_SEARCH_RESPONSE);
           setLoading(false);
-          toast((r.count || (r.offers || []).length) + " flight offers loaded", "success");
-        })
-        .catch(useMockResult);
-      return;
-    }
-
-    const params: any = {
-      originCode: form.originCode.toUpperCase().trim(),
-      destCode: form.destCode.toUpperCase().trim(),
-      date: form.date,
-      pax: Number(form.pax) || 1,
-      cabin: form.cabin,
-    };
-    if (member && member.id) params.member_id = member.id;
-    if (props.advisorId) params.advisor_id = props.advisorId;
-    searchFlights(params)
-      .then((r: any) => {
-        setRes(r);
+          toast("Live API unreachable — showing demo flight data", "error");
+          return;
+        }
+        const merged: any[] = [];
+        ok.forEach(({ dt, r }: any) => {
+          ((r && r.offers) || []).forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
+        });
+        setRes({ offers: merged, count: merged.length });
         setLoading(false);
-        toast((r.count || (r.offers || []).length) + " flight offers loaded", "success");
-      })
-      .catch(useMockResult);
+        const acrossLabel = dates.length > 1 ? " across " + ok.length + " date" + (ok.length === 1 ? "" : "s") : "";
+        toast(merged.length + " flight offers loaded" + acrossLabel, "success");
+      });
+  }
+
+  // showResults (2026-09-02) — the form and the results are now mutually
+  // exclusive views (results REPLACE the form, not sit below it), so
+  // SearchDesksPanel can also grow the whole Search card to full height
+  // only while there's something worth the room to show. Reported
+  // upward via onExpandChange whenever it changes; SearchDesksPanel owns
+  // the actual animated resize (see its own docblock).
+  const showResults = loading || res != null;
+  useEffect(() => {
+    if (props.onExpandChange) props.onExpandChange(showResults);
+  }, [showResults]);
+
+  function backToSearch() {
+    setRes(null);
+    setErr(null);
   }
 
   const offers = (res && res.offers) || [];
-  return (
-    <div className="taw-fade-in">
-      <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
-        <Field label="From" htmlFor="taw-fl-origin">
-          <AutosuggestInput
-            value={form.originCode}
-            onChange={(v: any) => set("originCode", v)}
-            onSelect={(a: any) => set("originCode", a.airport_code)}
-            fetchSuggestions={airportSuggestions}
-            renderSuggestion={renderAirportSuggestion}
-            getKey={(a: any) => a.airport_code}
-            showDefaultsOnFocus
-            placeholder="DEL"
-          />
-        </Field>
-        <Field label="To" htmlFor="taw-fl-dest">
-          <AutosuggestInput
-            value={form.destCode}
-            onChange={(v: any) => set("destCode", v)}
-            onSelect={(a: any) => set("destCode", a.airport_code)}
-            fetchSuggestions={airportSuggestions}
-            renderSuggestion={renderAirportSuggestion}
-            getKey={(a: any) => a.airport_code}
-            showDefaultsOnFocus
-            placeholder="DXB"
-          />
-        </Field>
-        <Field label="Date" htmlFor="taw-fl-date">
-          <input className="taw-input" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
-        </Field>
-      </div>
-      <div className="taw-row taw-row-3" style={{ marginBottom: 13 }}>
-        <Field label="Pax" htmlFor="taw-fl-pax">
-          <input className="taw-input" type="number" min={1} value={form.pax} onChange={(e) => set("pax", e.target.value)} />
-        </Field>
-        <Field label="Cabin" htmlFor="taw-fl-cabin">
-          <select className="taw-select" value={form.cabin} onChange={(e) => set("cabin", e.target.value)}>
-            <option value="economy">Economy</option>
-            <option value="premium_economy">Premium Economy</option>
-            <option value="business">Business</option>
-            <option value="first">First</option>
-          </select>
-        </Field>
-        <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <button className="taw-btn taw-btn--primary taw-btn--block" disabled={loading} onClick={run}>
-            {loading ? <Spinner /> : <Icon name="search" size={16} />}
-            {loading ? "Searching…" : "Search Flights"}
-          </button>
+
+  // formView / resultsView (2026-09-02) — mutually exclusive now: results
+  // REPLACE the search form instead of appearing below it. The idle
+  // "Set a route and search..." illustration is gone entirely — it was
+  // only ever needed as filler under the form when there was nothing
+  // else to show, and now the form itself simply IS what's shown until
+  // there's something to search for.
+  const formView = (
+    <>
+      <div className="taw-join-row" style={{ marginBottom: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="From" htmlFor="taw-fl-origin">
+            <AutosuggestInput
+              className="taw-sharp-r"
+              value={form.originCode}
+              onChange={(v: any) => set("originCode", v)}
+              onSelect={(a: any) => set("originCode", a.airport_code)}
+              fetchSuggestions={airportSuggestions}
+              renderSuggestion={renderAirportSuggestion}
+              getKey={(a: any) => a.airport_code}
+              showDefaultsOnFocus
+              placeholder="DEL"
+            />
+          </Field>
+        </div>
+        <button type="button" className={cx("taw-input", "taw-join-btn")} onClick={swapOrigin} title="Switch From/To" aria-label="Switch From and To">
+          <Icon name="swap" size={16} />
+        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="To" htmlFor="taw-fl-dest">
+            <AutosuggestInput
+              className="taw-sharp-l"
+              value={form.destCode}
+              onChange={(v: any) => set("destCode", v)}
+              onSelect={(a: any) => set("destCode", a.airport_code)}
+              fetchSuggestions={airportSuggestions}
+              renderSuggestion={renderAirportSuggestion}
+              getKey={(a: any) => a.airport_code}
+              showDefaultsOnFocus
+              placeholder="DXB"
+            />
+          </Field>
         </div>
       </div>
-
-      {/* Date-flex price calendar (flight-shop date_matrix). Browse aid: pick a
-          cheaper nearby date, then re-run the real search for it. */}
-      <div style={{ marginBottom: 13 }}>
-        <button className="taw-linkbtn" onClick={loadMatrix} disabled={matrixBusy}>
-          {matrixBusy ? <Spinner /> : <Icon name="calendar" size={12} />}
-          Check nearby dates (±3 days)
-        </button>
-        {matrix && (matrix.dates || matrix.matrix)
-          ? (() => {
-              const ds = matrix.dates || matrix.matrix || [];
-              const cheapest = matrix.cheapest || matrix.cheapestDate;
-              return (
-                <div className="taw-dx-grid" style={{ marginTop: 8 }}>
-                  {ds.map((m: any, i: number) => {
-                    const dt = m.date || m.d;
-                    const px = m.sell != null ? m.sell : m.price != null ? m.price : m.from;
-                    const isCheap = cheapest && (dt === cheapest || (cheapest.date && cheapest.date === dt));
-                    return (
-                      <button
-                        key={i}
-                        className={cx("taw-dx-fam", isCheap && "is-rec")}
-                        style={{ cursor: "pointer", textAlign: "left" }}
-                        onClick={() => set("date", dt)}
-                        title="Use this date"
-                      >
-                        <div className="taw-dx-prov" style={{ margin: 0 }}>
-                          {fmtDate(dt)}
-                        </div>
-                        <div className="px ta-num" style={{ margin: "4px 0 0" }}>
-                          {inr(px)}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              );
-            })()
-          : null}
+      <div className="taw-join-row" style={{ marginBottom: 11 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="Departure" htmlFor="taw-fl-date">
+            <input className="taw-input taw-sharp-r" type="date" value={form.date} onChange={(e) => set("date", e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="Arrival" htmlFor="taw-fl-return-date">
+            <input
+              className="taw-input taw-sharp-l"
+              type="date"
+              value={form.returnDate}
+              min={form.date}
+              onChange={(e) => set("returnDate", e.target.value)}
+            />
+          </Field>
+        </div>
       </div>
+      {/* Plain flex row, not .taw-row-3 (2026-09-02) — .taw-search-stack
+          forces EVERY .taw-row-2/3/4 to a single column in this narrow
+          panel (see its own rule below), which was silently stacking
+          Pax/Cabin/the Search button vertically instead of the intended
+          side-by-side row. Pax/Cabin get their own gapped (NOT joined —
+          that treatment is only for From/To and Departure/Arrival) row;
+          the Search button moved to its own full-width row below. */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 13 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="Pax" htmlFor="taw-fl-pax">
+            <input className="taw-input" type="number" min={1} value={form.pax} onChange={(e) => set("pax", e.target.value)} />
+          </Field>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <Field label="Cabin">
+            <Dropdown
+              value={form.cabin}
+              options={CABIN_OPTIONS}
+              onChange={(v: any) => set("cabin", v)}
+              ariaLabel="Cabin"
+              triggerClassName={cx("taw-input", "taw-select-dropdown")}
+            />
+          </Field>
+        </div>
+      </div>
+      {/* includeNearbyDates checkbox (2026-09-02) — replaces the earlier
+          "Compare nearby dates" price-matrix link+strip entirely. When
+          checked, run() (above) fires ±3 extra real searches and merges
+          every date's actual offers into the results list, instead of
+          showing a separate price-only calendar the advisor had to act
+          on with a second click. */}
+      <label className="taw-checkrow" style={{ marginBottom: 10 }}>
+        <input type="checkbox" checked={includeNearbyDates} onChange={(e) => setIncludeNearbyDates(e.target.checked)} />
+        Include nearby dates (±3 days)
+      </label>
+      <div style={{ display: "flex", alignItems: "flex-end" }}>
+        <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={() => run()}>
+          {loading ? <Spinner /> : <Icon name="search" size={16} />}
+          {loading ? "Searching…" : "Search Flights"}
+        </button>
+      </div>
+    </>
+  );
 
+  const resultsView = (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11 }}>
+        {/* Back-to-search (2026-09-02) — the only way out of results now
+            that they've replaced the form; hidden while a search is still
+            in flight, since there's nothing to "go back to" mid-request
+            (the form isn't mounted). */}
+        {!loading ? (
+          <button className="taw-linkbtn" onClick={backToSearch}>
+            <Icon name="chevron" size={12} style={{ transform: "rotate(90deg)" }} />
+            New search
+          </button>
+        ) : null}
+        <span className="taw-muted" style={{ fontSize: 12 }}>
+          {form.originCode} → {form.destCode} · {form.date}
+        </span>
+      </div>
       {err ? (
         <div className="taw-banner taw-banner--err">
           <Icon name="alert" size={16} />
@@ -500,10 +569,13 @@ export function FlightDesk(props: any) {
         </div>
       ) : null}
       {loading ? <SkeletonResults /> : null}
-      {!loading && res ? <FlightResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} member={member} advisorId={props.advisorId} onAdd={props.onAdd} /> : null}
-      {!loading && !res && !err ? <Empty icon={<Icon name="flight" size={28} />}>Set a route and search to pull live flight inventory.</Empty> : null}
-    </div>
+      {!loading && res ? (
+        <FlightResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} member={member} advisorId={props.advisorId} onAdd={props.onAdd} />
+      ) : null}
+    </>
   );
+
+  return <div className="taw-fade-in">{showResults ? resultsView : formView}</div>;
 }
 
 // Split out of FlightDesk's render purely so the filter/sort math below reads
@@ -639,11 +711,15 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
             const brand = fareBrand(d);
             const isOpen = openOffer === o.id;
             return (
-              <div key={o.id} className="taw-res" style={{ display: "block" }}>
+              <div key={o.id + (o._searchDate || "")} className="taw-res" style={{ display: "block" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
                   <div className="taw-res-main">
                     <div className="taw-res-title">
                       <Icon name="flight" size={18} /> {d.airlineName || d.airline || "Flight"} <span className="taw-muted">{d.flightNo || ""}</span>
+                      {/* Only present when includeNearbyDates merged multiple
+                          dates' offers into one list (2026-09-02) — labels
+                          which day this particular offer is for. */}
+                      {o._searchDate ? <span className="taw-chip taw-chip--dom">{fmtDate(o._searchDate)}</span> : null}
                       {o.international ? <span className="taw-chip taw-chip--intl">INTL</span> : <span className="taw-chip taw-chip--dom">DOM</span>}
                       {brand ? <span className="taw-chip taw-chip--fare">{brand}</span> : null}
                       {d.refundable ? <span className="taw-chip taw-chip--ref">Refundable</span> : <span className="taw-chip taw-chip--noref">Non-ref</span>}

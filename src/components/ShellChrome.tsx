@@ -29,7 +29,7 @@
  * NEXT_PUBLIC_FASTAPI_BASE pattern) — "/member.html" below is an
  * unconfirmed placeholder, not a known-good path.
  * ===========================================================================*/
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "./ui";
@@ -75,30 +75,55 @@ export function ShellChrome({
             ? "analytics"
             : "workbench";
 
-  // Collapse/expand — session-only UI state, deliberately NOT persisted
-  // (localStorage, etc.): resets to expanded on every reload, per designer.
-  const [collapsed, setCollapsed] = useState(false);
+  // Sidebar is a collapsed icon-only rail by default, and opens as an
+  // OVERLAY (position:fixed, doesn't reflow page content — see
+  // .ta-shell-nav-spacer in app-shell.css) two ways: hovering it, or
+  // clicking the toggle to pin it open regardless of hover. Pin turns off
+  // by clicking the toggle again, clicking any nav link, or clicking
+  // outside the sidebar. Session-only — no persistence, always resets to
+  // collapsed on reload.
+  const [pinned, setPinned] = useState(false);
+  const [hovering, setHovering] = useState(false);
+  const expanded = pinned || hovering;
+  const navRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!pinned) return;
+    function onDocPointerDown(e: PointerEvent) {
+      if (navRef.current && !navRef.current.contains(e.target as Node)) setPinned(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [pinned]);
 
   return (
     <AdvisorSessionContext.Provider value={{ advisorId, role, onSignOut }}>
       <div className="ta-shell">
-        <div className={cx("ta-shell-nav", collapsed && "is-collapsed")} role="navigation" aria-label="TripAgent sections">
+        <div className="ta-shell-nav-spacer" />
+        <div
+          ref={navRef}
+          className={cx("ta-shell-nav", expanded && "is-expanded")}
+          role="navigation"
+          aria-label="TripAgent sections"
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+        >
           <div className="ta-shell-brand">
             <div className="ta-shell-brand-row">
-              {collapsed ? null : <Icon name="shield" size={18} />}
+              {expanded ? <Icon name="shield" size={18} /> : null}
               <span className="ta-shell-word">TripAgent</span>
               <button
                 className="ta-shell-collapse"
-                onClick={() => setCollapsed((v) => !v)}
-                aria-expanded={!collapsed}
-                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                onClick={() => setPinned((v) => !v)}
+                aria-expanded={expanded}
+                aria-label={pinned ? "Unpin sidebar" : "Pin sidebar open"}
+                title={pinned ? "Unpin sidebar" : "Pin sidebar open"}
               >
                 <Icon name="sidebar" size={20} />
               </button>
             </div>
           </div>
-          <div className="ta-shell-tabs" role="tablist" aria-label="TripAgent sections">
+          <div className="ta-shell-tabs" role="tablist" aria-label="TripAgent sections" onClick={() => setPinned(false)}>
             <Link
               href="/console"
               className={"ta-shell-tab" + (pathname.startsWith("/console") ? " is-active" : "")}
@@ -106,8 +131,10 @@ export function ShellChrome({
               aria-selected={pathname.startsWith("/console")}
               title="Enquiries"
             >
-              <Icon name="inbox" size={18} />
-              <span>Enquiries</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="inbox" size={20} />
+                <span className="ta-shell-tab-label">Enquiries</span>
+              </span>
             </Link>
             <Link
               href="/orders"
@@ -116,8 +143,10 @@ export function ShellChrome({
               aria-selected={activeTop === "workbench"}
               title="Advisor Workbench"
             >
-              <Icon name="sliders" size={18} />
-              <span>Advisor Workbench</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="sliders" size={20} />
+                <span className="ta-shell-tab-label">Advisor Workbench</span>
+              </span>
             </Link>
             <Link
               href="/broadcast"
@@ -126,8 +155,10 @@ export function ShellChrome({
               aria-selected={activeTop === "broadcast"}
               title="Supplier Broadcast"
             >
-              <Icon name="send" size={18} />
-              <span>Supplier Broadcast</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="send" size={20} />
+                <span className="ta-shell-tab-label">Supplier Broadcast</span>
+              </span>
             </Link>
             <Link
               href="/journeys"
@@ -136,8 +167,10 @@ export function ShellChrome({
               aria-selected={activeTop === "journeys"}
               title="Journeys"
             >
-              <Icon name="compass" size={18} />
-              <span>Journeys</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="compass" size={20} />
+                <span className="ta-shell-tab-label">Journeys</span>
+              </span>
             </Link>
             <Link
               href="/pulse"
@@ -146,8 +179,10 @@ export function ShellChrome({
               aria-selected={activeTop === "pulse"}
               title="Trending & Deals"
             >
-              <Icon name="trend" size={18} />
-              <span>Trending & Deals</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="trend" size={20} />
+                <span className="ta-shell-tab-label">Trending & Deals</span>
+              </span>
             </Link>
             <Link
               href="/copilot"
@@ -156,8 +191,10 @@ export function ShellChrome({
               aria-selected={activeTop === "copilot"}
               title="Call Copilot"
             >
-              <Icon name="chat" size={18} />
-              <span>Call Copilot</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="chat" size={20} />
+                <span className="ta-shell-tab-label">Call Copilot</span>
+              </span>
             </Link>
             <Link
               href="/analytics"
@@ -166,12 +203,16 @@ export function ShellChrome({
               aria-selected={activeTop === "analytics"}
               title="Analytics"
             >
-              <Icon name="radar" size={18} />
-              <span>Analytics</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="radar" size={20} />
+                <span className="ta-shell-tab-label">Analytics</span>
+              </span>
             </Link>
             <a className="ta-shell-tab" href={MEMBER_APP_URL} target="_blank" rel="noreferrer" title="Member View">
-              <Icon name="arrowUR" size={18} />
-              <span>Member View ↗</span>
+              <span className="ta-shell-tab-inner">
+                <Icon name="arrowUR" size={20} />
+                <span className="ta-shell-tab-label">Member View ↗</span>
+              </span>
             </a>
           </div>
           <div className="ta-shell-footer">

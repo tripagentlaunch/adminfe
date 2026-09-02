@@ -53,18 +53,37 @@ background:var(--champagne);border:1px solid var(--line2);}
    down to the viewport bottom. display:flex/column here too so a route
    whose direct content should fill the rest of THIS box (e.g. Workbench's
    grid, via .taw-cols-3's own flex:1 below) can opt in the same way. */
-.taw-main{max-width:1480px;margin:0 auto;padding:8px 12px;flex:1;display:flex;flex-direction:column;}
-.taw-grid{display:grid;gap:12px;}
+/* width:100% is required here, not decorative — .taw-main is a flex item
+   of .taw (display:flex;flex-direction:column), so its cross-axis size
+   is width. An auto cross-axis margin on a flex item disables the
+   default stretch behavior (CSS Flexbox §8.3), so without an explicit
+   width the box falls back to shrink-to-fit sizing — i.e. it hugs its
+   own content's natural/max-content width instead of filling the
+   available space, with the LEFTOVER space becoming large margins
+   (found 2026-09-02: ~160px on each side at a 1535px viewport, despite
+   the 1480px cap having plenty of room to spare). width:100% forces it
+   to actually fill its container first; max-width then clamps that down
+   only once the container genuinely exceeds 1480px, at which point
+   margin:auto correctly centers the capped box. This was a real,
+   pre-existing bug in every .taw-main screen, not something introduced
+   by Console's own column-width changes. */
+.taw-main{width:100%;max-width:1480px;margin:0 auto;padding:8px 8px 8px 16px;flex:1;display:flex;flex-direction:column;background:#FAF6EB;}
+.taw-grid{display:grid;gap:8px;}
 .taw-cols-2{grid-template-columns:380px 1fr;}
-/* 2fr/5fr/2fr (2026-08-31, WorkbenchTab v2): Queue | Itinerary Builder |
-   Traveller Profile+Summary — Itinerary Builder is "considerable width,
-   but not too much," ~5/9 of the row, per the layout discussion.
-   align-items left at stretch (grid's default — no override needed) so
-   all three columns fill the row's full height, per follow-up feedback,
-   instead of each sizing to its own content. flex:1 (2026-08-31 v2) makes
-   the GRID ITSELF fill the rest of .taw-main's now-viewport-height box —
-   stretch alone only equalized columns to each OTHER, not to the page. */
-.taw-cols-3{grid-template-columns:2fr 5fr 2fr;flex:1;}
+/* 3fr/4fr/3fr (2026-08-31 as 2fr/5fr/2fr; widened 2026-09-02): Queue/
+   Traveller Profile | Itinerary Builder | Search — Queue/Profile and
+   Search both widened from 2fr (~22%) to 3fr (30%) per follow-up
+   feedback that both side columns needed more room; Itinerary Builder
+   narrowed from 5fr to 4fr (~40%) to make space while staying the
+   largest single column. align-items left at stretch (grid's default —
+   no override needed) so all three columns fill the row's full height,
+   per follow-up feedback, instead of each sizing to its own content.
+   flex:1 (2026-08-31 v2) makes the GRID ITSELF fill the rest of
+   .taw-main's now-viewport-height box — stretch alone only equalized
+   columns to each OTHER, not to the page. (2026-09-02: also briefly
+   tried 28%/50%/22% + a full-width .taw-main--wide modifier — reverted
+   same day per direct request.) */
+.taw-cols-3{grid-template-columns:3fr 4fr 3fr;flex:1;}
 .taw-cols-q{grid-template-columns:1fr 420px;}
 @media(max-width:1100px){.taw-cols-2,.taw-cols-3,.taw-cols-q{grid-template-columns:1fr;}}
 /* Right-column wrapper for WorkbenchTab's 3rd grid cell (Traveller
@@ -88,11 +107,162 @@ background:var(--champagne);border:1px solid var(--line2);}
    style, not a bug fix — see the memory for the fuller discussion. */
 .taw-card{background:var(--card);border:1px solid var(--line);
 border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
-.taw-card-h{display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);}
+/* 2026-09-02 (SearchDesksPanel) — opts a grid item OUT of the row's
+   default align-items:stretch, so it sizes to its own content instead of
+   matching the tallest column. See SearchDesksPanel.tsx's own docblock
+   for the animated transition between this and the default stretch. */
+.taw-card--fit{align-self:start;}
+.taw-card-h{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);}
 .taw-card-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);}
 .taw-card-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}
+/* A control that fills the header's FULL height as a distinct filled
+   segment (2026-09-01, e.g. Search's desk picker) — position:absolute
+   against .taw-card-h (not a negative-margin/align-self:stretch trick,
+   which can't reliably reach the header's true edges through Card.tsx's
+   own `actions` wrapper div, an unstretched plain block) so it's flush
+   top/bottom/right regardless of the header's own padding, with a
+   light-grey fill differentiating it from the header's own background.
+   The left border doubles as the divider line separating it from the
+   title. Square corners on purpose — .taw-card (the outer container)
+   already clips its content to its own border-radius via
+   overflow:hidden, so the segment's top-right corner gets clipped into
+   the same rounded corner for free instead of needing its own radius. */
+/* 2026-09-02: briefly tried matching the sidebar's own fill (--bone) and
+   text (--muted) here — reverted same day per direct request, back to
+   the plain light grey / --ink pairing. */
+/* #F2F2F2 (2026-09-02) — deliberately a shade darker than the popup's own
+   #F8F8F8 hover fill, so the closed selector reads as a distinct, slightly
+   more present surface than the lighter hover state inside its own menu. */
+.taw-card-h-segment{
+  position:absolute;top:0;right:0;bottom:0;
+  display:flex;align-items:stretch;
+  background:#F2F2F2;
+  border-left:1px solid var(--line);
+}
+/* A <select> that sits flush inside a header segment instead of looking
+   like its own separately-boxed control — no border/background/radius of
+   its own, just the text + the browser's native dropdown arrow. Still a
+   real <select>, so its OWN option-list popup can't be restyled via CSS
+   (true in every browser); this only restyles the closed/resting state. */
+.taw-select-plain{background:none;border:0;box-shadow:none;font-family:var(--sans);font-weight:600;font-size:13px;color:var(--ink);cursor:pointer;}
+/* Dropdown (2026-09-02, src/components/ui/Dropdown.tsx) — a fixed-list
+   button+popup swapped in for the desk picker's native <select>, whose
+   own open option-list can't be styled via CSS in any browser. Popup
+   reuses .taw-typeahead-list/-item (the from/to airport typeahead's
+   classes) so both actually match; only the trigger's own layout lives
+   here, appearance is inherited from whatever skin class (e.g.
+   .taw-select-plain) is passed alongside .taw-dropdown-trigger.
+
+   2026-09-02, same day: the trigger's own padding used to be much
+   smaller than the visual segment box around it (.taw-card-h-segment's
+   own padding), so the real clickable/focusable element (and its
+   focus-visible ring) only ever covered the "Flights" text itself, not
+   the whole filled box it visually sits in. Moved the 14px horizontal
+   padding from the segment onto the trigger button itself, and the
+   segment/trigger/dropdown wrapper all now stretch to fill each other's
+   full height — the button IS the segment now, so its keyboard target
+   and focus ring cover the entire box. The popup uses
+   .taw-dropdown-list (below) instead of the bare .taw-typeahead-list so
+   it can flush against the trigger's actual (now full-size) edges. */
+.taw-dropdown{position:relative;height:100%;}
+.taw-dropdown-trigger{display:flex;align-items:center;justify-content:center;gap:4px;appearance:none;height:100%;width:100%;padding:0 14px;}
+/* Standalone form-field skin (2026-09-02, e.g. FlightDesk's Cabin) — for
+   a Dropdown used as a normal field rather than a header segment
+   (justify-content:center there suits a small compact control; a
+   full-width field instead wants its label left and chevron pushed
+   right, like a native <select>). Paired with .taw-input for the actual
+   box (border/radius/padding/background) — .taw-input is defined later
+   in this file so its padding wins over .taw-dropdown-trigger's own
+   0 14px, giving it the same height as every other field. */
+.taw-select-dropdown{justify-content:space-between;}
+.taw-dropdown-trigger svg{flex:none;}
+/* Only the chevron rotates on open — it used to be "any svg inside the
+   trigger" (transform:rotate on .taw-dropdown-trigger[aria-expanded]
+   svg), which was fine when the chevron was the trigger's only icon, but
+   once a leading desk-icon (flight/hotel/visa) was added as a second svg
+   child, that same rule flipped IT upside-down too on open. Scoped to
+   the chevron specifically via its own class. */
+.taw-dropdown-chevron{transition:transform .16s var(--ease);}
+.taw-dropdown-trigger[aria-expanded="true"] .taw-dropdown-chevron{transform:rotate(180deg);}
+/* No outer padding on the popup itself — only individual .taw-typeahead-
+   item rows keep their own padding, so the hover/active fill runs edge-
+   to-edge; overflow:hidden keeps those square item edges from poking
+   past the popup's own rounded corners. Flush (top:100%, no gap) and
+   left:0;right:0 against .taw-dropdown, which is now exactly the
+   trigger's own width/position (see above) — so the popup matches the
+   selector's width and sits right at its bottom, not floating below it. */
+/* No left/right/top border here (2026-09-02) — the base
+   .taw-typeahead-list border was making the popup LOOK 1-2px wider than
+   the trigger despite measuring pixel-identical
+   (getBoundingClientRect confirmed both edges exactly matched) — a
+   hairline border's anti-aliased stroke can visually bleed a fraction of
+   a pixel past a plain color-fill edge with no border of its own (the
+   trigger has none). The existing box-shadow (var(--whisper), from the
+   base rule) still gives it visual depth without that seam; the bottom
+   border stays, for a defined lower edge. */
+.taw-typeahead-list.taw-dropdown-list{padding:0;top:100%;overflow:hidden;border-top-left-radius:0;border-top-right-radius:0;border-left:0;border-right:0;border-top:0;}
+/* Dropdown's own option rows (2026-09-02) — deliberately diverge from the
+   shared .taw-typeahead-item look (used as-is by AutosuggestInput's
+   from/to popup, untouched here) via a higher-specificity compound
+   selector: a leading icon, sharp corners always (not just default —
+   the reference wants square corners full stop, not "rounded until
+   hovered"), a plain light-grey hover fill instead of --bone, and a
+   selected state that carries NO fill at all — both icon and label turn
+   the bright gold accent instead (the icon picks it up via currentColor
+   from the row's own `color:var(--gold)`; the label additionally sets
+   its own color explicitly since it otherwise defaults to --ink, not
+   inherited). */
+.taw-typeahead-item.taw-dropdown-item{display:flex;align-items:center;gap:8px;border-radius:0;color:var(--taupe);}
+.taw-typeahead-item.taw-dropdown-item:hover{background:#F8F8F8;border-radius:0;}
+/* Selected state (2026-09-02): was --gold — changed to a darker neutral
+   (--ink, the same tone as the label's own resting color) with more
+   weight instead of an accent hue, for both icon and label. */
+.taw-typeahead-item.taw-dropdown-item.is-active{background:none;border-radius:0;color:var(--ink);font-weight:600;}
+/* The selected row still gets the same grey hover fill as any other row
+   (2026-09-02) — written after the plain .is-active rule above, same
+   specificity, so it wins when both apply together. */
+.taw-typeahead-item.taw-dropdown-item.is-active:hover{background:#F8F8F8;}
+.taw-dropdown-item-label{color:var(--ink);}
+.taw-typeahead-item.taw-dropdown-item.is-active .taw-dropdown-item-label{color:var(--ink);font-weight:600;}
 .taw-card-b{padding:12px;}
 .taw-card-b.flush{padding:0;}
+
+/* Queue/Traveller Profile accordion (2026-09-01) — "Mode H" from the
+   interaction lab (src/app/lab/queue-profile/, gitignored/local-only):
+   both sections share one column, either opens on click at any time, and
+   picking an enquiry also auto-collapses Queue into Profile. Visually
+   matches .taw-card (same border/radius/shadow) but as one shared
+   container with two accordion sections instead of two separate cards. */
+/* 2026-09-02: Queue and Traveller Profile are now two SEPARATE .taw-acc
+   boxes (each with its own border/radius/shadow) stacked in .taw-acc-stack
+   instead of one shared box — see QueueProfileAccordion.tsx's docblock. */
+.taw-acc-stack{display:flex;flex-direction:column;gap:8px;height:100%;}
+.taw-acc{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
+/* 2026-09-01: the header row itself is no longer the click target/no
+   longer shows a hover state — .taw-acc-h is now a plain display row
+   (icon/title/sub), non-interactive. Only .taw-acc-toggle (the chevron)
+   is clickable, styled to match the sidebar's own collapse toggle
+   (.ta-shell-collapse) exactly: bare at rest, --champagne background on
+   hover, same padding/radius. Clicking a section's toggle opens that
+   section and collapses the other (same either direction). */
+/* 2026-09-02: each header carries its OWN persistent border-bottom now,
+   unconditionally — not just on .is-open. It used to rely on the shared
+   .taw-acc-div (a separate DOM node between the Queue and Profile
+   sections) to provide the line when a section was collapsed, which
+   worked for Queue (has a div right after it either way) but left
+   Traveller Profile — the LAST section, nothing follows it in the DOM —
+   with no divider at all once it collapsed. Every header now draws its
+   own line directly, in every state, for both sections; .taw-acc-div is
+   removed as redundant (see QueueProfileAccordion.tsx). */
+.taw-acc-h{display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--line);}
+.taw-acc-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);flex:1;min-width:0;}
+.taw-acc-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}
+.taw-acc-toggle{display:grid;place-items:center;flex:none;padding:4px;border:1px solid transparent;border-radius:4px;background:none;color:var(--taupe);cursor:pointer;transition:background .14s var(--ease),color .14s var(--ease);}
+.taw-acc-toggle:hover{background:var(--champagne);color:var(--ink);}
+.taw-acc-toggle svg{transition:transform .16s var(--ease);}
+.taw-acc-h.is-open .taw-acc-toggle svg{transform:rotate(180deg);}
+.taw-acc-body{padding:12px;}
+.taw-acc-body.flush{padding:0;}
 
 /* buttons */
 .taw-btn{border:1px solid var(--line2);background:transparent;color:var(--ink);border-radius:10px;
@@ -103,6 +273,17 @@ padding:10px 16px;font-size:12px;font-family:var(--eyebrow);font-weight:500;lett
 .taw-btn--primary{border:1px solid var(--gold-deep);background:linear-gradient(180deg,var(--gold) 0%,var(--gold-deep) 100%);color:var(--ink);box-shadow:0 1px 0 rgba(255,253,247,.35) inset,0 4px 14px -6px rgba(120,92,18,.55),0 1px 2px rgba(23,19,16,.10);}
 .taw-btn--primary:hover{background:linear-gradient(180deg,#C8A23A 0%,var(--gold-deep) 100%);border-color:var(--gold-deep);transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
 .taw-btn--primary:active{transform:translateY(0);box-shadow:0 1px 0 rgba(255,253,247,.25) inset,0 2px 8px -4px rgba(120,92,18,.5);}
+/* Dark-brown variant (2026-09-02, FlightDesk's Search button) — scoped
+   modifier rather than recoloring .taw-btn--primary itself, since that
+   class is the shared primary-CTA look used elsewhere in the app. Same
+   gradient/inset-highlight/shadow STRUCTURE as the gold default, just a
+   coffee-brown palette; text/icon switched to --ivory since dark text
+   (var(--ink), the default) has no contrast against a dark brown fill. */
+.taw-btn--brown{border-color:#3E2714;background:linear-gradient(180deg,#6B4226 0%,#3E2714 100%);color:var(--ivory);font-size:14px;
+box-shadow:0 1px 0 rgba(255,253,247,.5) inset,0 4px 14px -6px rgba(35,20,8,.55),0 1px 2px rgba(23,19,16,.10);}
+.taw-btn--brown:hover{background:linear-gradient(180deg,#7C4E2E 0%,#3E2714 100%);border-color:#3E2714;}
+.taw-btn--brown:active{box-shadow:0 1px 0 rgba(255,253,247,.1) inset,0 2px 8px -4px rgba(35,20,8,.5);}
+.taw-btn--brown .taw-spin{border-color:rgba(255,253,247,.25);border-top-color:var(--ivory);}
 .taw-btn--accent{border:1px solid var(--gold);background:var(--gold-bg);color:var(--gold);}
 .taw-btn--accent:hover{background:var(--champagne);border-color:var(--gold);}
 .taw-btn--ghost{background:transparent;border-color:var(--line);}
@@ -120,6 +301,40 @@ padding:10px 12px;font-size:13.5px;transition:.15s;width:100%;font-family:inheri
 .taw-input:focus,.taw-select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(184,144,31,.12);}
 .taw-input::placeholder{color:var(--muted);}
 
+/* Joined field pairs (2026-09-02, e.g. FlightDesk's From/To and
+   Departure/Return) — two fields sit flush with no gap, meeting corners
+   squared off so they read as one continuous control, with an optional
+   button between them (e.g. Switch). align-items:flex-end lines
+   everything up on the INPUT's own bottom edge regardless of whether a
+   label sits above it — a label-less middle button naturally lands at
+   the same height as the inputs beside it without needing a matching
+   spacer. margin-left:-1px on every item after the first overlaps the
+   adjacent 1px borders into one hairline instead of doubling them. */
+.taw-join-row{display:flex;align-items:flex-end;}
+.taw-join-row>*+*{margin-left:-1px;}
+.taw-sharp-r,.taw-typeahead.taw-sharp-r .taw-input{border-top-right-radius:0;border-bottom-right-radius:0;}
+.taw-sharp-l,.taw-typeahead.taw-sharp-l .taw-input{border-top-left-radius:0;border-bottom-left-radius:0;}
+/* Also carries the .taw-input class (2026-09-02) — for its padding/
+   border/font-size, though that alone turned out NOT to be enough for a
+   matching height: .taw-input's rendered height comes from its TEXT
+   line-height (13.5px font, line-height:normal → 17.5px), but
+   display:grid here sizes the button off its grid ITEM's own intrinsic
+   height (the 16px icon) instead — grid/flex containers don't inherit
+   an auto height from their own font metrics the way a text input does,
+   so even identical padding/border/font-size landed ~1.5px short.
+   height:39.5px is that same 17.5px line-height made explicit
+   (10+10 padding + 1+1 border + 17.5 line-height = 39.5px) — coupled to
+   .taw-input's current font-size/padding; revisit if those change.
+   padding:0 override — .taw-input's own 10px/12px padding was ALSO still
+   inherited, shrinking the icon's actual centered area down to ~12px
+   (smaller than the 16px icon itself) off-center inside the fixed
+   38×39.5 box; place-items:center now centers the icon in the FULL box
+   instead. */
+.taw-join-btn{flex:none;width:38px;height:39.5px;padding:0;display:grid;place-items:center;
+background:#F8F8F8;border-radius:0;color:var(--taupe);
+cursor:pointer;position:relative;z-index:1;transition:background .14s var(--ease),color .14s var(--ease);}
+.taw-join-btn:hover{background:#EFEFEF;color:var(--ink);}
+
 /* AutosuggestInput dropdown (flight airport / hotel city typeahead) */
 .taw-typeahead{position:relative;}
 .taw-typeahead-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
@@ -133,6 +348,16 @@ border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--ink);cursor:poin
 .taw-row-3{grid-template-columns:1fr 1fr 1fr;}
 .taw-row-2{grid-template-columns:1fr 1fr;}
 .taw-row-4{grid-template-columns:repeat(4,1fr);}
+
+/* Search panel (2026-09-01) — Console's right column is narrow (2fr of
+   2/5/2), so FlightDesk/HotelDesk/VisaDesk's field rows stack to a single
+   column here instead of the 2/3/4-across grid those shared `.taw-row-*`
+   classes give everywhere else they're used (TrendingDealsPanel,
+   CallCopilotPanel, ServicingIntakePanel). Scoped to this wrapper only —
+   the shared classes themselves are unchanged. */
+.taw-search-stack .taw-row-2,
+.taw-search-stack .taw-row-3,
+.taw-search-stack .taw-row-4{grid-template-columns:1fr;}
 @media(max-width:680px){.taw-row-3,.taw-row-4{grid-template-columns:1fr 1fr;}}
 
 /* search desk subtabs */
@@ -184,8 +409,6 @@ border-radius:12px;background:var(--card);transition:.16s;}
 .taw-chip--visa{background:var(--gold-bg);color:var(--gold);}
 .taw-chip--tier{background:var(--gold-bg);color:var(--gold);border-color:rgba(184,144,31,.3);}
 .taw-chip--fare{background:var(--gold-bg);color:var(--gold-ink);border-color:rgba(184,144,31,.25);font-weight:600;}
-.taw-chip--sla-ok{background:var(--success-bg);color:var(--sage);border-color:rgba(91,122,91,.3);display:inline-flex;align-items:center;gap:4px;}
-.taw-chip--sla-breach{background:var(--danger-bg);color:var(--terracotta);border-color:rgba(178,59,59,.32);font-weight:600;display:inline-flex;align-items:center;gap:4px;}
 
 /* flight shopping bar (FLT-011 filters / FLT-012 sort) */
 .taw-shopbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;margin-bottom:10px;background:var(--bone);border:1px solid var(--line);border-radius:11px;}
@@ -211,6 +434,10 @@ border-radius:12px;background:var(--card);transition:.16s;}
 .taw-dx-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
 .taw-dx-fam{border:1px solid var(--line);border-radius:11px;padding:13px 14px;background:var(--card);}
 .taw-dx-fam.is-rec{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold-bg);}
+/* The currently-shown date in the strip (2026-09-02) — distinct from
+   .is-rec (cheapest), which is about price, not selection; a date can be
+   both at once. */
+.taw-dx-fam.is-selected{border-color:var(--ink);box-shadow:0 0 0 2px rgba(23,19,16,.1);}
 .taw-dx-fam h5{margin:0 0 3px;font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
 .taw-dx-fam .px{font-family:var(--serif);font-size:18px;color:var(--ink);margin:6px 0 8px;}
 .taw-dx-fam ul{margin:0;padding:0;list-style:none;}
@@ -230,41 +457,90 @@ border-radius:12px;background:var(--card);transition:.16s;}
 .taw-dx-ai{background:var(--info-bg);border:1px solid rgba(74,107,122,.22);border-radius:9px;padding:9px 12px;font-size:12px;color:var(--ink);display:flex;gap:7px;align-items:flex-start;}
 .taw-dx-ai b{color:var(--info);font-family:var(--eyebrow);font-size:9px;letter-spacing:.14em;text-transform:uppercase;}
 .taw-linkbtn{border:0;background:none;color:var(--gold-ink);font-family:var(--sans);font-size:11.5px;font-weight:600;cursor:pointer;padding:4px 0;display:inline-flex;align-items:center;gap:5px;text-decoration:underline;text-decoration-color:rgba(184,144,31,.4);}
+/* Plain checkbox + label row (2026-09-02, e.g. FlightDesk's "Include
+   nearby dates"). */
+.taw-checkrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink);cursor:pointer;}
+.taw-checkrow input{cursor:pointer;}
 .taw-linkbtn:hover{color:var(--gold);}
 
 /* member 360 */
 .taw-m360{display:flex;flex-direction:column;gap:18px;}
 .taw-m360-hero{display:flex;align-items:center;gap:15px;}
-.taw-m360-ava{width:56px;height:56px;border-radius:14px;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:22px;color:var(--ink);
+/* Sized to the name+meta content block's own height + 4px (2026-09-02) —
+   measured live at 74.39px, so 78px here — rather than a fixed guess, so
+   it reads as "just barely taller than its neighbor," not an arbitrary
+   avatar size. .taw-m360-hero's align-items:center (already set) centers
+   it against that content vertically. Revisit if name/meta copy length
+   or font-size changes enough to change that content block's height. */
+.taw-m360-ava{width:78px;height:78px;border-radius:16px;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:24px;color:var(--ink);
 background:var(--champagne);border:1px solid var(--line2);}
-.taw-m360-name{font-family:var(--serif);font-size:24px;font-weight:600;letter-spacing:.01em;color:var(--ink);display:flex;align-items:center;}
-.taw-m360-meta{font-size:12px;color:var(--taupe);margin-top:4px;}
+.taw-m360-name{font-family:var(--serif);font-size:16px;font-weight:500;letter-spacing:.01em;color:var(--ink);display:flex;align-items:center;}
+.taw-m360-meta{font-size:14px;color:var(--taupe);margin-top:4px;}
 .taw-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .taw-stat{background:var(--bone);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
 .taw-stat .k{font-family:var(--eyebrow);font-size:9px;text-transform:uppercase;letter-spacing:.18em;color:var(--taupe);font-weight:500;}
 .taw-stat .v{font-family:var(--serif);font-size:20px;font-weight:600;color:var(--ink);margin-top:4px;}
 .taw-tags{display:flex;flex-wrap:wrap;gap:7px;}
+/* Horizontally scrollable variant (2026-09-02, Member360's Business/Solo
+   tag row) — flex-wrap:nowrap so items stay in one row instead of
+   wrapping, overflow-x:auto to scroll instead of clipping once there are
+   more tags than fit. Chips need flex:none too (see .taw-chip below) or
+   they'd shrink to fit instead of scrolling. */
+.taw-tags-scroll{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;}
+.taw-tags-scroll .taw-chip{flex:none;}
 .taw-tag{font-size:11.5px;background:var(--card);border:1px solid var(--line);color:var(--taupe);padding:4px 11px;border-radius:8px;}
 .taw-sec-label{font-family:var(--eyebrow);font-size:9.5px;text-transform:uppercase;letter-spacing:.2em;color:var(--taupe);font-weight:500;margin-bottom:9px;}
+
+/* Member360 — request/dates/constraints/documents (2026-09-02 redesign,
+   see Member360.tsx's own docblock for the reference this was built
+   against). */
+.taw-m360-sec-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;}
+.taw-m360-desc{margin:0;font-size:13.5px;line-height:1.55;color:var(--ink);}
+.taw-m360-dates{display:flex;align-items:center;justify-content:space-between;gap:10px;
+background:var(--bone);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+.taw-m360-dates-range{font-family:var(--serif);font-size:17px;font-weight:600;color:var(--ink);}
+.taw-m360-dates-note{font-size:11.5px;color:var(--taupe);margin-top:2px;}
+.taw-m360-constraints{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
+.taw-m360-constraints li{position:relative;padding-left:16px;font-size:13px;color:var(--ink);line-height:1.4;}
+.taw-m360-constraints li::before{content:"";position:absolute;left:1px;top:8px;width:5px;height:5px;
+background:var(--taupe);border-radius:50%;}
+.taw-m360-docs{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.taw-m360-doc{border-radius:10px;padding:11px 13px;}
+.taw-m360-doc--ok{background:var(--success-bg);}
+.taw-m360-doc--warn{background:var(--warn-bg);}
+.taw-m360-doc-label{font-family:var(--eyebrow);font-size:9px;text-transform:uppercase;letter-spacing:.18em;font-weight:500;}
+.taw-m360-doc--ok .taw-m360-doc-label{color:var(--success-ink);}
+.taw-m360-doc--warn .taw-m360-doc-label{color:var(--warn-ink);}
+.taw-m360-doc-val{font-family:var(--serif);font-size:14px;font-weight:600;margin-top:4px;}
+.taw-m360-doc--ok .taw-m360-doc-val{color:var(--success-ink);}
+.taw-m360-doc--warn .taw-m360-doc-val{color:var(--warn-ink);}
 
 /* enquiry list */
 /* Scroll stays functional, the physical scrollbar is just hidden — Queue
    still scrolls with more items than fit, it just doesn't show a track. */
-.taw-enq{display:flex;flex-direction:column;max-height:600px;overflow:auto;padding-right:4px;scrollbar-width:none;-ms-overflow-style:none;}
+.taw-enq{display:flex;flex-direction:column;max-height:600px;overflow:auto;scrollbar-width:none;-ms-overflow-style:none;}
 .taw-enq::-webkit-scrollbar{display:none;}
-/* Rows, not cards (2026-09-01) — no per-item border/background/radius;
-   items are separated by a border-bottom divider instead, last row has
-   none so it doesn't dangle a line against the list's own bottom edge. */
-.taw-enq-item{text-align:left;width:100%;border:0;border-bottom:1px solid var(--line);background:transparent;
-border-radius:0;padding:10px;transition:.16s;color:inherit;}
-.taw-enq-item:last-child{border-bottom:none;}
-.taw-enq-item:hover{background:var(--ivory);}
-.taw-enq-item.is-active{background:var(--champagne);box-shadow:inset 3px 0 0 var(--gold);}
+/* Rows, not cards (2026-09-01) — no per-item border/radius; edge-to-edge,
+   no gap between rows. Padding lives on the row itself (not the list
+   container) so hover/selected fill still reaches the full row width.
+   Hover/selected share the same light-grey fill as the Search header's
+   desk-picker segment (#F8F8F8), for one consistent "filled" language
+   across the app instead of the warm ivory/champagne tones used
+   elsewhere. */
+.taw-enq-item{text-align:left;width:100%;border:0;background:transparent;
+border-radius:0;padding:12px;transition:.16s;color:inherit;}
+.taw-enq-item:hover{background:#F8F8F8;}
+.taw-enq-item.is-active{background:#F8F8F8;box-shadow:inset 3px 0 0 #999999;}
 .taw-enq-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
-.taw-enq-name{font-family:var(--sans);font-weight:600;font-size:13.5px;color:var(--ink);display:flex;align-items:center;gap:8px;}
-.taw-enq-msg{font-size:12.5px;color:var(--taupe);margin-top:4px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
-.taw-enq-foot{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;}
-.taw-dot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px rgba(184,144,31,.14);}
+.taw-enq-name{font-family:var(--sans);font-weight:700;font-size:14px;color:var(--ink);display:flex;align-items:baseline;gap:5px;min-width:0;}
+/* 2026-09-01 — Queue row trimmed to exactly 5 fields (see EnquiryInbox.tsx):
+   name+pax, bookings, destination, departure, hours-since. No more tier
+   chip, channel chip, message preview, or status dot. */
+.taw-enq-pax{font-family:var(--sans);font-weight:500;font-size:11.5px;color:var(--taupe);white-space:nowrap;}
+.taw-enq-hours{font-family:var(--eyebrow);font-size:11px;font-weight:600;color:var(--taupe);flex:none;}
+.taw-enq-hours.is-breach{color:var(--terracotta);}
+.taw-enq-meta{font-family:var(--sans);font-weight:500;font-size:12px;color:var(--taupe);margin-top:8px;}
+.taw-enq-depart{font-family:var(--sans);font-weight:400;font-size:11px;color:var(--muted);margin-top:8px;}
 
 /* cart */
 .taw-cart{display:flex;flex-direction:column;}
@@ -630,28 +906,41 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
    (workbench)/layout.tsx), so it's a direct child of the unpadded .taw
    wrapper and spans the full content-area width, flush against the global
    sidebar. .area-tabs carries the divider (border-bottom) and bleeds edge-
-   to-edge via margin:0 -24px (cancels .area-header's own 24px side
-   padding, matching .taw-main's horizontal padding so tab labels still
-   align with the content below) + padding:0 24px (re-indents the tab
-   labels themselves). This only works because the -24px/24px pair matches
-   .taw-main's own padding exactly — if that padding value ever changes,
-   update both here.
+   to-edge via a negative margin (cancels .area-header's own side padding,
+   matching .taw-main's horizontal padding so tab labels still align with
+   the content below) + a matching positive padding (re-indents the tab
+   labels themselves). This only works because the margin/padding pair
+   matches .taw-main's own padding exactly, PER SIDE — if that padding
+   ever changes, update both here.
 
-   Padding (2026-09-01, tightened from 20px/24px): 12px left/right, 8px
-   top on both .taw-main and .area-header (matches each other on purpose —
-   see the bleed note above for why the horizontal value in particular has
-   to stay in sync between the two). .area-header's bottom is 0, not 8px —
+   Padding (2026-09-01): asymmetric now — 16px left, 8px right, 8px top —
+   on both .taw-main and .area-header (matches each other on purpose, per
+   side, see the bleed note above). .area-header's bottom is 0, not 8px —
    .taw-main's own 8px top padding already provides the gap after the
    divider; giving both a bottom/top pair would stack into a redundant
    16px gap instead of one 8px gap. */
-.area-header{display:flex;flex-direction:column;gap:24px;padding:8px 12px 0;}
+/* Gap between "Enquiries" (h1) and the nested tabs reduced 24px -> 16px
+   (2026-09-02); the 8px removed was shifted onto the top padding instead
+   (8px -> 16px) per direct request, so the header's total height is
+   unchanged — just redistributed between "space above the title" and
+   "space between title and tabs". */
+.area-header{display:flex;flex-direction:column;gap:16px;padding:16px 8px 0 16px;background:#FDFBF7;}
 .area-title-row{display:flex;align-items:center;gap:8px;}
-.area-title-row h1{font-family:var(--sans);font-weight:600;font-size:16px;color:var(--ink);margin:0;}
+.area-title-row h1{font-family:var(--serif);font-weight:600;font-size:18px;color:var(--ink);margin:0;}
 .area-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
-.area-tabs{display:flex;gap:24px;flex-wrap:wrap;margin:0 -12px;padding:0 12px;border-bottom:1px solid var(--line);}
-.area-tab{display:flex;align-items:center;gap:6px;font-family:var(--sans);font-weight:500;font-size:14px;color:var(--muted);padding:0 0 12px;border:none;background:none;cursor:pointer;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.area-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 -8px 0 -16px;padding:0 8px 0 16px;border-bottom:1px solid var(--line);}
+/* Radius explicitly 0 (2026-09-01, per designer) — same in every state
+   (default/hover/active/disabled), never state-dependent. Padding is 8px
+   top/right/left, 12px bottom. */
+.area-tab{display:flex;align-items:center;gap:6px;font-family:var(--sans);font-weight:500;font-size:14px;color:var(--muted);padding:8px 8px 12px;border:none;background:none;cursor:pointer;text-decoration:none;border-bottom:2px solid transparent;border-radius:0;margin-bottom:-1px;white-space:nowrap;}
 .area-tab:hover{color:var(--ink);}
 .area-tab.is-active{color:var(--ink);border-bottom-color:var(--gold);font-weight:600;}
+/* Keyboard focus fixed to the same shape as selected/active (2026-09-01) —
+   the global a11y focus ring (tokens.css, [role="tab"]:focus-visible)
+   rounds any focused tab to --radius-sm (10px); overridden back to 0 here
+   so focus doesn't visually diverge from every other state. The focus
+   box-shadow ring itself is left alone, still a real a11y indicator. */
+.area-tab:focus-visible{border-radius:0;}
 .area-tab.is-disabled{cursor:not-allowed;opacity:.45;}
 .area-tab.is-disabled:hover{color:var(--muted);}
 /* Overflow toggle (Advisor Workbench only, for now — 16 tabs wrap to two

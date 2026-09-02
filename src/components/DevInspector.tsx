@@ -31,6 +31,7 @@ type Info = {
   padding: string;
   margin: string;
   flexContainer: string | null;
+  gridContainer: string | null;
   flexItem: string;
   radius: string;
   border: string;
@@ -107,13 +108,34 @@ function buildTokenMap(): TokenMaps {
   return maps;
 }
 
-function withToken(value: string, tokenMap: Record<string, string> | undefined): string {
+function withToken(value: string, tokenMap: Record<string, string> | undefined, display?: string): string {
   // Defensive: a dev tool should degrade to "no token label" rather than
   // crash the page it's inspecting — e.g. if buildTokenMap() hasn't
   // finished yet, or a stale closure survives a hot-reload mid-edit.
-  if (!tokenMap || !value) return value;
+  const shown = display !== undefined ? display : value;
+  if (!tokenMap || !value) return shown;
+  // Token-map lookup always keys off the RAW getComputedStyle value (e.g.
+  // "rgb(23, 19, 16)") since that's how buildTokenMap() built it — `display`
+  // (e.g. a hex conversion for on-screen readability) only swaps what's
+  // shown, never what's matched against the token map.
   const hit = tokenMap[value.trim()];
-  return hit ? `${value} (${hit})` : value;
+  return hit ? `${shown} (${hit})` : shown;
+}
+
+// getComputedStyle always normalizes colors to rgb()/rgba(), which is
+// harder to eyeball/paste into a design tool than hex — this is display-
+// only formatting, the raw rgb string is still what's matched against the
+// token map above. Anything that isn't a plain rgb()/rgba() (e.g.
+// "transparent", or an already-hex value) passes through unchanged.
+function toHex(value: string): string {
+  const m = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i);
+  if (!m) return value;
+  const [, r, g, b, a] = m;
+  const byte = (n: string) => Math.max(0, Math.min(255, parseInt(n, 10))).toString(16).padStart(2, "0");
+  let hex = "#" + byte(r) + byte(g) + byte(b);
+  const alpha = a !== undefined ? parseFloat(a) : 1;
+  if (alpha < 1) hex += Math.round(alpha * 255).toString(16).padStart(2, "0");
+  return hex.toUpperCase();
 }
 
 function uniform(vals: string[]): boolean {
@@ -137,21 +159,28 @@ function readInfo(el: HTMLElement, tokenMaps: TokenMaps): Info {
       : "";
 
   const isFlexContainer = cs.display.includes("flex");
+  const isGridContainer = cs.display.includes("grid");
+  // Gap applies to both flex and grid containers — previously missing
+  // entirely, so a grid's column/row gutter (e.g. .taw-grid's 12px between
+  // Queue/Itinerary Builder/Search) was invisible in this tool no matter
+  // what you hovered. Reported on whichever container type actually applies.
+  const gap = `${withToken(cs.columnGap, tokenMaps.spacing)} / ${withToken(cs.rowGap, tokenMaps.spacing)}`;
 
   return {
     tag: el.tagName.toLowerCase() + cls,
     font: `${cs.fontFamily.split(",")[0].replace(/["']/g, "")} ${cs.fontWeight} / ${withToken(cs.fontSize, tokenMaps.fontSize)}`,
     lineHeight: cs.lineHeight,
-    color: withToken(cs.color, tokenMaps.color),
-    background: withToken(cs.backgroundColor, tokenMaps.color),
+    color: withToken(cs.color, tokenMaps.color, toHex(cs.color)),
+    background: withToken(cs.backgroundColor, tokenMaps.color, toHex(cs.backgroundColor)),
     padding: uniform(pad) ? withToken(pad[0], tokenMaps.spacing) : pad.map((p) => withToken(p, tokenMaps.spacing)).join(" / "),
     margin: uniform(mar) ? withToken(mar[0], tokenMaps.spacing) : mar.map((p) => withToken(p, tokenMaps.spacing)).join(" / "),
     flexContainer: isFlexContainer
-      ? `${cs.flexDirection}, justify:${cs.justifyContent}, align:${cs.alignItems}, wrap:${cs.flexWrap}`
+      ? `${cs.flexDirection}, gap:${gap}, justify:${cs.justifyContent}, align:${cs.alignItems}, wrap:${cs.flexWrap}`
       : null,
+    gridContainer: isGridContainer ? `cols:${cs.gridTemplateColumns}, gap:${gap}` : null,
     flexItem: `grow ${cs.flexGrow} / shrink ${cs.flexShrink} / basis ${cs.flexBasis}`,
     radius: withToken(cs.borderRadius, tokenMaps.radius),
-    border: cs.borderWidth !== "0px" ? `${cs.borderWidth} ${cs.borderStyle} ${withToken(cs.borderColor, tokenMaps.color)}` : "none",
+    border: cs.borderWidth !== "0px" ? `${cs.borderWidth} ${cs.borderStyle} ${withToken(cs.borderColor, tokenMaps.color, toHex(cs.borderColor))}` : "none",
     shadow: cs.boxShadow !== "none" ? withToken(cs.boxShadow, tokenMaps.shadow) : "none",
   };
 }
@@ -275,6 +304,7 @@ export function DevInspector() {
           <div>padding: {info.padding}</div>
           <div>margin: {info.margin}</div>
           {info.flexContainer ? <div>flex (container): {info.flexContainer}</div> : null}
+          {info.gridContainer ? <div>grid (container): {info.gridContainer}</div> : null}
           <div>flex (item): {info.flexItem}</div>
           <div>radius: {info.radius}</div>
           <div>border: {info.border}</div>

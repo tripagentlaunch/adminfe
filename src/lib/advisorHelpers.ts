@@ -168,6 +168,26 @@ export function threadStateClass(st: any) {
   return "muted";
 }
 
+// capLabel(n) — compact Indian-lakh/crore shorthand for a budget cap, new
+// 2026-09-02 for Member360's "Cap ₹2.4L" chip. inr() (services/api.ts)
+// gives the full grouped figure ("₹2,40,000") which is right for a line
+// item but too long for a small pill chip next to route/pax — this trims
+// it to the shorthand an advisor would actually say out loud.
+//   capLabel(240000)   -> "₹2.4L"
+//   capLabel(15000000) -> "₹1.5Cr"
+//   capLabel(45000)    -> "₹45K"
+export function capLabel(n: any) {
+  var v = Number(n);
+  if (!isFinite(v) || v <= 0) return "—";
+  if (v >= 10000000) return "₹" + trimZero(v / 10000000) + "Cr";
+  if (v >= 100000) return "₹" + trimZero(v / 100000) + "L";
+  if (v >= 1000) return "₹" + trimZero(v / 1000) + "K";
+  return "₹" + v;
+}
+function trimZero(n: number) {
+  return n.toFixed(1).replace(/\.0$/, "");
+}
+
 // todayISO(offsetDays) — web/js/advisor.js line ~136.
 export function todayISO(offsetDays?: any) {
   var dt = new Date();

@@ -34,7 +34,6 @@ import { cx } from "../../../lib/cx";
 
 const SCREENS = [
   { key: "queue", label: "Console", icon: "sliders" },
-  { key: "search", label: "Search", icon: "search" },
   { key: "proposal-composer", label: "Proposal Composer", icon: "note" },
 ];
 

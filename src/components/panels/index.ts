@@ -3,7 +3,7 @@ export { Member360 } from "./Member360";
 export { CartPanel } from "./CartPanel";
 export { QuoteBuilder } from "./QuoteBuilder";
 export { WorkbenchTab } from "./WorkbenchTab";
-export { SearchDesksTab } from "./SearchDesksTab";
+export { SearchDesksPanel } from "./SearchDesksPanel";
 export { FlightDesk } from "./FlightDesk";
 export { HotelDesk } from "./HotelDesk";
 export { VisaDesk } from "./VisaDesk";

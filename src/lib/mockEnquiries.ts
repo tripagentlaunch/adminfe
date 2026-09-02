@@ -26,6 +26,14 @@ export const MOCK_MEMBERS_BY_ID: Record<string, any> = {
     passport_number: "P1234567",
     passport_expiry: "2031-04-12",
     preferences: { cabin: "Business", seat: "Aisle", meal: "Vegetarian", hotel_tier: "4-star", airlines: ["Singapore Airlines"] },
+    // Added 2026-09-02 for Member360's redesigned header/documents —
+    // fields a real Supabase member likely won't have yet either, so
+    // Member360 falls back to "—" wherever these are missing.
+    gender: "M",
+    dob: "1986-03-12",
+    company: "Acme Corp",
+    customer_code: "CC-4471",
+    visa_status: { country: "SG", status: "check pending" },
   },
   "mock-mem-2": {
     id: "mock-mem-2",
@@ -37,6 +45,12 @@ export const MOCK_MEMBERS_BY_ID: Record<string, any> = {
     passport_number: "P7654321",
     passport_expiry: "2029-11-03",
     preferences: { cabin: "Economy", hotel_tier: "Family resort" },
+    gender: "F",
+    dob: "1989-06-02",
+    company: "—",
+    customer_code: "CC-2201",
+    // Goa is domestic — no visa to hold, so no visa_status at all (Member360
+    // only renders a Visa document card when one is present).
   },
   "mock-mem-3": {
     id: "mock-mem-3",
@@ -48,6 +62,11 @@ export const MOCK_MEMBERS_BY_ID: Record<string, any> = {
     passport_number: "P2468101",
     passport_expiry: "2030-07-22",
     preferences: { cabin: "Business", hotel_tier: "Standard business" },
+    gender: "M",
+    dob: "1985-01-19",
+    company: "Meridian Consulting",
+    customer_code: "CC-7734",
+    visa_status: { country: "SG", status: "visa-free" },
   },
 };
 
@@ -70,8 +89,17 @@ export const MOCK_ENQUIRIES: any[] = [
       from: "Delhi (DEL)",
       destinations: ["Singapore"],
       dates: { nights: 3, month: "October", season: "Autumn" },
+      // dateRange/dateFlex added 2026-09-02 for Member360's Dates card — a
+      // real Supabase enquiry won't have these yet either, so the card
+      // only renders when they're present. dateFlex.tag drives which
+      // .taw-chip--* variant shows: "flexible" (can shift), "fixed"
+      // (can't — e.g. school holidays), "asap" (date's fixed AND urgent,
+      // e.g. a locked meeting).
+      dateRange: "12 – 16 Oct",
+      dateFlex: { tag: "flexible", note: "will shift up to 3 days either way" },
+      budgetCap: 240000,
       purpose: "Business",
-      flight: { class: "Business", seat: "Aisle", meal: "Vegetarian", stops: "Direct", airline: "Singapore Airlines" },
+      flight: { class: "Business", seat: "Aisle", meal: "Vegetarian", stops: "Direct", airline: "Singapore Airlines", frequentFlyer: "KF 8821 4470 3" },
       hotel: { stars: 4, location: "CBD", checkIn: "14:00", checkOut: "12:00" },
     },
     ai_draft: {
@@ -111,6 +139,9 @@ export const MOCK_ENQUIRIES: any[] = [
       from: "Mumbai (BOM)",
       destinations: ["Goa"],
       dates: { nights: 4, month: "November", season: "Winter" },
+      dateRange: "18 – 22 Nov",
+      dateFlex: { tag: "fixed", note: "school holidays — cannot shift" },
+      budgetCap: 350000,
       purpose: "Vacation",
       flight: { class: "Economy", stops: "Direct" },
       hotel: { stars: 5, location: "Candolim", checkIn: "14:00", checkOut: "11:00", roomConfig: "Adjoining rooms, elevator access" },
@@ -150,6 +181,9 @@ export const MOCK_ENQUIRIES: any[] = [
       from: "Mumbai (BOM)",
       destinations: ["Singapore"],
       dates: { nights: 2, month: "September", season: "Autumn" },
+      dateRange: "9 – 11 Sep",
+      dateFlex: { tag: "asap", note: "meeting is fixed — no flexibility" },
+      budgetCap: 180000,
       purpose: "Business",
       flight: { class: "Business", stops: "Direct" },
       hotel: { stars: 4, location: "Business district", checkIn: "14:00", checkOut: "12:00" },

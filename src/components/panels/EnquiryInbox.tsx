@@ -6,7 +6,7 @@
  * — LeadsPanel, Phase 4 — reuses it too).
  * ===========================================================================*/
 import { cx } from "../../lib/cx";
-import { enqSla, fmtDate } from "../../lib/advisorHelpers";
+import { enqSla } from "../../lib/advisorHelpers";
 import { Empty, Icon } from "../ui";
 
 export function EnquiryInbox(props: any) {
@@ -64,6 +64,20 @@ export function EnquiryInbox(props: any) {
         let services = intent.services || [];
         if (typeof services === "string") services = [services];
         const sla = enqSla(e);
+        // Raw hours-since-enquiry (no "SLA breached"/minutes framing —
+        // enqSla()'s own .txt carries both, but the Queue row only wants
+        // the bare number). Same underlying elapsed time as enqSla(), so
+        // the breach/ok color still lines up with the real SLA state.
+        const createdMs = e.created_at ? new Date(e.created_at).getTime() : 0;
+        const hours = createdMs ? Math.floor(Math.max(0, Date.now() - createdMs) / 3600000) : null;
+        const pax = e.ask && e.ask.persons ? e.ask.persons.length : null;
+        const bookings = (services || []).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(" + ");
+        const destText = (dests || []).slice(0, 2).join(", ");
+        // "Departure day" — the enquiry data model only carries a month
+        // (ask.dates), not an exact calendar date, for the 3 mock
+        // enquiries; real Supabase enquiries don't have `ask` at all yet.
+        // Shows what's actually known rather than inventing a day.
+        const departs = e.ask && e.ask.dates && e.ask.dates.month ? "Departs " + e.ask.dates.month : "No dates yet";
         return (
           <button
             key={e.id}
@@ -72,37 +86,19 @@ export function EnquiryInbox(props: any) {
           >
             <div className="taw-enq-top">
               <div className="taw-enq-name">
-                <span className="taw-dot" />
                 {m ? m.name : "New lead"}
-                {m ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
+                {pax ? <span className="taw-enq-pax">· {pax} pax</span> : null}
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginLeft: "auto" }}>
-                {sla ? (
-                  <span className={"taw-chip taw-chip--sla-" + sla.cls} title="Response SLA target: 15 min">
-                    {sla.cls === "breach" ? <Icon name="alert" size={11} /> : <Icon name="clock" size={11} />}
-                    {sla.txt}
-                  </span>
-                ) : null}
-                <span className="taw-chip taw-chip--dom">{e.channel || "web"}</span>
-              </div>
+              {hours != null ? (
+                <span className={"taw-enq-hours" + (sla && sla.cls === "breach" ? " is-breach" : "")}>{hours}h</span>
+              ) : null}
             </div>
-            {e.message ? <div className="taw-enq-msg">{e.message}</div> : null}
-            <div className="taw-enq-foot">
-              {(dests || []).slice(0, 3).map((d: any, i: number) => (
-                <span key={"d" + i} className="taw-tag taw-icrow">
-                  <Icon name="compass" size={12} />
-                  {d}
-                </span>
-              ))}
-              {(services || []).slice(0, 3).map((s: any, i: number) => (
-                <span key={"s" + i} className="taw-tag">
-                  {s}
-                </span>
-              ))}
-              <span className="taw-muted" style={{ marginLeft: "auto", fontSize: 10.5 }}>
-                {fmtDate(e.created_at)}
-              </span>
+            <div className="taw-enq-meta">
+              {destText}
+              {destText && bookings ? " · " : ""}
+              {bookings}
             </div>
+            <div className="taw-enq-depart">{departs}</div>
           </button>
         );
       })}

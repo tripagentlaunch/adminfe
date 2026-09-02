@@ -37,6 +37,10 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local-only design/interaction playground — permanent on localhost,
+# never committed, never shipped to devs. See GIT-PUSH-PROMPT.md.
+/src/app/lab/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

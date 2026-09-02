@@ -21,51 +21,149 @@
  * is one of those six steps, reused consistently rather than varied ad hoc.
  * ===========================================================================*/
 .ta-shell { display: flex; align-items: stretch; min-height: 100vh; }
+
+/* Reserves the rail's collapsed width in normal page flow. The real nav
+   (.ta-shell-nav) is position:fixed and overlays on top of this — so
+   hovering/pinning it open never reflows page content, it just floats
+   over it (2026-09-01: hover-to-open + click-to-pin, see ShellChrome.tsx). */
+/* Matches the collapsed rail's natural fit-content width (nav padding 8+8
+   + icon-group padding 8px all around collapsed (expanded gets 16px
+   right — collapsed-only math here, since the spacer only needs to
+   reserve the collapsed rail's resting width) + icon 20 + nav's 1px
+   border = 53px) —
+   verify/adjust this if that math ever changes, since it can't reference
+   the fixed nav's own rendered width directly (it's a separate, static
+   layout-reservation element; the real nav is position:fixed). */
+.ta-shell-nav-spacer { width: 53px; flex: none; }
+
+/* Collapsed rail is the DEFAULT/base state now (icon-only, Jira-style) —
+   .is-expanded (hover OR pinned) is the override that widens it back out
+   into the full labeled sidebar, floating over the page as an overlay.
+   width:fit-content (2026-09-01) — the rail is sized purely by its own
+   content in BOTH states, not a hardcoded 60px/232px; padding stays the
+   same collapsed and expanded so nothing about the icon's position
+   depends on which state is active. */
 .ta-shell-nav {
-  display: flex; flex-direction: column; align-items: stretch; gap: 24px;
-  width: 232px; flex: none; padding: 16px 12px;
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 60;
+  display: flex; flex-direction: column; align-items: center; gap: 24px;
+  width: fit-content; padding: 16px 8px;
   border-right: 1px solid var(--line); background: var(--bone);
-  position: sticky; top: 0; height: 100vh; overflow-y: auto;
-  transition: width var(--dur) var(--ease);
+  overflow-y: auto; overflow-x: hidden;
+  /* width was dropped from this list when the rail switched to
+     fit-content (2026-09-01) — that's the actual cause of the sidebar
+     "jumping" instead of animating open; fit-content still resolves to a
+     real pixel value the browser can transition between, it just needs
+     to be listed. --dur-slow (320ms, was --dur/200ms) per designer's
+     "slower and more gradual" ask — .ta-shell-tab-label's own fade is
+     matched to the same duration below so the label and the rail width
+     move in sync instead of finishing at different times. */
+  transition: width var(--dur-slow) var(--ease), box-shadow var(--dur-slow) var(--ease);
 }
-.ta-shell-brand { display: flex; flex-direction: column; padding: 0 8px; color: var(--gold-ink); }
-.ta-shell-brand-row { display: flex; align-items: center; gap: 8px; }
-.ta-shell-word { font-family: var(--serif); font-weight: 600; font-size: 16px; line-height: 28px; letter-spacing: .005em; color: var(--ink); flex: 1; min-width: 0; }
+.ta-shell-nav.is-expanded { align-items: stretch; box-shadow: var(--shadow-lg); }
+
+.ta-shell-brand { display: flex; flex-direction: column; padding: 0; color: var(--gold-ink); }
+.ta-shell-nav.is-expanded .ta-shell-brand { padding: 0 8px; }
+.ta-shell-brand-row { display: flex; align-items: center; gap: 12px; flex-direction: column; }
+.ta-shell-nav.is-expanded .ta-shell-brand-row { flex-direction: row; gap: 8px; }
+.ta-shell-word { font-family: var(--serif); font-weight: 600; font-size: 16px; line-height: 28px; letter-spacing: .005em; color: var(--ink); flex: 1; min-width: 0; display: none; }
+.ta-shell-nav.is-expanded .ta-shell-word { display: block; }
+
+/* Toggle icon — bare, no fill/outline at rest (2026-09-01): background and
+   border only ever show on hover, for affordance, never as resting chrome. */
 .ta-shell-collapse {
   display: grid; place-items: center; flex: none; padding: 4px;
-  border: 1px solid var(--line); border-radius: 4px; background: var(--card);
+  border: 1px solid transparent; border-radius: 4px; background: none;
   color: var(--muted); cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 .ta-shell-collapse:hover { background: var(--champagne); color: var(--ink); }
-.ta-shell-collapse[aria-expanded="false"] { color: var(--gold-ink); border-color: var(--line-2); }
-.ta-shell-tabs { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
-.ta-shell-tab {
-  display: flex; align-items: center; gap: 8px;
-  font-family: var(--sans); font-weight: 500; font-size: 14px; color: var(--muted);
-  background: none; border: none; padding: 8px 12px; border-radius: var(--radius-sm);
-  cursor: pointer; text-decoration: none; text-align: left;
-  transition: color var(--dur) var(--ease), background var(--dur) var(--ease);
-}
-.ta-shell-tab svg { color: var(--muted); transition: color var(--dur) var(--ease); }
-.ta-shell-tab:hover svg, .ta-shell-tab.is-active svg { color: var(--ink); }
+.ta-shell-collapse[aria-expanded="false"] { color: var(--gold-ink); }
 
-/* Collapsed rail — icon-only, Jira-style. Session-only (ShellChrome's
-   `collapsed` state, no persistence): always resets to expanded on reload. */
-.ta-shell-nav.is-collapsed { width: 60px; padding: 16px 8px; }
-.ta-shell-nav.is-collapsed .ta-shell-brand { padding: 0; align-items: center; }
-.ta-shell-nav.is-collapsed .ta-shell-brand-row { flex-direction: column; gap: 12px; height: auto; }
-.ta-shell-nav.is-collapsed .ta-shell-word,
-.ta-shell-nav.is-collapsed .ta-shell-tab span,
-.ta-shell-nav.is-collapsed .acct-id,
-.ta-shell-nav.is-collapsed .acct-caret { display: none; }
-.ta-shell-nav.is-collapsed .ta-shell-tab { justify-content: center; padding: 8px; }
-.ta-shell-nav.is-collapsed .acct-trigger { justify-content: center; padding: 8px 0; }
-.ta-shell-nav.is-collapsed .acct-pop { left: calc(100% + 8px); right: auto; bottom: 0; min-width: 190px; }
-.ta-shell-tab:hover { background: var(--card); color: var(--ink); }
-.ta-shell-tab.is-active { color: var(--ink); background: var(--card); box-shadow: inset 2px 0 0 var(--gold); }
+/* align-items:stretch (2026-09-01) — the widest row (the longest label,
+   once expanded) determines .ta-shell-tabs' own fit-content width via the
+   usual shrink-wrap-parent + stretched-children pattern; every OTHER row
+   then fills that same width via stretch, rather than each hugging its
+   own (shorter) content. Collapsed, every row is icon-only and already
+   the same size, so stretch is a no-op there — it only matters once
+   labels differ in length. */
+.ta-shell-tabs { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+/* .ta-shell-tab is a plain structural wrapper — NO background/radius of
+   its own. The visual "pill" (background + radius) lives on
+   .ta-shell-tab-inner instead (below), which is the element actually
+   under the cursor when hovering/inspecting — .ta-shell-tab itself sits
+   underneath it and is rarely what a mouse or the dev inspector actually
+   targets, which is why "radius: 0px" showed up in Inspect: whatever WAS
+   being hovered had no radius declared on it at all. */
+.ta-shell-tab {
+  display: flex;
+  font-family: var(--sans); font-weight: 500; font-size: 14px; color: var(--muted);
+  background: none; border: none;
+  cursor: pointer; text-decoration: none; text-align: left;
+  transition: color var(--dur) var(--ease);
+}
+.ta-shell-tab:hover { color: var(--ink); }
+.ta-shell-tab.is-active { color: var(--ink); }
+/* Keyboard focus fixed to the same shape as selected/active (2026-09-01)
+   — same fix as .area-tab: the global a11y focus ring (tokens.css,
+   a:focus-visible/[role="tab"]:focus-visible) rounds the OUTER tab to
+   --radius-sm (10px) while focused, which doesn't match any other state
+   (outer has no radius otherwise — the visual pill's 4px radius lives on
+   .ta-shell-tab-inner). Overridden back to 0 on the outer; the focus
+   box-shadow ring itself is left alone, still a real a11y indicator. */
+.ta-shell-tab:focus-visible { border-radius: 0; }
+/* The icon-group / visual pill — flex:1 fills whatever width .ta-shell-
+   tab resolves to via the stretch behavior above. Padding: a plain
+   uniform 8px, the SAME in both collapsed and expanded (2026-09-01, per
+   designer — an earlier pass gave expanded a 12px right padding, reverted
+   same day back to uniform 8px both states). Hover background matches
+   .ta-shell-collapse's own hover treatment exactly (--champagne) — same
+   affordance language across every sidebar control.
+   NO `gap` between icon and label (2026-09-01 fix, the actual bug behind
+   "more space on the right than the left" reported earlier): CSS `gap`
+   reserves space for a sibling regardless of that sibling's own size, so
+   even with the label collapsed to `max-width:0` it was still adding a
+   full 8px after the icon — that phantom gap was the entire asymmetry.
+   Spacing is done with `margin-left` on the label itself instead, which
+   is genuinely 0 when the label is collapsed. */
+.ta-shell-tab-inner {
+  display: flex; flex: 1; align-items: center; padding: 8px; min-width: 0;
+  border-radius: 4px;
+  transition: background var(--dur) var(--ease);
+}
+.ta-shell-nav.is-expanded .ta-shell-tab-inner { padding-right: 16px; }
+.ta-shell-tab:hover .ta-shell-tab-inner { background: var(--champagne); }
+.ta-shell-tab.is-active .ta-shell-tab-inner { background: var(--card); }
+.ta-shell-tab svg { width: 20px; height: 20px; color: var(--muted); flex: none; transition: color var(--dur) var(--ease); }
+.ta-shell-tab:hover svg, .ta-shell-tab.is-active svg { color: var(--ink); }
+.ta-shell-tab-label {
+  margin-left: 0; opacity: 0; max-width: 0; overflow: hidden; white-space: nowrap;
+  /* --dur-slow, matched to .ta-shell-nav's own width transition above —
+     label fade and rail width now move in sync instead of finishing at
+     different times. */
+  transition: opacity var(--dur-slow) var(--ease), max-width var(--dur-slow) var(--ease), margin-left var(--dur-slow) var(--ease);
+}
+.ta-shell-nav.is-expanded .ta-shell-tab-label { opacity: 1; max-width: 200px; margin-left: 8px; }
+
+/* Scoped under .ta-shell-nav (2-class specificity) so these beat the
+   plain 1-class base rules for .acct-id/.acct-trigger/.acct-pop defined
+   later in this file (AccountMenu's own styling) regardless of source
+   order — a bare same-specificity rule here would silently lose to those. */
+.ta-shell-nav .acct-id { display: none; }
+.ta-shell-nav.is-expanded .acct-id { display: flex; }
+/* .acct-caret is an <Icon>, which sets display:inline-block as an inline
+   style — that always beats a plain stylesheet rule, so this needs
+   !important to actually hide it (same issue as the sidebar logo, fixed
+   2026-09-01 earlier by not rendering it at all in JSX; can't do that
+   here since AccountMenu.tsx is shared, so !important instead). */
+.ta-shell-nav .acct-caret { display: none !important; }
+.ta-shell-nav.is-expanded .acct-caret { display: inline-block !important; }
+.ta-shell-nav .acct-trigger { justify-content: center; padding: 8px 0; }
+.ta-shell-nav.is-expanded .acct-trigger { justify-content: flex-start; padding: 8px; }
+.ta-shell-nav .acct-pop { left: calc(100% + 8px); right: auto; bottom: 0; min-width: 190px; }
+.ta-shell-nav.is-expanded .acct-pop { left: 0; right: 0; bottom: calc(100% + 8px); }
 .ta-shell-tab.is-disabled { cursor: not-allowed; opacity: .45; }
-.ta-shell-tab.is-disabled:hover { background: none; color: var(--muted); }
+.ta-shell-tab.is-disabled:hover { color: var(--muted); }
+.ta-shell-tab.is-disabled:hover .ta-shell-tab-inner { background: none; }
 .ta-shell-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
 .ta-shell-body { flex: 1; min-width: 0; }
 

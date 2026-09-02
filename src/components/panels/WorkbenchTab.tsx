@@ -15,24 +15,35 @@
  *     the AI-collected draft closely, one thing at a time (just flights,
  *     just Day 1, etc.), not an overview.
  *   - THREE columns, proportional widths (2fr/5fr/2fr — Itinerary Builder
- *     "considerable but not too much," ~5/9 of the row): Queue | Itinerary
- *     Builder | (Traveller Profile stacked above Summary).
- *   - "Summary" (CartPanel, `readOnly`) sits under Traveller Profile, NOT
- *     inside Itinerary Builder — a read-only, in-order recap of the whole
- *     draft, deliberately separate from Itinerary Builder's detail-editing
- *     job. Positioned there so profile and summary sit next to each other
- *     for the "does the draft actually fit this member" check. Name is
- *     provisional ("Summary/Review" in discussion) — easy to rename later.
+ *     "considerable but not too much," ~5/9 of the row): (Queue/Traveller
+ *     Profile accordion) | Itinerary Builder | Search Desks.
+ *
+ * 2026-09-01 restructure, done in two passes:
+ *   1. Queue and Traveller Profile no longer get their own columns — they
+ *      now SHARE the left column via QueueProfileAccordion ("Mode H" from
+ *      the interaction-lab comparison, src/app/lab/queue-profile/ —
+ *      gitignored/local-only): a manual accordion (either section opens on
+ *      click, any time) plus auto-collapse-on-select (picking an enquiry
+ *      also collapses Queue into Profile, no extra click for the common
+ *      path).
+ *   2. The right column is now Search Desks (SearchDesksPanel) instead of
+ *      Summary — Search moved inline onto this screen ("accessible at all
+ *      times with fewer clicks"), which is also why the standalone
+ *      Enquiries → Search tab/route was deleted. Summary itself is GONE
+ *      from this screen entirely, not just relocated — the plan is a
+ *      Finalize-triggered overlay once the itinerary looks done, but that
+ *      button + overlay are still undecided/deferred. `cart` (below)
+ *      keeps accumulating everything added via Search in the meantime, so
+ *      nothing's lost once that overlay actually gets built.
  *   - Itinerary Builder shows what the AI suggested — it is NOT the
- *     search UI (2026-08-31 correction). FlightDesk/HotelDesk/VisaDesk are
- *     no longer rendered here. Falls back to a "not yet built" placeholder
- *     when the selected enquiry has no `ai_draft` (real Supabase enquiries
- *     don't yet); renders real flight/hotel segment cards when it does
- *     (currently only the 3 seeded mock enquiries — lib/mockEnquiries.ts).
- *     A segment with `mismatch: true` gets a flagged/highlighted treatment
- *     — that's the "AI draft vs. what was actually asked" check this
- *     screen exists for. Search still needs a home (a side-panel/overlay
- *     was discussed, not where its trigger button lives) — parked.
+ *     search UI (2026-08-31 correction). FlightDesk/HotelDesk/VisaDesk
+ *     render in the right column now (SearchDesksPanel), not here. Falls
+ *     back to a "not yet built" placeholder when the selected enquiry has
+ *     no `ai_draft` (real Supabase enquiries don't yet); renders real
+ *     flight/hotel segment cards when it does (currently only the 3 seeded
+ *     mock enquiries — lib/mockEnquiries.ts). A segment with
+ *     `mismatch: true` gets a flagged/highlighted treatment — that's the
+ *     "AI draft vs. what was actually asked" check this screen exists for.
  *   - Quote Builder REMOVED from this screen for now — "will be in the
  *     next part" per the designer, not deleted from the codebase, just not
  *     rendered here.
@@ -43,34 +54,29 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead. Cart stays
  * local — nothing outside this tab reads it (still wired up for the
- * Summary card and the cross-surface "ta:add-to-cart" listener below, even
- * though nothing on THIS screen currently populates it).
+ * cross-surface "ta:add-to-cart" listener below).
  * ===========================================================================*/
 import { useEffect, useState } from "react";
 import { toast } from "../../lib/advisorHelpers";
 import { cx } from "../../lib/cx";
 import { Card, Empty, Icon } from "../ui";
-import { EnquiryInbox } from "./EnquiryInbox";
-import { Member360 } from "./Member360";
-import { CartPanel } from "./CartPanel";
+import { QueueProfileAccordion } from "./QueueProfileAccordion";
+import { SearchDesksPanel } from "./SearchDesksPanel";
 
 export function WorkbenchTab(props: any) {
-  // advisorId/creating/onCreateOrder: unused now that Search/Quote Builder
-  // aren't rendered on this screen — kept in the destructure since the
-  // parent still passes them and they'll be needed again once those return.
+  // creating/onCreateOrder: unused now that Quote Builder isn't rendered on
+  // this screen — kept in the destructure since the parent still passes
+  // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember } = props;
 
+  // Still accumulates everything added via Search — Summary itself is gone
+  // from this screen (see docblock), but the cart needs to keep collecting
+  // in the meantime so nothing's lost once the Finalize overlay exists.
   const [cart, setCart] = useState<any[]>([]);
 
   function addToCart(item: any) {
     setCart((c) => c.concat([item]));
     toast((item._title || item.type) + " added to itinerary", "success");
-  }
-  function removeFromCart(cid: any) {
-    setCart((c) => c.filter((x) => x._cid !== cid));
-  }
-  function clearCart() {
-    setCart([]);
   }
 
   // Receive items injected from other surfaces (e.g. an awarded RFQ bid
@@ -90,31 +96,26 @@ export function WorkbenchTab(props: any) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openEnquiries = enquiries.filter((e: any) => (e.status || "open") !== "closed");
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   const draft = selectedEnquiry && selectedEnquiry.ai_draft;
 
   return (
     <div className="taw-grid taw-cols-3">
-      <Card
-        title="Queue"
-        icon={<Icon name="inbox" size={18} />}
-        sub={openEnquiries.length ? openEnquiries.length + " open" : ""}
-      >
-        <EnquiryInbox
-          enquiries={openEnquiries}
-          members={members}
-          membersById={membersById}
-          loading={inboxLoading}
-          selectedId={selEnqId}
-          onSelect={onSelectEnquiry}
-          onPickMember={onPickMember}
-        />
-      </Card>
+      <QueueProfileAccordion
+        enquiries={enquiries}
+        members={members}
+        membersById={membersById}
+        inboxLoading={inboxLoading}
+        member={member}
+        enquiry={selectedEnquiry}
+        selEnqId={selEnqId}
+        onSelectEnquiry={onSelectEnquiry}
+        onPickMember={onPickMember}
+      />
 
       <Card
         title="Itinerary Builder"
-        icon={<Icon name="sliders" size={18} />}
+        icon={<Icon name="sliders" size={20} />}
         sub={member ? "for " + member.name : "no member selected"}
       >
         {draft ? (
@@ -173,17 +174,7 @@ export function WorkbenchTab(props: any) {
         )}
       </Card>
 
-      <div className="taw-col-stack">
-        <Card
-          className="taw-grow"
-          title="Traveller Profile"
-          icon={<Icon name="compass" size={18} />}
-          sub={member ? member.tier : ""}
-        >
-          <Member360 member={member} />
-        </Card>
-        <CartPanel title="Summary" readOnly cart={cart} onRemove={removeFromCart} onClear={clearCart} />
-      </div>
+      <SearchDesksPanel member={member} advisorId={advisorId} onAdd={addToCart} />
     </div>
   );
 }
