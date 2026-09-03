@@ -12,3 +12,4 @@ export { SellNote } from "./SellNote";
 export { OrderScopeBar } from "./OrderScopeBar";
 export { Icon, Ic, svg, has, names } from "./Icon";
 export { Dropdown } from "./Dropdown";
+export { SleekScroll } from "./SleekScroll";

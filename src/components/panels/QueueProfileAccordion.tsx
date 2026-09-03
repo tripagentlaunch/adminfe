@@ -30,9 +30,25 @@
  * (the bordered-card styling) now wraps each section individually;
  * .taw-acc-stack (new, just a flex column + gap) wraps the pair so they
  * still occupy the one shared column.
+ *
+ * 2026-09-02, later same day: the pair now fits the column's full height
+ * exactly, never exceeding the screen — before this, Queue could grow
+ * with however many enquiries exist and push the total taller than the
+ * viewport. Traveller Profile now ALWAYS renders a body (previously only
+ * when open) — a real profile when it's the open section with a member
+ * selected, otherwise a placeholder (icon + short description) — and
+ * reserves a min-height for that placeholder so it never shrinks to just
+ * its header row. Whichever section IS open gets the rest of the
+ * column's height via flex (`.taw-acc.is-open`) and scrolls internally
+ * if its own content is taller than that — see .taw-acc-stack/.taw-acc/
+ * .taw-acc--profile in advisor-workbench.css for the actual height
+ * mechanics. Per direct confirmation: the collapsed state and the
+ * "nothing selected" empty state share the exact same placeholder for
+ * now ("we'll work on making it better but for now it's this").
  * ===========================================================================*/
 import { useState } from "react";
-import { Icon } from "../ui";
+import { cx } from "../../lib/cx";
+import { Empty, Icon } from "../ui";
 import { EnquiryInbox } from "./EnquiryInbox";
 import { Member360 } from "./Member360";
 
@@ -59,10 +75,16 @@ export function QueueProfileAccordion(props: any) {
 
   const openEnquiries = enquiries.filter((e: any) => (e.status || "open") !== "closed");
   const qOpen = open === "queue";
+  const profileOpen = !qOpen;
+  // Placeholder whenever there's nothing real to show in that space —
+  // either because the section is collapsed, or because it's open but no
+  // member is selected yet. Both read the same right now, per direct
+  // confirmation (see docblock above).
+  const showProfilePlaceholder = !profileOpen || !member;
 
   return (
     <div className="taw-acc-stack">
-      <div className="taw-acc">
+      <div className={cx("taw-acc", qOpen && "is-open")}>
         <div className={"taw-acc-h" + (qOpen ? " is-open" : "")}>
           <Icon name="inbox" size={20} />
           <h3>Queue</h3>
@@ -91,24 +113,28 @@ export function QueueProfileAccordion(props: any) {
         ) : null}
       </div>
 
-      <div className="taw-acc">
-        <div className={"taw-acc-h" + (!qOpen ? " is-open" : "")}>
+      <div className={cx("taw-acc", "taw-acc--profile", profileOpen && "is-open")}>
+        <div className={"taw-acc-h" + (profileOpen ? " is-open" : "")}>
           <Icon name="compass" size={20} />
           <h3>Traveller Profile</h3>
           <button
             className="taw-acc-toggle"
             onClick={toggle}
-            aria-label={!qOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
-            title={!qOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
+            aria-label={profileOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
+            title={profileOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
           >
             <Icon name="chevron" size={15} />
           </button>
         </div>
-        {!qOpen ? (
-          <div className="taw-acc-body">
+        <div className="taw-acc-body">
+          {showProfilePlaceholder ? (
+            <Empty icon={<Icon name="user" size={26} />}>
+              Select an enquiry, or expand this section, to see their traveller profile here.
+            </Empty>
+          ) : (
             <Member360 member={member} enquiry={enquiry} />
-          </div>
-        ) : null}
+          )}
+        </div>
       </div>
     </div>
   );

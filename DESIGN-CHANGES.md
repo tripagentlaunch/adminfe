@@ -21,6 +21,132 @@ New entries go at the **top**. Use this template:
 
 ---
 
+## 2026-09-03 — Fixed squashed filter strip (regression from the Search-scroll fix)
+
+**What changed:** The flight filter strip's dropdown pills got squashed
+down to ~14px tall (well below their real ~32px content height) —
+introduced by the same-day Search-scroll fix. Root cause: once the
+strip's `overflow-x:auto` (added to hide its native horizontal
+scrollbar) sat inside the new flex-column ancestor chain
+(`.taw-results-panel` etc.), the CSS spec's overflow-x/y coupling
+implicitly flipped its `overflow-y` to `auto` too — which switches a
+flex item's default `min-height:auto` (content-based) to `0`, letting
+the flex layout squeeze it far below its actual content height. Fixed
+with `flex:none` on `.taw-filter-strip`, taking it out of the flex
+sizing calculation entirely so it's sized by content again. Verified
+live: dropdown pill height back to 32px (was 14px), strip 42px; the
+Search-card-never-scrolls-itself fix from earlier today still holds.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Scrollbar color changed to medium-light grey
+
+**What changed:** The shared `SleekScroll` thumb color (`.taw-sleek-
+scroll-thumb`, used everywhere — Queue, flight search results) changed
+from the sand-gold-ivory tone to a neutral light grey (`#D4D4D4`,
+after a first pass at `#BDBDBD` was asked to go lighter). Still a
+single shared rule, so every current usage stays in sync automatically.
+Verified live: `rgb(212, 212, 212)`.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Search window no longer has its own scrollbar
+
+**What changed:** The Search card's body (`.taw-card-b`) had its own
+native `overflow-y:auto`, same as every other card — but once flight
+results grew past the card's grid-track height, that outer scrollbar
+ALSO kicked in around the whole Search window, on top of the results
+list's own inner `SleekScroll` scrollbar. Fixed with a proper
+`min-height:0` flex chain (the same pattern used for the app-shell
+height cap) from the Search card body down through `.taw-search-stack`
+→ `.taw-fdesk` → `.taw-results-view` → `.taw-results-panel` to
+`.taw-results-scroll`, so only the actual offers list — the one piece
+that truly overflows — scrolls; the search header, leg switcher, and
+filter strip stay fixed in place above it. Also dropped the results
+scroll region's old fixed `max-height:560px`, since it now properly
+fills whatever height the card actually has instead of an arbitrary
+constant. Verified live: `.taw-card-b` no longer has its own scroll
+(`scrollHeight === clientHeight`) while the inner results content does
+(1821px in a 477px view), the outer page stays non-scrollable, and
+scrolling the results leaves the header/filter strip in place.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/components/panels/SearchDesksPanel.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — markup/CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — One shared scrollbar style for every SleekScroll usage
+
+**What changed:** The custom scrollbar (`SleekScroll`) had a Queue-only
+color override (`.taw-enq-scroll .taw-sleek-scroll-thumb`) while every
+other usage fell back to a neutral grey default — so Queue and the
+flight search results scrollbars looked different. Removed the
+override and made the sand-gold-ivory tone (`#D9CDAE`) the single
+default for `.taw-sleek-scroll-thumb`, so every current and future
+SleekScroll instance shares the same color, width (6px thumb / 8px
+track), and always-reserved-space behavior. Verified live: Queue and
+search-results thumbs both compute to `rgb(217, 205, 174)` at 6px.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Filter strip scrollbar hidden; search results get the sleek scrollbar
+
+**What changed:** The flight filter strip's horizontal native scrollbar is
+now hidden (`scrollbar-width:none` + `::-webkit-scrollbar{display:none}`)
+— it still scrolls sideways, just without a visible bar. The flight
+search results list now uses the same custom `SleekScroll` component
+built earlier for Queue, replacing its old native `overflow:auto`
+scrollbar, so its scrollbar behaves consistently (constant-width thumb,
+reserved track) with the rest of the app. Verified live: filter strip
+reports `scrollbar-width:none` while still scrollable (560px content in
+a 330px viewport), and the results list renders a 6px `SleekScroll`
+thumb inside an 8px track.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — markup/CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Button hover no longer shifts; scrollbar/border colors softened
+
+**What changed:** Four small polish fixes to Console:
+1. Removed the `translateY` hover/active transform from `.taw-btn` and
+   `.taw-btn--primary` — buttons no longer shift vertically on hover
+   (confirmed live: `getBoundingClientRect().top` identical before/after
+   hover, `transform:none`). Scrollbar thumb width was also re-verified
+   to stay a constant 6px through a scroll interaction — it already did,
+   no change needed there.
+2. Queue scrollbar thumb lightened from a medium brown (`#C4A077`) to a
+   lighter, desaturated sand-gold-ivory tone (`#D9CDAE`) per request for
+   something more subtle.
+3. Secondary button (`.taw-btn`, e.g. "Start from scratch") hover border
+   changed from `var(--ink)` (near-black) to `#DDD6C4` — a slightly
+   darker shade of its own `--bone` (`#F1EAD8`) hover fill, so the
+   border reads as a shade of the fill rather than a hard black outline.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
 ## 2026-09-02 — Console header icons match sidebar icon size (20px)
 
 **What changed:** Queue/Traveller Profile/Itinerary Builder/Search header
@@ -90,6 +216,370 @@ Verified live for all of the above via computed styles and a screenshot.
 `src/components/panels/QueueProfileAccordion.tsx`,
 `src/styles/advisor-workbench.css`.
 **Data/API status:** n/a — CSS/markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — Itinerary Builder: two-button start (AI vs. scratch), placeholder only
+
+**What changed:** Itinerary Builder used to show either the mock
+`ai_draft` read-only (flight/hotel cards with reasoning/mismatch flags)
+or a generic "not built yet" message once an enquiry was selected. That
+entire read-only draft display is REMOVED. Once an enquiry is selected,
+it now shows a two-button chooser instead: **Generate AI Itinerary**
+(primary) and **Start from scratch** (secondary) — per direct scope call,
+both currently lead to a PLACEHOLDER only (a stand-in message naming
+which path was picked, with a "Back" link to the chooser) — no API call,
+no actual editing yet. The real editable itinerary builder (what each
+path should actually produce, what's editable, whether an AI-generation
+endpoint is real or mocked) is an explicitly separate, later build — this
+was scoped down to just the entry-point buttons + placeholder on request.
+Resets to the chooser whenever a different enquiry is selected (verified
+live — switching from Arjun Mehta's placeholder to Priya Kapoor showed
+the chooser again, not a stale placeholder). The old "no enquiry
+selected" empty state is unchanged in spirit, just reworded to match the
+new flow.
+**Files touched:** `src/components/panels/WorkbenchTab.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): n/a — this entry point has no data dependency of
+  its own; enquiry selection itself is unchanged.
+- Needs backend attention: N/A yet — deliberately deferred. No
+  AI-itinerary-generation endpoint exists anywhere in this codebase;
+  whoever picks this up next will need to decide its shape (see the
+  understanding/plan discussed before implementing this pass) before the
+  "Generate AI Itinerary" button can do anything real.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — flagged above for whoever builds
+the real editable itinerary + AI-generation call next.
+
+---
+
+## 2026-09-02 — Custom scrollbar for Queue (native scrollbars couldn't guarantee this)
+
+**What changed:** The medium-brown/reserved-space Queue scrollbar from an
+earlier entry looked right in computed styles but, per direct report,
+wasn't actually VISIBLE at rest — only while actively scrolling. Root
+cause: several browsers' overlay-scrollbar implementations (macOS's in
+particular) fade the thumb out when scrolling stops, and this is a
+browser/OS-level policy that `::-webkit-scrollbar` styling can't reliably
+override everywhere — no further native-CSS tweak could guarantee "always
+visible while overflowing, whether or not the user is scrolling" across
+browsers. Built a small custom scrollbar component instead
+(`src/components/ui/SleekScroll.tsx`): the native scrollbar is hidden
+entirely, and a real DOM thumb is rendered in its place, positioned from
+actual `scrollTop`/`scrollHeight`/`clientHeight` via a scroll+resize
+listener plus a no-deps `useLayoutEffect` (so it re-measures on every
+render, catching content changes — e.g. enquiries added/removed — that a
+`ResizeObserver` on the scroll container wouldn't, since that only
+observes the container's own box size, not its scrollable content size).
+Visibility is now under our own control, not the browser's: shown exactly
+when `scrollHeight > clientHeight`, regardless of interaction. The track
+column is a fixed 8px width, ALWAYS present, so the reserved-space
+requirement holds whether or not the thumb is currently rendered — no
+reflow when overflow starts/stops.
+
+Found and fixed a real bug while building it: an unconditional `setState`
+inside the no-deps `useLayoutEffect` retriggered a render every time
+(even when nothing had changed), which retriggered the effect again —
+"Maximum update depth exceeded." Fixed by comparing against current state
+and returning the SAME object reference when nothing changed, so React's
+bailout optimization stops the loop.
+
+Reusable (not Queue-specific) — `.taw-enq-scroll` is the one place the
+thumb is recolored medium-brown (`--cognac`); other future usages default
+to a neutral tone. Verified live: Queue's list (745px of content in a
+341px visible area) shows a persistent brown thumb with no interaction at
+all, screenshotted to confirm.
+**Files touched:** `src/components/ui/SleekScroll.tsx` (new),
+`src/components/ui/index.ts`, `src/components/panels/EnquiryInbox.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — UI only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — Dropdown menu polish: no icons in Sort's list, wider Departure-time with distinct icons, borders/shadow fixed for portaled popups
+
+**What changed:**
+1. Sort dropdown's OPEN list no longer repeats the sort icon on every row
+   (new `hideOptionIcons` prop on the shared `Dropdown` component) — the
+   closed trigger still always shows it (every `SORT_OPTIONS` entry
+   shares the same icon, so `Dropdown`'s "show the current option's icon"
+   behavior does that part for free).
+2. Departure time dropdown widened (`.taw-filter-dd--wide`, min-width
+   118px) and given a DISTINCT icon per option instead of a repeated
+   clock — new `sunrise`/`sun`/`sunset`/`moon` icons alongside the
+   existing `clock` (Any time). Padding corrected to match every other
+   filter-strip dropdown exactly (`6px 10px` — an earlier pass had
+   accidentally left it at a mismatched `7px 10px` with an extra
+   `padding-left:12px` override).
+3. **Real bug found**: after the dropdown popup started rendering via a
+   React portal to `document.body` (an earlier entry, to escape ancestor
+   `overflow:hidden` clipping), its box-shadow silently stopped working —
+   `var(--whisper)` is a CSS custom property scoped to `.taw`'s own rule
+   block, and a portaled element sits OUTSIDE `.taw`'s DOM subtree, so
+   the variable no longer resolved there. Fixed by using the underlying
+   global `:root` token (`var(--shadow-sm)`, now `var(--shadow)` per the
+   follow-up below) directly instead of the `.taw`-scoped alias.
+4. Per direct request, all dropdown-menu popups (every `Dropdown`
+   instance AND `AutosuggestInput`'s from/to typeahead, since they share
+   `.taw-typeahead-list`) now have a `#F8F8F8` border on the left/right/
+   bottom edges (none on top — flush against the trigger) — reversing an
+   earlier pass that had removed all three over a since-resolved concern
+   about apparent 1-2px width mismatch. Shadow bumped from `--shadow-sm`
+   to the slightly more prominent `--shadow` per a same-day follow-up.
+Verified live: Sort's list has zero icons, Departure-time's trigger/list
+show the four distinct icons plus clock, all four filter-strip dropdowns
+report identical `6px 10px` padding, and the popup's box-shadow now
+actually computes to a real value (was `none` before the `--shadow-sm`
+fix).
+**Files touched:** `src/components/ui/Dropdown.tsx`,
+`src/components/ui/Icon.tsx`, `src/components/panels/FlightDesk.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — UI only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — Flight results filter strip rebuilt; real technical-stop vs. connection distinction
+
+**What changed:** Built after a plan-for-review. FlightDesk's results
+filter bar (previously a mixed row of segmented buttons, a toggle, two
+native selects, a spacer, and a labeled select) is now ONE horizontally-
+scrollable strip of dropdowns + a chip, in order: **Sort** (leading sort
+icon, always visible regardless of which option is picked — every
+`SORT_OPTIONS` entry carries the same icon, so `Dropdown`'s "show the
+current option's icon" behavior does this for free) → **Departure time**
+→ **Carrier** → **Stops**, then the **Refundable** chip (was an isolated
+toggle button; selected state now also swaps its shield icon for an X, so
+it reads as "click to remove" rather than just a color change).
+
+The Stops dropdown replaces a bare stop-COUNT filter ("All"/"Non-stop"/
+"≤1 stop") with the actual airline distinction requested: a **direct**
+flight can still touch down at an intermediate airport for a technical/
+fuel stop WITHOUT a plane change (same flight number) — genuinely
+different from a **connecting** flight, which requires changing planes
+because there's no direct routing. New options: Non-stop, Direct
+(technical stop), Connecting, Overnight layover, Multiple connections.
+Added `classifyStopType()` (`mockFlightSearch.ts`) — derives this from
+`segments`: same flight number across every segment = direct; different
+flight numbers = a real connection, further split into overnight (6h+
+layover) or multi (2+ plane changes). Works on real API offers too, not
+just mock ones — it only reads `segments`/`stops`, already part of the
+real shape (the captured real dataset's Qatar Airways offer, e.g.,
+already has two DIFFERENT flight numbers across its segments — a genuine
+connection this classifier now actually recognizes).
+
+`buildMockFlightOffers()` rebuilt to generate a real mix of all 5 stop
+types (cycling every offer through nonstop/direct/connecting/overnight/
+multi) instead of a flat 0-or-1 stop count — needed for the new filter to
+have anything meaningful to filter BY in local dev. Verified live: an
+8-offer result set split 2/2/2/1/1 across the five types, and selecting
+each Stops option correctly narrowed to just that bucket.
+
+Also removed the "Showing X of Y offers" line per direct request.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/lib/mockFlightSearch.ts`, `src/components/ui/Icon.tsx` (new `sort`
+and `x` icons), `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): the stops classification reads real-shaped
+  fields (`segments[].flightNo`, arrival/departure times) — no schema
+  change needed for it to work against real API responses.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — Queue scrollbar: medium brown, space always reserved
+
+**What changed:** Queue's own scrollbar (`.taw-enq`) split out from the
+shared taupe/`--line-2` scrollbar every other scrollable area
+(`.taw-acc-body`, `.taw-card-b`) uses, into its own dedicated style per
+direct request:
+1. **Medium brown** — `var(--cognac)` (#9C6B3F, already an existing
+   design token), not the neutral taupe used elsewhere.
+2. **Space always reserved on the right**, whether or not the list is
+   actually overflowing right now — `scrollbar-gutter:stable`, so Queue's
+   own width never shifts by a few px the moment a row gets added/removed
+   and it starts/stops needing to scroll.
+Verified live via computed styles: `scrollbar-gutter: stable`,
+`scrollbarColor: rgb(156, 107, 63)` (= `--cognac`).
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — App shell capped at viewport height; every panel scrolls internally
+
+**What changed:** A real, global layout fix, built after a plan-for-review
+and an explicit scope confirmation (global, not just Console): no route
+should ever need the whole page/window scrolled — every screen's own
+content scrolls internally instead.
+1. **The shared shell** (`.taw`, used by every route's own layout.tsx)
+   changed from `min-height:100vh` (a FLOOR — content could still grow
+   taller and the page would scroll past it) to `height:100vh;
+   overflow:hidden` (an actual CAP). This is what makes "no window ever
+   needs full-page scroll" true everywhere, not just here.
+2. **`.taw-main`** gets `min-height:0` (so it can actually shrink within
+   the now-bounded shell instead of forcing it taller) plus its own
+   `overflow-y:auto` as a general fallback — any route whose content
+   doesn't fit scrolls there (under the fixed top chrome), not the whole
+   window.
+3. **Traveller Profile** (`QueueProfileAccordion.tsx`) now ALWAYS renders
+   a body — previously only when it was the open accordion section.
+   When it's collapsed OR open-but-no-member-selected, it shows a
+   placeholder (plain user icon + short description) instead of nothing;
+   per direct confirmation, collapsed and empty share this same
+   placeholder for now. A new `.taw-acc--profile` min-height (214px,
+   measured from the actual rendered placeholder) means it never
+   shrinks to just its header row.
+4. **Queue and Traveller Profile now correctly split whatever height the
+   column actually has** — whichever is open gets the rest via
+   `.taw-acc.is-open{flex:1;min-height:0}`, the collapsed one is pinned
+   to its natural/min-height. Found and fixed a real CSS Grid gotcha
+   along the way: grid items ALSO default to `min-height:auto` (=
+   content size), same as flex items — this was silently overriding
+   `align-items:stretch` on the whole `.taw-cols-3` row (a column
+   measured 922px tall inside a 607px track!) until `.taw-cols-3>*
+   {min-height:0}` was added.
+5. **Queue's list (`.taw-enq`) and every card body (`.taw-card-b`,
+   `.taw-acc-body`)** now actually scroll internally when their content
+   is taller than their allotted space, with a new sleek thin/themed
+   scrollbar (Firefox `scrollbar-width/-color`, WebKit
+   `::-webkit-scrollbar*`) replacing both the OS default AND the
+   earlier `scrollbar-width:none` on `.taw-enq` (which hid the
+   scrollbar entirely — functional but invisible, silently clipping a
+   long Queue with no visible indication more existed).
+6. **Search's card** (`SearchDesksPanel.tsx`'s animated full-height
+   state) needed the same treatment — `.taw-card` didn't have a flex
+   context at all, so a long results list had nowhere to go but
+   overflow past the card's own bounds. `.taw-card{display:flex;
+   flex-direction:column}` + `.taw-card-b{flex:1;min-height:0;
+   overflow-y:auto}` fixes this per direct request ("even search window
+   will take up the whole height but is capped, and search results will
+   be scrollable within the window itself").
+Verified live end to end: `document.documentElement.scrollHeight` exactly
+equals `window.innerHeight` (720px both, no page scroll) in every state
+tested — default Queue/Profile view, and after a full flight search with
+8 results (Search card capped at 606.9px matching Itinerary Builder
+exactly, its results area independently scrollable at 570px of visible
+space against 913px of content).
+**Files touched:** `src/components/panels/QueueProfileAccordion.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — layout/CSS only, no data changes.
+**Env vars added/changed:** none.
+**Backend action needed:** None. Worth a broader pass later across other
+routes (Orders board, Journeys, etc.) to confirm none of them relied on
+whole-page scroll for content that doesn't yet have its own internal
+scroll region — `.taw-main`'s new `overflow-y:auto` fallback should catch
+most cases reasonably, but wasn't individually audited per-route this
+pass.
+
+---
+
+## 2026-09-02 — Date chips: paged not scrolled, default selection, one-way pill
+
+**What changed:** Three follow-up corrections on the round-trip/date-chip
+feature above:
+1. Date chips no longer scroll (`overflow-x:auto` removed) — now show a
+   fixed `CHIP_WINDOW_SIZE` (5) window with `</>` paging buttons
+   (`.taw-icon-btn`, same style as the back button) flanking the row,
+   disabled at each end. Verified live: clicking next advanced the
+   visible window (20–24 Sept → 21–25 Sept) with no scrolling.
+2. A chip is now selected by default instead of "all dates merged" —
+   the actual searched date for whichever leg is active (departure date
+   for outbound, return date for return), via a new
+   `defaultChipDateFor(leg)` helper, applied both on initial search and
+   on every leg switch. Verified live: after a round-trip search for
+   24 Sept, the "24 Sept" chip was pre-selected.
+3. One-way searches now render the SAME pill container as round-trip
+   (for visual consistency) but as a single inert tab reading
+   "DEL → DXB · 24 Sept" (route and date joined with a middle dot) —
+   the second tab simply isn't rendered, since there's nothing to switch
+   to. Verified live.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — UI/interaction only, no data changes.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-02 — FlightDesk: real round-trip (departure/return switcher) + date-chip filter
+
+**What changed:** A real feature, not just styling — built after presenting
+a plan for review (round-trip data gap, mock-data approach, and filter
+mechanics all confirmed before implementing):
+1. **One-way vs round-trip is now decided by the Arrival field itself** —
+   `form.returnDate` defaults to empty (was auto-filled). If it has a
+   value when Search is clicked, that search is treated as round-trip;
+   empty = one-way. This is evaluated fresh in `run()` every time, not a
+   separate toggle.
+2. **Results header simplified**: removed the "New search" text label and
+   the `DEL → DXB · date` summary line entirely — just an icon-only back
+   button now (`.taw-icon-btn`, 20px chevron, matching the app's other
+   header icons instead of the old 12px `.taw-linkbtn` treatment).
+3. **Departure/Return switcher** (`.taw-leg-switch`/`.taw-leg-tab`, a
+   segmented pill, same row as the back button) — only rendered for a
+   round trip. This is REAL, not cosmetic: `run()` now fetches the
+   outbound leg (origin→dest, departure date ± nearby-dates window) AND,
+   for a round trip, the return leg SEPARATELY (dest→origin, return date
+   ± its own window) via a new `fetchLeg()`, and keeps them as two
+   distinct arrays in `res` (`res.outbound` / `res.return`) rather than
+   merging — switching tabs swaps which array is shown.
+4. **New mock-data generator** (`buildMockFlightOffers` in
+   `mockFlightSearch.ts`) replaces the single static
+   `MOCK_FLIGHT_SEARCH_RESPONSE` for the search-fallback path (still used
+   only when the real API call fails, same contract as before). It
+   deterministically varies airline mix/price/times from a hash of
+   route+date, so different dates AND different legs actually show
+   different flights — verified live: switching Departure→Return leg
+   changed both the visible date-chip range (20-26 Sep → 1-7 Oct) and the
+   actual offers (Qatar Airways QR 622 → Thai Airways TG 809), not the
+   same data relabeled.
+5. **Date-chip row** (`.taw-date-chips`/`.taw-date-chip`) — only shown
+   when "Include nearby dates" was checked (`res.nearbyDates`), listing
+   the dates actually fetched for the CURRENTLY ACTIVE leg. Clicking one
+   filters that leg's already-fetched offers down to just that day,
+   entirely client-side (every date in the window was already fetched —
+   no new request); clicking the active chip again clears back to "all
+   dates merged." Verified live: 49 offers → 7 after picking one chip.
+Styled in the app's own warm palette (bone/champagne/gold-deep), not the
+reference screenshot's indigo/blue.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/lib/mockFlightSearch.ts`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): both legs still attempt the real API first via
+  `fetchOffersForDate`/`fetchLeg` — mock generation only fires on
+  failure, same fallback contract as everything else in this desk.
+- Needs backend attention: a round-trip search now fires up to 14 real
+  flight-search calls in one click (7 dates × 2 legs, when nearby-dates
+  is also checked) — flag this to whoever owns flight-search capacity/
+  cost, same note as the earlier nearby-dates entry.
+**Env vars added/changed:** none.
+**Backend action needed:** None required to keep working (mock fallback
+covers local dev), but flag the up-to-14-calls-per-click behavior above.
+
+---
+
+## 2026-09-02 — Traveller Profile hero: meta 12px, avatar refit to 2 lines
+
+**What changed:** `.taw-m360-meta` (gender · DOB · company) 14px → 12px.
+It was previously wrapping to 2 lines at this column's width, which broke
+the "avatar matches content height" contract from an earlier entry —
+added `white-space:nowrap` + ellipsis so it's guaranteed to stay on one
+line (name + meta = exactly 2 lines total, as intended). Avatar resized
+to match that new, shorter 2-line block: 78px → 49px (radius 16px → 10px,
+initials 24px → 16px), measured live at 48.79px content height —
+verified both share the same vertical center (299.99 vs 299.99).
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
 **Env vars added/changed:** none.
 **Backend action needed:** None.
 

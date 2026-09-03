@@ -45,6 +45,12 @@ const PATHS: Record<string, string> = {
   "inbox-check": "M3 13h4l2 3h6l2-3h4M5 5h14l2 8v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4zM9.5 16.5l1.5 1.5 3-3",
   sidebar: "M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 3v18",
   swap: "M3 7h14M13 3l4 4-4 4M21 17H7M11 21l-4-4 4-4",
+  sort: "M7 4v16M7 4 3 8M7 4l4 4M17 20V4M17 20l4-4M17 20l-4-4",
+  x: "M18 6 6 18M6 6l12 12",
+  sunrise: "M3 18h18M12 14a4 4 0 0 1 4 4H8a4 4 0 0 1 4-4zM12 2v5M9 4l3 3 3-3",
+  sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2",
+  sunset: "M3 18h18M12 14a4 4 0 0 1 4 4H8a4 4 0 0 1 4-4zM12 2v5M9 6l3-3 3 3",
+  moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
 };
 
 // Aliases so callers can use intent names.

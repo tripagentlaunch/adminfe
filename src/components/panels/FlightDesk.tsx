@@ -10,8 +10,8 @@ import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, searchFligh
 import { AutosuggestInput } from "../AutosuggestInput";
 import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
-import { Dropdown, Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon } from "../ui";
-import { MOCK_FLIGHT_SEARCH_RESPONSE, mockFlightFares } from "../../lib/mockFlightSearch";
+import { Dropdown, Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, SleekScroll } from "../ui";
+import { buildMockFlightOffers, classifyStopType, mockFlightFares } from "../../lib/mockFlightSearch";
 
 // HARDCODED FALLBACK, not a real API call — GET /flights/autosuggest
 // requires q with min_length=2 (flight_router.py:get_autosuggest) and 422s
@@ -24,11 +24,47 @@ import { MOCK_FLIGHT_SEARCH_RESPONSE, mockFlightFares } from "../../lib/mockFlig
 // CABIN_OPTIONS (2026-09-02) — the Cabin field was a native <select>, same
 // unstyleable-own-popup limitation the Flights desk-picker had (see
 // Dropdown.tsx's own docblock) — swapped for the same custom Dropdown.
+// CHIP_WINDOW_SIZE (2026-09-02) — how many date chips show at once in the
+// nearby-dates row; </> buttons page through the rest instead of scrolling.
+const CHIP_WINDOW_SIZE = 5;
+
 const CABIN_OPTIONS = [
   { key: "economy", label: "Economy" },
   { key: "premium_economy", label: "Premium Economy" },
   { key: "business", label: "Business" },
   { key: "first", label: "First" },
+];
+
+// Results filter-strip options (2026-09-02) — every SORT_OPTIONS entry
+// carries the SAME icon so the Sort dropdown's trigger always shows a
+// sort icon regardless of which option is currently picked (Dropdown
+// shows the CURRENT option's own icon — giving them all the same one is
+// what makes it "always visible" without needing a separate prop for it).
+const SORT_OPTIONS = [
+  { key: "best", label: "Best", icon: "sort" },
+  { key: "cheapest", label: "Cheapest", icon: "sort" },
+  { key: "fastest", label: "Fastest", icon: "sort" },
+  { key: "earliest", label: "Earliest arrival", icon: "sort" },
+];
+const DEP_WINDOW_OPTIONS = [
+  { key: "any", label: "Any time", icon: "clock" },
+  { key: "morning", label: "Morning 05–12", icon: "sunrise" },
+  { key: "afternoon", label: "Afternoon 12–17", icon: "sun" },
+  { key: "evening", label: "Evening 17–22", icon: "sunset" },
+  { key: "night", label: "Night 22–05", icon: "moon" },
+];
+// STOPS_OPTIONS (2026-09-02) — matches classifyStopType() in
+// mockFlightSearch.ts, not a raw stop count: "direct" (technical/fuel
+// stop, same flight number, no plane change) is genuinely different from
+// "connecting" (a real layover, different flight/aircraft) — a bare
+// "≤1 stop" filter couldn't tell those apart.
+const STOPS_OPTIONS = [
+  { key: "any", label: "Any stops" },
+  { key: "nonstop", label: "Non-stop" },
+  { key: "direct", label: "Direct (technical stop)" },
+  { key: "connecting", label: "Connecting" },
+  { key: "overnight", label: "Overnight layover" },
+  { key: "multi", label: "Multiple connections" },
 ];
 
 const DEFAULT_AIRPORT_SUGGESTIONS = [
@@ -311,12 +347,11 @@ export function FlightDesk(props: any) {
     originCode: "DEL",
     destCode: "DXB",
     date: todayISO(21),
-    // returnDate (2026-09-02) — round-trip support, new: previously this
-    // desk was one-way only (a single `date`, no return leg anywhere in
-    // state or in the search params below). Defaults a week after the
-    // default departure so it's never invalid (before departure) out of
-    // the box.
-    returnDate: todayISO(28),
+    // returnDate (2026-09-02) — round-trip support: EMPTY by default,
+    // one-way. Whether a search is round-trip or one-way is decided
+    // purely by whether this field has a value in it AT THE MOMENT
+    // Search is clicked (see run()) — not a separate toggle.
+    returnDate: "",
     pax: (member && member.preferences && member.preferences.pax) || 2,
     cabin: (member && member.preferences && member.preferences.cabin) || "economy",
   });
@@ -341,6 +376,27 @@ export function FlightDesk(props: any) {
   // ITSELF pulls flights from ±3 days around the chosen date, not just a
   // price comparison you then have to act on separately.
   const [includeNearbyDates, setIncludeNearbyDates] = useState(false);
+  // leg (2026-09-02) — which direction's offers are currently shown, for
+  // a round-trip search. Reset to "outbound" on every new run().
+  const [leg, setLeg] = useState<"outbound" | "return">("outbound");
+  // selectedChipDate (2026-09-02) — when includeNearbyDates was checked,
+  // clicking a date chip filters the current leg's already-fetched
+  // offers down to just that day (client-side, no refetch — every date
+  // in the window was already fetched). null = show every date merged.
+  const [selectedChipDate, setSelectedChipDate] = useState<string | null>(null);
+  // chipWindowStart (2026-09-02) — the date-chip row is no longer a
+  // scrolling strip; it shows a fixed-size window of CHIP_WINDOW_SIZE
+  // chips at a time, paged with the </> buttons flanking it, per direct
+  // request. Reset to 0 on every new run() and on every leg switch.
+  const [chipWindowStart, setChipWindowStart] = useState(0);
+
+  // defaultChipDateFor(legName) — the date that should be pre-selected
+  // when landing on a leg: the actual date the advisor searched for that
+  // leg (departure date for outbound, return date for return), not
+  // "every date merged" — per direct request.
+  function defaultChipDateFor(legName: "outbound" | "return") {
+    return legName === "outbound" ? form.date : form.returnDate;
+  }
 
   function set(k: string, v: any) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -361,16 +417,19 @@ export function FlightDesk(props: any) {
     return d.toISOString().slice(0, 10);
   }
 
-  // fetchOffersForDate(dateStr) — the real API call for ONE date, factored
-  // out of run() so it can be fired once (normal search) or in parallel
-  // across ±3 days (includeNearbyDates checked) without duplicating the
-  // USE_REAL_FLIGHTS branch.
-  function fetchOffersForDate(dateStr: string) {
+  // fetchOffersForDate(dateStr, fromCode, toCode) — the real API call for
+  // ONE date on ONE leg, factored out of run() so it can be fired once
+  // (normal search), in parallel across ±3 days (includeNearbyDates), and
+  // for EITHER direction (outbound origin→dest, or return dest→origin)
+  // without duplicating the USE_REAL_FLIGHTS branch. Each leg is its own
+  // one-way-shaped query — round-trip here means "outbound and return
+  // fetched and shown separately," not a single combined round-trip
+  // search param.
+  function fetchOffersForDate(dateStr: string, fromCode: string, toCode: string) {
     const base: any = {
-      originCode: form.originCode.toUpperCase().trim(),
-      destCode: form.destCode.toUpperCase().trim(),
+      originCode: fromCode,
+      destCode: toCode,
       date: dateStr,
-      returnDate: form.returnDate,
       pax: Number(form.pax) || 1,
       cabin: form.cabin,
     };
@@ -380,46 +439,70 @@ export function FlightDesk(props: any) {
     return searchFlights(base);
   }
 
-  // run(dateOverride?) — 2026-09-02: takes an optional explicit date, and
-  // now ALSO fires ±3 extra searches when includeNearbyDates is checked,
-  // merging every date's real offers into one list (each offer tagged
-  // with `_searchDate` so FlightResults can show which day it's for).
-  // Replaces the earlier "Compare nearby dates" price-matrix flow
-  // entirely — that showed only an aggregate price per date and required
-  // a second click to actually search it; this pulls real flights for
-  // every date in one action.
+  // fetchLeg(dates, fromCode, toCode) — runs fetchOffersForDate across
+  // every date in the window for one leg, merges into one array (each
+  // offer tagged with `_searchDate`), and falls back to
+  // buildMockFlightOffers PER DATE (not one shared static dataset) only
+  // if every real call for this leg failed — so different dates/legs
+  // actually look different from each other when compared, per direct
+  // request, instead of the same canned data reappearing everywhere.
+  function fetchLeg(dates: string[], fromCode: string, toCode: string) {
+    return Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt, fromCode, toCode).then((r: any) => ({ dt, r })))).then((results) => {
+      const ok = results.filter((x: any) => x.status === "fulfilled").map((x: any) => x.value);
+      if (!ok.length) {
+        const merged: any[] = [];
+        dates.forEach((dt) => {
+          const mock = buildMockFlightOffers({ originCode: fromCode, destCode: toCode, date: dt, pax: Number(form.pax) || 1, cabin: form.cabin });
+          mock.offers.forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
+        });
+        return { offers: merged, usedMock: true };
+      }
+      const merged: any[] = [];
+      ok.forEach(({ dt, r }: any) => {
+        ((r && r.offers) || []).forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
+      });
+      return { offers: merged, usedMock: false };
+    });
+  }
+
+  // run(dateOverride?) — 2026-09-02: fetches the outbound leg always, and
+  // ALSO the return leg (reversed route, form.returnDate's own ±3-day
+  // window) when form.returnDate has a value AT THIS MOMENT — that's the
+  // one-way-vs-round-trip decision, made fresh on every search rather
+  // than a separate persistent toggle. Both legs kept SEPARATE in
+  // `res` (not merged together) so the departure/return switcher below
+  // can show genuinely different results per leg.
   function run(dateOverride?: string) {
     const searchDate = dateOverride || form.date;
+    const roundTrip = !!(form.returnDate && form.returnDate.trim());
     setErr(null);
     setLoading(true);
     setRes(null);
     setOpenOffer(null);
+    setLeg("outbound");
+    setSelectedChipDate(includeNearbyDates ? searchDate : null);
+    setChipWindowStart(0);
     setView({ sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" });
 
-    const dates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
+    const originCode = form.originCode.toUpperCase().trim();
+    const destCode = form.destCode.toUpperCase().trim();
+    const outboundDates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
+    const returnDates = roundTrip ? (includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(form.returnDate, d)) : [form.returnDate]) : [];
 
-    Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt).then((r: any) => ({ dt, r }))))
-      .then((results) => {
-        const ok = results.filter((x: any) => x.status === "fulfilled").map((x: any) => x.value);
-        if (!ok.length) {
-          // Every date's real call failed — no backend reachable from
-          // local dev, same as before. Falls back ONCE to the single
-          // captured mock result set (2026-09-01) rather than showing N
-          // identical copies of it stitched together across dates.
-          setRes(MOCK_FLIGHT_SEARCH_RESPONSE);
-          setLoading(false);
-          toast("Live API unreachable — showing demo flight data", "error");
-          return;
-        }
-        const merged: any[] = [];
-        ok.forEach(({ dt, r }: any) => {
-          ((r && r.offers) || []).forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
+    Promise.all([fetchLeg(outboundDates, originCode, destCode), roundTrip ? fetchLeg(returnDates, destCode, originCode) : Promise.resolve({ offers: [], usedMock: false })]).then(
+      ([outboundResult, returnResult]) => {
+        setRes({
+          outbound: outboundResult.offers,
+          return: roundTrip ? returnResult.offers : null,
+          nearbyDates: includeNearbyDates,
+          roundTrip,
         });
-        setRes({ offers: merged, count: merged.length });
         setLoading(false);
-        const acrossLabel = dates.length > 1 ? " across " + ok.length + " date" + (ok.length === 1 ? "" : "s") : "";
-        toast(merged.length + " flight offers loaded" + acrossLabel, "success");
-      });
+        const anyMock = outboundResult.usedMock || returnResult.usedMock;
+        const total = outboundResult.offers.length + returnResult.offers.length;
+        toast((anyMock ? "Live API unreachable — showing demo flight data — " : "") + total + " flight offers loaded", anyMock ? "error" : "success");
+      }
+    );
   }
 
   // showResults (2026-09-02) — the form and the results are now mutually
@@ -438,7 +521,16 @@ export function FlightDesk(props: any) {
     setErr(null);
   }
 
-  const offers = (res && res.offers) || [];
+  // activeLegOffers / offers (2026-09-02) — `leg` picks which of the two
+  // separately-fetched result sets to look at; `selectedChipDate` (only
+  // meaningful when res.nearbyDates) then filters THAT leg's offers down
+  // to one day, client-side — every date in the window was already
+  // fetched, so this never triggers a new request.
+  const activeLegOffers = res ? (leg === "return" ? res.return || [] : res.outbound || []) : [];
+  const offers = selectedChipDate ? activeLegOffers.filter((o: any) => o._searchDate === selectedChipDate) : activeLegOffers;
+  // chipDates — the distinct dates actually fetched for the CURRENT leg,
+  // in order, for the date-chip row (only rendered when res.nearbyDates).
+  const chipDates = res ? Array.from(new Set(activeLegOffers.map((o: any) => o._searchDate))).sort() : [];
 
   // formView / resultsView (2026-09-02) — mutually exclusive now: results
   // REPLACE the search form instead of appearing below it. The idle
@@ -546,22 +638,98 @@ export function FlightDesk(props: any) {
   );
 
   const resultsView = (
-    <>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 11 }}>
+    <div className="taw-results-view">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
         {/* Back-to-search (2026-09-02) — the only way out of results now
             that they've replaced the form; hidden while a search is still
             in flight, since there's nothing to "go back to" mid-request
-            (the form isn't mounted). */}
+            (the form isn't mounted). Icon-only now, sized to match the
+            app's other header icons (20px) — the "New search" text label
+            and the route/date summary line both removed per direct
+            request. */}
         {!loading ? (
-          <button className="taw-linkbtn" onClick={backToSearch}>
-            <Icon name="chevron" size={12} style={{ transform: "rotate(90deg)" }} />
-            New search
+          <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
+            <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
           </button>
         ) : null}
-        <span className="taw-muted" style={{ fontSize: 12 }}>
-          {form.originCode} → {form.destCode} · {form.date}
-        </span>
+        {/* Departure/Return leg switcher (2026-09-02) — for a round trip
+            (res.roundTrip, decided by whether Arrival had a date in it
+            when Search was clicked — see run()), two real tabs that show
+            genuinely DIFFERENT result sets (res.outbound vs res.return),
+            each fetched/generated independently. For a ONE-WAY search
+            (per direct follow-up), still render the same pill container
+            for visual consistency, but as a single inert "tab" with the
+            route AND the searched date together (route · date) — there's
+            nothing to switch to, so the second option just isn't there. */}
+        {res ? (
+          <div className="taw-leg-switch">
+            <button
+              className={cx("taw-leg-tab", leg === "outbound" && "is-active")}
+              onClick={() => {
+                setLeg("outbound");
+                setSelectedChipDate(res.nearbyDates ? defaultChipDateFor("outbound") : null);
+                setChipWindowStart(0);
+              }}
+            >
+              {form.originCode} → {form.destCode}
+              {!res.roundTrip ? " · " + fmtDate(form.date) : ""}
+            </button>
+            {res.roundTrip ? (
+              <button
+                className={cx("taw-leg-tab", leg === "return" && "is-active")}
+                onClick={() => {
+                  setLeg("return");
+                  setSelectedChipDate(res.nearbyDates ? defaultChipDateFor("return") : null);
+                  setChipWindowStart(0);
+                }}
+              >
+                {form.destCode} → {form.originCode}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
+      {/* Date-chip row (2026-09-02) — only when includeNearbyDates was
+          checked at search time (res.nearbyDates), listing the dates
+          actually fetched for the CURRENTLY ACTIVE leg. Clicking one
+          filters down to just that day (client-side — every date's
+          offers were already fetched, this never re-searches); clicking
+          the already-selected one clears the filter back to "all dates".
+          Paged with </> buttons instead of scrolling (2026-09-02, direct
+          request) — CHIP_WINDOW_SIZE chips visible at a time. */}
+      {res && res.nearbyDates && chipDates.length > 1 ? (
+        <div className="taw-date-chips-row">
+          <button
+            type="button"
+            className="taw-icon-btn"
+            disabled={chipWindowStart === 0}
+            onClick={() => setChipWindowStart((s) => Math.max(0, s - 1))}
+            aria-label="Earlier dates"
+          >
+            <Icon name="chevron" size={16} style={{ transform: "rotate(90deg)" }} />
+          </button>
+          <div className="taw-date-chips">
+            {chipDates.slice(chipWindowStart, chipWindowStart + CHIP_WINDOW_SIZE).map((dt: any) => (
+              <button
+                key={dt}
+                className={cx("taw-date-chip", selectedChipDate === dt && "is-active")}
+                onClick={() => setSelectedChipDate((cur) => (cur === dt ? null : dt))}
+              >
+                {fmtDate(dt)}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="taw-icon-btn"
+            disabled={chipWindowStart + CHIP_WINDOW_SIZE >= chipDates.length}
+            onClick={() => setChipWindowStart((s) => Math.min(chipDates.length - CHIP_WINDOW_SIZE, s + 1))}
+            aria-label="Later dates"
+          >
+            <Icon name="chevron" size={16} style={{ transform: "rotate(-90deg)" }} />
+          </button>
+        </div>
+      ) : null}
       {err ? (
         <div className="taw-banner taw-banner--err">
           <Icon name="alert" size={16} />
@@ -572,10 +740,10 @@ export function FlightDesk(props: any) {
       {!loading && res ? (
         <FlightResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} member={member} advisorId={props.advisorId} onAdd={props.onAdd} />
       ) : null}
-    </>
+    </div>
   );
 
-  return <div className="taw-fade-in">{showResults ? resultsView : formView}</div>;
+  return <div className="taw-fade-in taw-fdesk">{showResults ? resultsView : formView}</div>;
 }
 
 // Split out of FlightDesk's render purely so the filter/sort math below reads
@@ -596,11 +764,16 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
       carriers.push({ code: c, name: d.airlineName || c });
     }
   });
-  // FLT-011 — filter.
+  // FLT-011 — filter. Stops now matches the REAL distinction (see
+  // classifyStopType's own docblock in mockFlightSearch.ts) instead of a
+  // raw stop count — "direct" (technical stop, same flight, no plane
+  // change) is a genuinely different thing from "connecting" (a real
+  // layover/plane change), which a bare "≤1 stop" count couldn't tell
+  // apart. Works for real API offers too, not just mock ones — it only
+  // reads `segments`/`stops`, both already part of the real shape.
   let shown = offers.filter((o: any) => {
     const d = o.detail || {};
-    if (view.stops === "nonstop" && d.stops !== 0) return false;
-    if (view.stops === "max1" && (d.stops || 0) > 1) return false;
+    if (view.stops !== "any" && classifyStopType(d) !== view.stops) return false;
     if (view.refundable && !d.refundable) return false;
     if (view.carrier !== "all" && d.airline !== view.carrier) return false;
     if (view.depWindow !== "any") {
@@ -639,70 +812,42 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
     const sb = 0.7 * (offNet(b) / (minNet || 1)) + 0.3 * ((db.durationMin || minDur) / (minDur || 1));
     return sa - sb;
   });
-  const stopBtn = (val: string, label: string) => (
-    <button className={"taw-seg" + (view.stops === val ? " is-on" : "")} onClick={() => setV("stops", val)}>
-      {label}
-    </button>
-  );
+  const carrierOptions = [{ key: "all", label: "All carriers" }, ...carriers.map((c: any) => ({ key: c.code, label: c.name }))];
   return (
-    <div>
+    <div className="taw-results-panel">
+      {/* One horizontally-scrollable strip of dropdowns + a chip
+          (2026-09-02, replacing the old mixed segmented-buttons/selects/
+          labeled-select bar) — Sort (leading sort icon on every option,
+          so the trigger always shows it regardless of which is picked) →
+          Departure time → Carrier → Stops, then the Refundable chip. */}
       {offers.length ? (
-        <div className="taw-shopbar">
-          <div className="taw-segrp">
-            {stopBtn("any", "All")}
-            {stopBtn("nonstop", "Non-stop")}
-            {stopBtn("max1", "≤ 1 stop")}
-          </div>
+        <div className="taw-filter-strip">
+          <Dropdown value={view.sort} options={SORT_OPTIONS} onChange={(v: any) => setV("sort", v)} ariaLabel="Sort offers" triggerClassName="taw-filter-dd" hideOptionIcons />
+          <Dropdown
+            value={view.depWindow}
+            options={DEP_WINDOW_OPTIONS}
+            onChange={(v: any) => setV("depWindow", v)}
+            ariaLabel="Filter by departure time"
+            triggerClassName={cx("taw-filter-dd", "taw-filter-dd--wide")}
+          />
+          {carriers.length > 1 ? (
+            <Dropdown value={view.carrier} options={carrierOptions} onChange={(v: any) => setV("carrier", v)} ariaLabel="Filter by carrier" triggerClassName="taw-filter-dd" />
+          ) : null}
+          <Dropdown value={view.stops} options={STOPS_OPTIONS} onChange={(v: any) => setV("stops", v)} ariaLabel="Filter by stops" triggerClassName="taw-filter-dd" />
+          {/* Refundable as a chip (2026-09-02) — selected state swaps its
+              icon to an X so it visibly reads as "click to remove this
+              filter", not just a color change. */}
           <button
-            className={"taw-toggle" + (view.refundable ? " is-on" : "")}
+            className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
             onClick={() => setV("refundable", !view.refundable)}
             aria-pressed={view.refundable ? "true" : "false"}
           >
-            <Icon name="shield" size={13} />
+            <Icon name={view.refundable ? "x" : "shield"} size={12} />
             Refundable
           </button>
-          <select
-            className="taw-select taw-select--sm"
-            value={view.depWindow}
-            aria-label="Filter by departure time"
-            onChange={(e) => setV("depWindow", e.target.value)}
-          >
-            <option value="any">Any time</option>
-            <option value="morning">Morning 05–12</option>
-            <option value="afternoon">Afternoon 12–17</option>
-            <option value="evening">Evening 17–22</option>
-            <option value="night">Night 22–05</option>
-          </select>
-          {carriers.length > 1 ? (
-            <select
-              className="taw-select taw-select--sm"
-              value={view.carrier}
-              aria-label="Filter by carrier"
-              onChange={(e) => setV("carrier", e.target.value)}
-            >
-              <option value="all">All carriers</option>
-              {carriers.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          <div className="taw-shopbar-sp" />
-          <label className="taw-sortlab">Sort</label>
-          <select className="taw-select taw-select--sm" value={view.sort} aria-label="Sort offers" onChange={(e) => setV("sort", e.target.value)}>
-            <option value="best">Best</option>
-            <option value="cheapest">Cheapest</option>
-            <option value="fastest">Fastest</option>
-            <option value="earliest">Earliest arrival</option>
-          </select>
         </div>
       ) : null}
-      {offers.length ? (
-        <div className="taw-shopcount">
-          Showing {shown.length} of {offers.length} offers
-        </div>
-      ) : null}
+      <SleekScroll className="taw-results-scroll">
       <div className="taw-results">
         {shown.length ? (
           shown.map((o: any) => {
@@ -769,6 +914,7 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
           </Empty>
         )}
       </div>
+      </SleekScroll>
     </div>
   );
 }

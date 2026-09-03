@@ -31,6 +31,16 @@ branched from main right after. Do NOT force-push without explicit new
 authorization — v0's force-push was a one-time, explicitly authorized
 replacement of the old repo content, not a standing permission.
 
+OVERRIDE RULE (2026-09-02, standing): Demo can NEVER be overridden —
+every push there must be a new, additive commit on top of its existing
+history (plain `git push origin Demo`, fast-forward only, never `--force`,
+never rebase/rewrite/amend a commit that's already pushed). The whole
+point is that every prior checkpoint stays reachable so a rollback never
+loses progress. main is the ONLY branch that may ever be overridden
+(force-pushed/reset) — and even then, only when whatever is being pushed
+to main is ALREADY a known commit/tag that exists on Demo. Never force-push
+to main something that isn't traceable back to a real Demo checkpoint.
+
 VERSIONING: tags are v0, v0.1, v0.2, v0.3, ... — not strict semver, just
 sequential — and they live on Demo (v0 itself is the one exception, sitting
 on main as the starting point both branches share). Not every commit gets

@@ -111,7 +111,7 @@ export function SearchDesksPanel(props: any) {
   return (
     <Card
       containerRef={cardRef}
-      className={cx(!expanded && "taw-card--fit")}
+      className={cx("taw-search-card", !expanded && "taw-card--fit")}
       title="Search"
       icon={<Icon name="search" size={18} />}
       actions={

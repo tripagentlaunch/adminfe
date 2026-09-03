@@ -7,7 +7,7 @@
  * ===========================================================================*/
 import { cx } from "../../lib/cx";
 import { enqSla } from "../../lib/advisorHelpers";
-import { Empty, Icon } from "../ui";
+import { Empty, Icon, SleekScroll } from "../ui";
 
 export function EnquiryInbox(props: any) {
   const { enquiries, membersById, loading, selectedId } = props;
@@ -55,7 +55,8 @@ export function EnquiryInbox(props: any) {
   });
 
   return (
-    <div className="taw-enq">
+    <SleekScroll className="taw-enq-scroll">
+      <div className="taw-enq">
       {ordered.map((e: any) => {
         const m = e.member_id ? membersById[e.member_id] : null;
         const intent = e.intent || {};
@@ -102,6 +103,7 @@ export function EnquiryInbox(props: any) {
           </button>
         );
       })}
-    </div>
+      </div>
+    </SleekScroll>
   );
 }

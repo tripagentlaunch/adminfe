@@ -16,11 +16,25 @@
 --accent:var(--cognac);--good:var(--success);--bad:var(--danger);--warn:var(--gold);
 --whisper:var(--shadow-sm);
 font-family:var(--sans);
-color:var(--ink);background:var(--ivory);min-height:100vh;-webkit-font-smoothing:antialiased;
+color:var(--ink);background:var(--ivory);height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased;
 /* flex column so .taw-main (and, on Workbench, its grid) can actually
    stretch to fill the viewport instead of just matching each OTHER's
    height within a content-sized row — 2026-08-31, see .taw-main and
-   .taw-cols-3 below. */
+   .taw-cols-3 below.
+
+   height:100vh + overflow:hidden (2026-09-02, was min-height:100vh) —
+   per direct request, NO route should ever need the whole page/window
+   scrolled; every screen's own content scrolls internally instead. This
+   is the actual CAP that makes that true everywhere .taw is used, not
+   just Console — min-height only set a FLOOR (content could still grow
+   taller and the page would scroll past it, which is exactly what was
+   happening: Console's own row content ended up taller than the
+   viewport and the page scrolled). .taw-main below gets its own
+   overflow-y:auto as a general fallback — any route whose content
+   doesn't fit scrolls THERE (under the fixed top chrome), not the whole
+   window; Console's own per-card internal scrolling (QueueProfileAccordion,
+   FlightDesk's results, etc.) is still what actually kicks in there
+   since its grid row is sized to fit exactly. */
 display:flex;flex-direction:column;}
 .taw *{box-sizing:border-box;}
 .taw :where(button){font-family:inherit;}
@@ -67,7 +81,7 @@ background:var(--champagne);border:1px solid var(--line2);}
    margin:auto correctly centers the capped box. This was a real,
    pre-existing bug in every .taw-main screen, not something introduced
    by Console's own column-width changes. */
-.taw-main{width:100%;max-width:1480px;margin:0 auto;padding:8px 8px 8px 16px;flex:1;display:flex;flex-direction:column;background:#FAF6EB;}
+.taw-main{width:100%;max-width:1480px;margin:0 auto;padding:8px 8px 8px 16px;flex:1;min-height:0;display:flex;flex-direction:column;background:#FAF6EB;overflow-y:auto;}
 .taw-grid{display:grid;gap:8px;}
 .taw-cols-2{grid-template-columns:380px 1fr;}
 /* 3fr/4fr/3fr (2026-08-31 as 2fr/5fr/2fr; widened 2026-09-02): Queue/
@@ -83,7 +97,15 @@ background:var(--champagne);border:1px solid var(--line2);}
    columns to each OTHER, not to the page. (2026-09-02: also briefly
    tried 28%/50%/22% + a full-width .taw-main--wide modifier — reverted
    same day per direct request.) */
-.taw-cols-3{grid-template-columns:3fr 4fr 3fr;flex:1;}
+.taw-cols-3{grid-template-columns:3fr 4fr 3fr;flex:1;min-height:0;}
+/* min-height:0 on the grid ITEMS themselves (2026-09-02) — required, not
+   decorative: a grid item's own min-height also defaults to 'auto' (=
+   its content's size), same gotcha as flex items, which was silently
+   overriding align-items:stretch — the row track was correctly bounded
+   to the available height, but each column (.taw-acc-stack, .taw-card)
+   still rendered at its own CONTENT height regardless (measured 922px
+   in a 607px track) because nothing let them shrink below that. */
+.taw-cols-3>*{min-height:0;}
 .taw-cols-q{grid-template-columns:1fr 420px;}
 @media(max-width:1100px){.taw-cols-2,.taw-cols-3,.taw-cols-q{grid-template-columns:1fr;}}
 /* Right-column wrapper for WorkbenchTab's 3rd grid cell (Traveller
@@ -105,14 +127,24 @@ background:var(--champagne);border:1px solid var(--line2);}
    (12px) to --radius-sm (10px) for a flatter, more table-like edge. This
    is a deliberate divergence FROM the earlier "spacious card" house
    style, not a bug fix — see the memory for the fuller discussion. */
+/* display:flex;flex-direction:column (2026-09-02) — required, not
+   decorative: without it, .taw-card-b below has no flex context to size
+   against, so when a card's height is capped (e.g. Search's own
+   animated full-height state, SearchDesksPanel.tsx), its BODY content
+   (e.g. a long flight-results list) had nowhere to go but overflow past
+   the card's own bounds, silently clipped by overflow:hidden here —
+   exactly the gap flagged directly ("search results will be scrollable
+   within the window itself"). Same visual stacking as plain block flow
+   (header then body), just with actual flex sizing available now. */
 .taw-card{background:var(--card);border:1px solid var(--line);
-border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
+border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;
+display:flex;flex-direction:column;}
 /* 2026-09-02 (SearchDesksPanel) — opts a grid item OUT of the row's
    default align-items:stretch, so it sizes to its own content instead of
    matching the tallest column. See SearchDesksPanel.tsx's own docblock
    for the animated transition between this and the default stretch. */
 .taw-card--fit{align-self:start;}
-.taw-card-h{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);}
+.taw-card-h{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;}
 .taw-card-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);}
 .taw-card-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}
 /* A control that fills the header's FULL height as a distinct filled
@@ -191,16 +223,14 @@ border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
    left:0;right:0 against .taw-dropdown, which is now exactly the
    trigger's own width/position (see above) — so the popup matches the
    selector's width and sits right at its bottom, not floating below it. */
-/* No left/right/top border here (2026-09-02) — the base
-   .taw-typeahead-list border was making the popup LOOK 1-2px wider than
-   the trigger despite measuring pixel-identical
-   (getBoundingClientRect confirmed both edges exactly matched) — a
-   hairline border's anti-aliased stroke can visually bleed a fraction of
-   a pixel past a plain color-fill edge with no border of its own (the
-   trigger has none). The existing box-shadow (var(--whisper), from the
-   base rule) still gives it visual depth without that seam; the bottom
-   border stays, for a defined lower edge. */
-.taw-typeahead-list.taw-dropdown-list{padding:0;top:100%;overflow:hidden;border-top-left-radius:0;border-top-right-radius:0;border-left:0;border-right:0;border-top:0;}
+/* No TOP border here (2026-09-02) — it sits flush against the trigger's
+   own bottom edge, so a top border would just double up against
+   whatever the trigger/segment already draws there. Left/right/bottom
+   borders come from the base .taw-typeahead-list rule below (all
+   dropdown menus get them now, per direct request) — an earlier pass
+   removed all three here over a since-superseded concern that the
+   hairline border made the popup look 1-2px wider than the trigger. */
+.taw-typeahead-list.taw-dropdown-list{padding:0;top:100%;overflow:hidden;border-top-left-radius:0;border-top-right-radius:0;border-top:0;}
 /* Dropdown's own option rows (2026-09-02) — deliberately diverge from the
    shared .taw-typeahead-item look (used as-is by AutosuggestInput's
    from/to popup, untouched here) via a higher-specificity compound
@@ -224,8 +254,28 @@ border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
 .taw-typeahead-item.taw-dropdown-item.is-active:hover{background:#F8F8F8;}
 .taw-dropdown-item-label{color:var(--ink);}
 .taw-typeahead-item.taw-dropdown-item.is-active .taw-dropdown-item-label{color:var(--ink);font-weight:600;}
-.taw-card-b{padding:12px;}
+.taw-card-b{padding:12px;flex:1 1 auto;min-height:0;overflow-y:auto;
+scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;}
+.taw-card-b::-webkit-scrollbar{width:6px;}
+.taw-card-b::-webkit-scrollbar-track{background:transparent;}
+.taw-card-b::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:999px;}
+.taw-card-b::-webkit-scrollbar-thumb:hover{background:var(--taupe);}
 .taw-card-b.flush{padding:0;}
+/* Search card (2026-09-03) never scrolls itself — only the results list
+   should. Previously .taw-card-b's own overflow:auto ALSO kicked in
+   once results grew past the card's grid-track height, showing a
+   second, redundant native scrollbar wrapping the whole Search window
+   in addition to the results' own custom one. Fix is a proper
+   min-height:0 flex chain (same pattern as the app-shell height cap)
+   from the card body all the way down to .taw-results-scroll, so only
+   the actual offers list — the innermost, truly-overflowing piece —
+   ever scrolls; everything above it (search stack, results header,
+   filter strip) just takes its natural height. */
+.taw-search-card .taw-card-b{overflow:visible;display:flex;flex-direction:column;min-height:0;}
+.taw-search-stack{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;}
+.taw-fdesk{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+.taw-results-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
+.taw-results-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 
 /* Queue/Traveller Profile accordion (2026-09-01) — "Mode H" from the
    interaction lab (src/app/lab/queue-profile/, gitignored/local-only):
@@ -236,8 +286,30 @@ border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
 /* 2026-09-02: Queue and Traveller Profile are now two SEPARATE .taw-acc
    boxes (each with its own border/radius/shadow) stacked in .taw-acc-stack
    instead of one shared box — see QueueProfileAccordion.tsx's docblock. */
+/* 2026-09-02, later same day: the stack now fits the column's full
+   height EXACTLY, never exceeding it — whichever section is open
+   (.is-open) takes the remaining space via flex and scrolls internally
+   if its own content is taller than that; the collapsed one is pinned to
+   its natural/min-height (see .taw-acc--profile below) instead of both
+   just growing with their content and pushing the total taller than the
+   screen. min-height:0 on the open card is required, not decorative — a
+   flex item's default min-height is 'auto' (= its content size), which
+   would otherwise prevent it from ever shrinking below that to let its
+   OWN overflow:auto child actually scroll. */
 .taw-acc-stack{display:flex;flex-direction:column;gap:8px;height:100%;}
-.taw-acc{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
+.taw-acc{background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;
+display:flex;flex-direction:column;flex:0 0 auto;}
+.taw-acc.is-open{flex:1 1 auto;min-height:0;}
+/* Traveller Profile's collapsed/placeholder min-height (2026-09-02) —
+   sized to the actual rendered icon+3-line-placeholder block (see
+   QueueProfileAccordion.tsx), not a guess; measured live. The compound
+   .is-open override (not just relying on file order) guarantees the
+   open state's flex:1/min-height:0 above always wins regardless of
+   which rule happens to be declared later in this file — the exact
+   "later same-specificity rule silently wins" pitfall that's bitten
+   this file more than once already this session. */
+.taw-acc--profile{min-height:214px;}
+.taw-acc--profile.is-open{min-height:0;}
 /* 2026-09-01: the header row itself is no longer the click target/no
    longer shows a hover state — .taw-acc-h is now a plain display row
    (icon/title/sub), non-interactive. Only .taw-acc-toggle (the chevron)
@@ -261,18 +333,35 @@ border-radius:var(--radius-sm);box-shadow:var(--whisper);overflow:hidden;}
 .taw-acc-toggle:hover{background:var(--champagne);color:var(--ink);}
 .taw-acc-toggle svg{transition:transform .16s var(--ease);}
 .taw-acc-h.is-open .taw-acc-toggle svg{transform:rotate(180deg);}
-.taw-acc-body{padding:12px;}
-.taw-acc-body.flush{padding:0;}
+.taw-acc-body{padding:12px;flex:1 1 auto;min-height:0;overflow-y:auto;}
+.taw-acc-body.flush{padding:0;display:flex;flex-direction:column;}
+/* Sleek scrollbar (2026-09-02) — thin, themed, replaces both the browser
+   default AND the earlier "just hide it" approach .taw-enq used
+   (scrollbar-width:none — functional but invisible, which silently
+   clipped a long Queue with no indication more existed). Firefox via
+   scrollbar-width/-color, WebKit/Blink via ::-webkit-scrollbar*; applies
+   to .taw-acc-body (Traveller Profile's own overflow when open and
+   long) — .taw-enq (Queue's own list) has its OWN variant below,
+   medium-brown and always space-reserved, not this taupe/--line-2 one. */
+.taw-acc-body{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;}
+.taw-acc-body::-webkit-scrollbar{width:6px;}
+.taw-acc-body::-webkit-scrollbar-track{background:transparent;}
+.taw-acc-body::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:999px;}
+.taw-acc-body::-webkit-scrollbar-thumb:hover{background:var(--taupe);}
 
 /* buttons */
 .taw-btn{border:1px solid var(--line2);background:transparent;color:var(--ink);border-radius:10px;
 padding:10px 16px;font-size:12px;font-family:var(--eyebrow);font-weight:500;letter-spacing:.1em;text-transform:uppercase;transition:transform .16s var(--ease),box-shadow .16s var(--ease),background .16s,border-color .16s,color .16s;display:inline-flex;align-items:center;gap:8px;}
-.taw-btn:hover{border-color:var(--ink);background:var(--bone);}
-.taw-btn:active{transform:translateY(0);}
+.taw-btn:hover{border-color:#DDD6C4;background:var(--bone);}
 .taw-btn:disabled{opacity:.45;cursor:not-allowed;background:transparent;box-shadow:none;transform:none;}
 .taw-btn--primary{border:1px solid var(--gold-deep);background:linear-gradient(180deg,var(--gold) 0%,var(--gold-deep) 100%);color:var(--ink);box-shadow:0 1px 0 rgba(255,253,247,.35) inset,0 4px 14px -6px rgba(120,92,18,.55),0 1px 2px rgba(23,19,16,.10);}
-.taw-btn--primary:hover{background:linear-gradient(180deg,#C8A23A 0%,var(--gold-deep) 100%);border-color:var(--gold-deep);transform:translateY(-1px);box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
-.taw-btn--primary:active{transform:translateY(0);box-shadow:0 1px 0 rgba(255,253,247,.25) inset,0 2px 8px -4px rgba(120,92,18,.5);}
+/* No transform:translateY on hover/active (2026-09-02, removed) — a
+   button must never shift vertically on hover, per direct request; the
+   "lift" effect used to nudge it up 1px on hover and back down on
+   press. Everything else about the hover/press feedback (brighter
+   gradient, deeper shadow) stays. */
+.taw-btn--primary:hover{background:linear-gradient(180deg,#C8A23A 0%,var(--gold-deep) 100%);border-color:var(--gold-deep);box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
+.taw-btn--primary:active{box-shadow:0 1px 0 rgba(255,253,247,.25) inset,0 2px 8px -4px rgba(120,92,18,.5);}
 /* Dark-brown variant (2026-09-02, FlightDesk's Search button) — scoped
    modifier rather than recoloring .taw-btn--primary itself, since that
    class is the shared primary-CTA look used elsewhere in the app. Same
@@ -337,8 +426,16 @@ cursor:pointer;position:relative;z-index:1;transition:background .14s var(--ease
 
 /* AutosuggestInput dropdown (flight airport / hotel city typeahead) */
 .taw-typeahead{position:relative;}
+/* All dropdown menus (2026-09-02) — a subtle shadow (already had
+   box-shadow:var(--whisper)) plus a #F8F8F8 border on the left/right/
+   bottom edges only, no top border (they all sit flush against their
+   trigger's own bottom edge, so a top border would just double up
+   against whatever the trigger/segment already draws there). Applies to
+   every popup built on this class: AutosuggestInput's from/to typeahead
+   AND every Dropdown-component menu (Cabin, desk-picker, Sort,
+   Departure time, Carrier, Stops). */
 .taw-typeahead-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:20;
-background:var(--card);border:1px solid var(--line2);border-radius:9px;box-shadow:var(--whisper);
+background:var(--card);border:1px solid #F8F8F8;border-top:0;border-radius:9px;box-shadow:var(--shadow);
 max-height:240px;overflow-y:auto;padding:4px;}
 .taw-typeahead-item{display:block;width:100%;text-align:left;background:transparent;border:0;
 border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--ink);cursor:pointer;transition:.12s;}
@@ -384,7 +481,12 @@ border-radius:7px;padding:8px 10px;font-size:12.5px;color:var(--ink);cursor:poin
 .taw-draft-mismatch-note{font-size:12px;color:var(--terracotta);margin-top:6px;line-height:1.5;}
 
 /* result cards */
-.taw-results{display:flex;flex-direction:column;gap:12px;max-height:560px;overflow:auto;padding-right:4px;}
+.taw-results{display:flex;flex-direction:column;gap:12px;padding-right:4px;}
+/* .taw-results-scroll (the SleekScroll wrapper) deliberately has no
+   fixed max-height (2026-09-03, was 560px) — it now flex-fills the real
+   .taw-results-panel/.taw-results-view/.taw-card-b chain above it, so
+   it scrolls exactly the available card height instead of an
+   arbitrary constant, and never overflows into a second scrollbar. */
 .taw-res{display:grid;grid-template-columns:1fr auto;gap:14px;padding:16px 18px;border:1px solid var(--line);
 border-radius:12px;background:var(--card);transition:.16s;}
 .taw-res:hover{border-color:var(--line2);box-shadow:var(--whisper);}
@@ -412,6 +514,37 @@ border-radius:12px;background:var(--card);transition:.16s;}
 
 /* flight shopping bar (FLT-011 filters / FLT-012 sort) */
 .taw-shopbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;margin-bottom:10px;background:var(--bone);border:1px solid var(--line);border-radius:11px;}
+/* FlightDesk's results filter strip (2026-09-02) — ONE horizontally-
+   scrollable row of dropdowns + a chip, replacing the old wrapping
+   segmented-buttons/selects/labeled-select bar (.taw-shopbar and
+   friends, still used as-is by HotelDesk — untouched). flex-wrap:nowrap
+   + overflow-x:auto so it scrolls sideways instead of wrapping to a
+   second row. */
+.taw-filter-strip{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;padding:2px 2px 8px;margin-bottom:6px;
+scrollbar-width:none;-ms-overflow-style:none;flex:none;}
+/* flex:none (2026-09-03) — required now that this strip lives inside a
+   flex-column ancestor chain (.taw-results-panel etc.): overflow-x:auto
+   implicitly flips this element's overflow-y to 'auto' too (per spec,
+   whenever exactly one axis is non-'visible'), which switches its
+   flex-item min-height from content-based to 0 — letting the flex
+   layout squash it far below its content's real height. flex:none
+   takes it out of the flex/shrink calculation entirely, sizing it by
+   content again like a normal block. */
+.taw-filter-strip::-webkit-scrollbar{display:none;}
+.taw-filter-dd{flex:none;background:var(--card);border:1px solid var(--line2);border-radius:9px;
+padding:6px 10px;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;}
+/* Departure time (2026-09-02) — wider than the other filter dropdowns so
+   its leading icon (a different one per time-of-day option, not shared
+   like Sort's) has room to sit comfortably next to the label text
+   instead of crowding it, both on the closed trigger and in the open
+   list (the popup's width always matches the trigger's, so widening the
+   trigger widens both at once). */
+.taw-filter-dd--wide{min-width:118px;}
+.taw-chip--toggle{flex:none;display:inline-flex;align-items:center;gap:5px;background:var(--card);
+border:1px solid var(--line2);border-radius:9px;padding:7px 11px;font-family:var(--sans);font-size:12px;
+font-weight:500;color:var(--taupe);cursor:pointer;white-space:nowrap;transition:background .14s var(--ease),color .14s var(--ease),border-color .14s var(--ease);}
+.taw-chip--toggle:hover{color:var(--ink);border-color:var(--taupe);}
+.taw-chip--toggle.is-active{background:var(--champagne);border-color:var(--gold-deep);color:var(--ink);}
 .taw-shopbar-sp{flex:1;min-width:6px;}
 .taw-segrp{display:inline-flex;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px;}
 .taw-seg{border:0;background:transparent;color:var(--taupe);font-family:var(--sans);font-size:12px;font-weight:500;padding:6px 11px;border-radius:7px;cursor:pointer;transition:.14s;}
@@ -463,19 +596,52 @@ border-radius:12px;background:var(--card);transition:.16s;}
 .taw-checkrow input{cursor:pointer;}
 .taw-linkbtn:hover{color:var(--gold);}
 
+/* FlightDesk results header (2026-09-02) — icon-only back button (sized
+   to match every other header icon, 20px, not the small 12px
+   .taw-linkbtn treatment it replaced), the departure/return leg
+   switcher, and the nearby-dates chip row. */
+.taw-icon-btn{display:grid;place-items:center;flex:none;width:32px;height:32px;padding:0;
+border:1px solid transparent;border-radius:8px;background:none;color:var(--taupe);cursor:pointer;
+transition:background .14s var(--ease),color .14s var(--ease);}
+.taw-icon-btn:hover{background:var(--champagne);color:var(--ink);}
+.taw-icon-btn:disabled{opacity:.35;cursor:not-allowed;}
+.taw-icon-btn:disabled:hover{background:none;color:var(--taupe);}
+.taw-leg-switch{display:flex;background:var(--bone);border:1px solid var(--line);border-radius:9px;padding:2px;gap:2px;}
+.taw-leg-tab{font-family:var(--sans);font-size:12px;font-weight:500;color:var(--taupe);background:none;border:0;
+border-radius:7px;padding:6px 10px;cursor:pointer;transition:background .14s var(--ease),color .14s var(--ease);white-space:nowrap;}
+.taw-leg-tab:hover{color:var(--ink);}
+.taw-leg-tab.is-active{background:var(--card);color:var(--ink);font-weight:600;box-shadow:var(--shadow-sm);}
+/* Date-chip row (2026-09-02) — .taw-date-chips-row holds the </> paging
+   buttons flanking .taw-date-chips itself, which now shows a fixed
+   CHIP_WINDOW_SIZE-length window (no scrolling — flex-wrap:nowrap so an
+   over-length window can't wrap awkwardly, though in practice it never
+   holds more than CHIP_WINDOW_SIZE items to begin with). */
+.taw-date-chips-row{display:flex;align-items:center;gap:6px;margin-bottom:11px;}
+.taw-date-chips{display:flex;flex:1;gap:8px;flex-wrap:nowrap;min-width:0;}
+.taw-date-chip{flex:1;min-width:0;font-family:var(--sans);font-size:12px;color:var(--ink);background:var(--card);
+border:1px solid var(--line2);border-radius:9px;padding:8px 12px;cursor:pointer;transition:background .14s var(--ease),border-color .14s var(--ease);
+text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.taw-date-chip:hover{background:var(--bone);}
+.taw-date-chip.is-active{background:var(--champagne);border-color:var(--gold-deep);font-weight:600;}
+
 /* member 360 */
 .taw-m360{display:flex;flex-direction:column;gap:18px;}
 .taw-m360-hero{display:flex;align-items:center;gap:15px;}
-/* Sized to the name+meta content block's own height + 4px (2026-09-02) —
-   measured live at 74.39px, so 78px here — rather than a fixed guess, so
-   it reads as "just barely taller than its neighbor," not an arbitrary
-   avatar size. .taw-m360-hero's align-items:center (already set) centers
-   it against that content vertically. Revisit if name/meta copy length
-   or font-size changes enough to change that content block's height. */
-.taw-m360-ava{width:78px;height:78px;border-radius:16px;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:24px;color:var(--ink);
+/* Sized to exactly fit the name+meta content block (2026-09-02) — with
+   .taw-m360-meta now nowrap (see above), that block is a fixed 2 lines
+   (1 name + 1 meta), measured live at 48.79px. .taw-m360-hero's
+   align-items:center (already set) centers it against that content
+   vertically. Revisit if name/meta font-size changes enough to change
+   that content block's height. */
+.taw-m360-ava{width:49px;height:49px;border-radius:10px;display:grid;place-items:center;font-family:var(--serif);font-weight:600;font-size:16px;color:var(--ink);
 background:var(--champagne);border:1px solid var(--line2);}
 .taw-m360-name{font-family:var(--serif);font-size:16px;font-weight:500;letter-spacing:.01em;color:var(--ink);display:flex;align-items:center;}
-.taw-m360-meta{font-size:14px;color:var(--taupe);margin-top:4px;}
+/* white-space:nowrap (2026-09-02) — the meta line (gender · DOB ·
+   company) was wrapping to 2 lines at this column's width, which broke
+   the "exactly 2 lines total" contract the avatar's own height is sized
+   against (see .taw-m360-ava below); ellipsis rather than letting it
+   wrap or silently clip with no indicator. */
+.taw-m360-meta{font-size:12px;color:var(--taupe);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .taw-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .taw-stat{background:var(--bone);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
 .taw-stat .k{font-family:var(--eyebrow);font-size:9px;text-transform:uppercase;letter-spacing:.18em;color:var(--taupe);font-weight:500;}
@@ -516,10 +682,42 @@ background:var(--taupe);border-radius:50%;}
 .taw-m360-doc--warn .taw-m360-doc-val{color:var(--warn-ink);}
 
 /* enquiry list */
-/* Scroll stays functional, the physical scrollbar is just hidden — Queue
-   still scrolls with more items than fit, it just doesn't show a track. */
-.taw-enq{display:flex;flex-direction:column;max-height:600px;overflow:auto;scrollbar-width:none;-ms-overflow-style:none;}
-.taw-enq::-webkit-scrollbar{display:none;}
+/* max-height:600px (2026-09-02: removed) — was a hardcoded guess from
+   before Queue's real available height was governed by the flex layout
+   above; flex:1/min-height:0 now sizes it to whatever room .taw-acc-h's
+   sibling .taw-acc-body.flush actually has, so it fills exactly the
+   space the column gives it, no more/less, and scrolls (with the sleek
+   scrollbar above — scrollbar-width:none removed, that hid it entirely
+   rather than just styling it) once content exceeds that. */
+/* Queue's own scrollbar (2026-09-02) — medium brown (--cognac), and the
+   gutter is ALWAYS reserved via scrollbar-gutter:stable, whether or not
+   the list actually overflows right now — so Queue's own width never
+   shifts by a few px the moment a row gets added/removed and it starts/
+   stops needing to scroll. Distinct from the shared taupe/--line-2
+   scrollbar every other scrollable area (.taw-acc-body, .taw-card-b)
+   uses — Queue was called out specifically for its own color+behavior. */
+/* Scrolling itself now lives on the SleekScroll wrapper around this
+   (2026-09-02, ui/SleekScroll.tsx) — native scrollbar styling here
+   turned out unable to guarantee "visible whenever content overflows,
+   not just while actively scrolling" across every browser (some
+   overlay-scrollbar implementations fade the thumb out at rest
+   regardless of ::-webkit-scrollbar styling). .taw-enq itself is now
+   just the plain row-stack; see .taw-sleek-scroll* below for the actual
+   scroll/thumb mechanics. */
+.taw-enq{display:flex;flex-direction:column;}
+/* SleekScroll (2026-09-02) — a custom-rendered thumb replacing the
+   native scrollbar entirely, so visibility is under our own control
+   (see SleekScroll.tsx's own docblock for why). .taw-sleek-scroll-track
+   is a fixed-width column that's ALWAYS present, reserving that space
+   whether or not the thumb is currently rendered — content never
+   reflows when overflow starts/stops. One shared look everywhere this
+   component is used (2026-09-03) — same sand-gold-ivory thumb color,
+   same width/track, no per-usage overrides. */
+.taw-sleek-scroll{display:flex;flex:1 1 auto;min-height:0;}
+.taw-sleek-scroll-content{flex:1 1 auto;min-width:0;overflow-y:auto;scrollbar-width:none;-ms-overflow-style:none;}
+.taw-sleek-scroll-content::-webkit-scrollbar{display:none;}
+.taw-sleek-scroll-track{flex:none;width:8px;position:relative;}
+.taw-sleek-scroll-thumb{position:absolute;left:1px;width:6px;border-radius:999px;background:#D4D4D4;pointer-events:none;}
 /* Rows, not cards (2026-09-01) — no per-item border/radius; edge-to-edge,
    no gap between rows. Padding lives on the row itself (not the list
    container) so hover/selected fill still reaches the full row width.
@@ -576,6 +774,17 @@ border-radius:0;padding:12px;transition:.16s;color:inherit;}
 .taw-empty--page .ic-badge>.ic{width:44px;height:44px;}
 .taw-empty--page .title{font-size:18px;font-weight:700;}
 .taw-empty--page .message{font-size:13.5px;max-width:44ch;}
+
+/* Itinerary Builder's "start this itinerary" chooser (2026-09-02,
+   WorkbenchTab.tsx) — the two-button entry point before the (later,
+   separately-built) editable itinerary. Laid out like .taw-empty's own
+   centered icon/title/message, plus two stacked full-width buttons. */
+.taw-itin-choose{display:flex;flex-direction:column;align-items:center;text-align:center;
+padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
+.taw-itin-choose>svg{color:var(--gold-ink);margin-bottom:4px;}
+.taw-itin-choose .title{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);}
+.taw-itin-choose .message{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:6px;}
+.taw-itin-choose .taw-btn{width:100%;}
 
 /* quote breakdown */
 .taw-quote-lines{display:flex;flex-direction:column;}

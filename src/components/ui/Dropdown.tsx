@@ -27,11 +27,19 @@ import { createPortal } from "react-dom";
 import { cx } from "../../lib/cx";
 import { Icon } from "./Icon";
 
-// Dropdown({ value, options: [{key,label,icon?}], onChange(key), ariaLabel, className, triggerClassName })
+// Dropdown({ value, options: [{key,label,icon?}], onChange(key), ariaLabel, className, triggerClassName, hideOptionIcons? })
 // `icon` is an optional Icon name (see ui/Icon.tsx) rendered leading each
 // option row — omit it on any option to render that row without one.
+// `hideOptionIcons` (2026-09-02) — for a case like the results Sort
+// dropdown, where every option intentionally shares the SAME icon so the
+// closed trigger always shows it regardless of which is picked, but
+// repeating that same icon on every row in the open list is just noise —
+// set true to still use `current.icon` on the trigger while suppressing
+// icons in the popup's own rows. Default false preserves the original
+// per-option-icon list behavior (e.g. the desk-picker's flight/hotel/
+// visa icons).
 export function Dropdown(props: any) {
-  const { value, options, onChange, ariaLabel, className, triggerClassName } = props;
+  const { value, options, onChange, ariaLabel, className, triggerClassName, hideOptionIcons } = props;
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<any>(null);
   const rootRef = useRef<any>(null);
@@ -94,7 +102,7 @@ export function Dropdown(props: any) {
                   setOpen(false);
                 }}
               >
-                {o.icon ? <Icon name={o.icon} size={15} /> : null}
+                {o.icon && !hideOptionIcons ? <Icon name={o.icon} size={15} /> : null}
                 <span className="taw-dropdown-item-label">{o.label}</span>
               </button>
             ))}

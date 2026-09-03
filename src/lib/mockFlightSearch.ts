@@ -229,6 +229,172 @@ export const MOCK_FLIGHT_SEARCH_RESPONSE = {
   ],
 };
 
+// buildMockFlightOffers({originCode, destCode, date, pax, cabin}) — 2026-09-02,
+// for FlightDesk's round-trip (departure/return leg) + nearby-dates
+// (±3 day) fallback. MOCK_FLIGHT_SEARCH_RESPONSE above is ONE real
+// captured dataset for ONE route+date — reused as-is for a plain
+// single-date one-way search — but round-trip/nearby-dates needs
+// several DIFFERENT date/leg combinations to actually look different
+// from each other when the advisor switches between them (that's the
+// whole point of comparing them). Rather than hand-authoring N more
+// captured-looking datasets, this deterministically varies price/time/
+// airline mix from a hash of route+date — same route+date always
+// produces the same offers (stable across re-renders), different
+// route+date combos visibly differ. Not real data — used only when the
+// real API call fails, same fallback contract as MOCK_FLIGHT_SEARCH_RESPONSE.
+const MOCK_AIRLINES = [
+  { code: "QR", name: "Qatar Airways" },
+  { code: "SQ", name: "Singapore Airlines" },
+  { code: "LH", name: "Lufthansa" },
+  { code: "AI", name: "Air India" },
+  { code: "BA", name: "British Airways" },
+  { code: "TG", name: "Thai Airways" },
+  { code: "EY", name: "Etihad Airways" },
+  { code: "EK", name: "Emirates" },
+];
+
+function hashSeed(s: string) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+function fmtHM(totalMin: number) {
+  const h = Math.floor((totalMin % 1440) / 60);
+  const m = totalMin % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+
+function fmtDuration(min: number) {
+  return Math.floor(min / 60) + "h " + (min % 60) + "m";
+}
+
+// A handful of plausible intermediate airports for generated connections —
+// flavor only, not a real hub-routing model.
+const MOCK_HUBS = ["SIN", "DXB", "DOH", "AUH", "FRA", "IST", "BKK"];
+
+// classifyStopType(detail) — 2026-09-02, the actual point of the stops
+// filter: a stop count alone ("1 stop") doesn't distinguish a technical
+// fuel stop (same flight, no plane change — still "direct" in airline
+// terms) from a real connection (different flight/aircraft, an actual
+// layover). Derives from `segments`: same flightNo across every segment
+// = direct; different flightNos = a connection, further split by the
+// layover gap (overnight) and connection count (multi). Exported so
+// FlightResults can filter on it directly instead of raw stop counts.
+export function classifyStopType(d: any) {
+  const segs = d.segments || [];
+  if ((d.stops || 0) === 0 || segs.length <= 1) return "nonstop";
+  const flightNos = segs.map((s: any) => s.flightNo);
+  if (flightNos.every((fn: any) => fn === flightNos[0])) return "direct"; // technical stop, same flight
+  for (let i = 0; i < segs.length - 1; i++) {
+    const arr = toMinutes(segs[i].arrTime);
+    const dep = toMinutes(segs[i + 1].depTime);
+    const gap = dep >= arr ? dep - arr : dep + 1440 - arr;
+    if (gap >= 360) return "overnight"; // 6h+ layover
+  }
+  return segs.length - 1 >= 2 ? "multi" : "connecting";
+}
+function toMinutes(hm: string) {
+  const [h, m] = String(hm || "0:0").split(":").map(Number);
+  return h * 60 + (m || 0);
+}
+
+export function buildMockFlightOffers(opts: any) {
+  const { originCode, destCode, date, pax = 2, cabin = "economy" } = opts;
+  const routeKey = originCode + "-" + destCode + "-" + date;
+  const seed = hashSeed(routeKey);
+  const baseNet = 16000 + (seed % 14000);
+  const n = 6 + (seed % 3); // 6-8 offers, varies per route+date
+
+  const offers = [];
+  for (let i = 0; i < n; i++) {
+    const al = MOCK_AIRLINES[(seed + i * 7) % MOCK_AIRLINES.length];
+    const net = baseNet + i * 1850 + ((seed >> (i + 2)) % 3200);
+    const depMin = (seed >> (i + 1)) % 1440;
+    const flightNo = al.code + " " + (100 + ((seed >> i) % 850));
+    // Cycle every generated offer through all 5 stop patterns so each
+    // fetch's result set actually contains a real mix — verified live
+    // this produces every classifyStopType() bucket, not just 0-vs-1 stop.
+    const pattern = i % 5;
+    const hub = MOCK_HUBS[(seed + i * 3) % MOCK_HUBS.length];
+    let segments: any[];
+    if (pattern === 0) {
+      // nonstop
+      const durationMin = 150 + ((seed >> (i + 3)) % 130);
+      segments = [{ carrier: al.code, carrierName: al.name, flightNo, from: originCode, to: destCode, depTime: fmtHM(depMin), arrTime: fmtHM(depMin + durationMin), durationMin }];
+    } else if (pattern === 1) {
+      // direct — technical stop, SAME flight number both legs
+      const leg1 = 80 + ((seed >> (i + 3)) % 60);
+      const ground = 35 + ((seed >> (i + 4)) % 25);
+      const leg2 = 90 + ((seed >> (i + 5)) % 60);
+      const t1 = depMin + leg1;
+      const t2 = t1 + ground;
+      segments = [
+        { carrier: al.code, carrierName: al.name, flightNo, from: originCode, to: hub, depTime: fmtHM(depMin), arrTime: fmtHM(t1), durationMin: leg1 },
+        { carrier: al.code, carrierName: al.name, flightNo, from: hub, to: destCode, depTime: fmtHM(t2), arrTime: fmtHM(t2 + leg2), durationMin: leg2 },
+      ];
+    } else {
+      // connecting / overnight / multi — DIFFERENT flight numbers (real
+      // plane change); layover length + hop count decide which bucket.
+      const flightNo2 = al.code + " " + (900 + ((seed >> (i + 6)) % 90));
+      const leg1 = 90 + ((seed >> (i + 3)) % 70);
+      const layover = pattern === 3 ? 380 + ((seed >> (i + 4)) % 300) : 60 + ((seed >> (i + 4)) % 180); // pattern 3: overnight-length layover
+      const leg2 = 90 + ((seed >> (i + 5)) % 70);
+      const t1 = depMin + leg1;
+      const t2 = t1 + layover;
+      segments = [
+        { carrier: al.code, carrierName: al.name, flightNo, from: originCode, to: hub, depTime: fmtHM(depMin), arrTime: fmtHM(t1), durationMin: leg1 },
+        { carrier: al.code, carrierName: al.name, flightNo: flightNo2, from: hub, to: destCode, depTime: fmtHM(t2), arrTime: fmtHM(t2 + leg2), durationMin: leg2 },
+      ];
+      if (pattern === 4) {
+        // multi — a THIRD leg, another plane change
+        const hub2 = MOCK_HUBS[(seed + i * 5) % MOCK_HUBS.length];
+        const flightNo3 = al.code + " " + (700 + ((seed >> (i + 7)) % 90));
+        const layover2 = 60 + ((seed >> (i + 8)) % 120);
+        const t3 = t2 + leg2;
+        const t4 = t3 + layover2;
+        const leg3 = 70 + ((seed >> (i + 9)) % 60);
+        segments[1] = { ...segments[1], to: hub2 };
+        segments.push({ carrier: al.code, carrierName: al.name, flightNo: flightNo3, from: hub2, to: destCode, depTime: fmtHM(t4), arrTime: fmtHM(t4 + leg3), durationMin: leg3 });
+      }
+    }
+    const overallDep = segments[0].depTime;
+    const overallArr = segments[segments.length - 1].arrTime;
+    const depAbs = toMinutes(overallDep);
+    const arrAbs = toMinutes(overallArr);
+    const totalDuration = arrAbs >= depAbs ? arrAbs - depAbs : arrAbs + 1440 - depAbs;
+    const detail: any = {
+      airline: al.code,
+      airlineName: al.name,
+      flightNo,
+      originCode,
+      destCode,
+      date,
+      cabin,
+      pax,
+      stops: segments.length - 1,
+      durationMin: totalDuration,
+      duration: fmtDuration(totalDuration),
+      depTime: overallDep,
+      arrTime: overallArr,
+      refundable: (seed + i) % 2 === 0,
+      baggageKg: 25,
+      segments,
+    };
+    offers.push({
+      id: routeKey + "-" + al.code + "-" + i,
+      product: "flight",
+      international: true,
+      currency: "INR",
+      base_net: net,
+      baseNet: net,
+      detail: { ...detail, stopType: classifyStopType(detail) },
+    });
+  }
+  offers.sort((a: any, b: any) => a.base_net - b.base_net);
+  return { session_id: routeKey, product: "flight", count: offers.length, offers };
+}
+
 // Captured against offer bb0eef2c… (Lufthansa LH 662) — reused for
 // whichever offer_id the advisor actually expands, see module docblock.
 const MOCK_FARE_FAMILY = {
