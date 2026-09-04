@@ -277,6 +277,14 @@ scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;}
 .taw-results-view{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 .taw-results-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;}
 
+/* Itinerary Builder card (2026-09-04, direct request) — same fix as the
+   Search card above: only the day/visa list below the Flights/Hotels/
+   Visa tabs should scroll, not the whole card (summary, alerts, tabs
+   included). Same min-height:0 flex chain, terminating in a SleekScroll
+   wrapper (see ItineraryView.tsx's `.taw-itin-days-scroll`) around just
+   `.taw-itin-days` instead of `.taw-card-b`'s own overflow-y:auto. */
+.taw-itin-card .taw-card-b{overflow:visible;display:flex;flex-direction:column;min-height:0;}
+
 /* Queue/Traveller Profile accordion (2026-09-01) — "Mode H" from the
    interaction lab (src/app/lab/queue-profile/, gitignored/local-only):
    both sections share one column, either opens on click at any time, and
@@ -354,13 +362,29 @@ display:flex;flex-direction:column;flex:0 0 auto;}
 padding:10px 16px;font-size:12px;font-family:var(--eyebrow);font-weight:500;letter-spacing:.1em;text-transform:uppercase;transition:transform .16s var(--ease),box-shadow .16s var(--ease),background .16s,border-color .16s,color .16s;display:inline-flex;align-items:center;gap:8px;}
 .taw-btn:hover{border-color:#DDD6C4;background:var(--bone);}
 .taw-btn:disabled{opacity:.45;cursor:not-allowed;background:transparent;box-shadow:none;transform:none;}
-.taw-btn--primary{border:1px solid var(--gold-deep);background:linear-gradient(180deg,var(--gold) 0%,var(--gold-deep) 100%);color:var(--ink);box-shadow:0 1px 0 rgba(255,253,247,.35) inset,0 4px 14px -6px rgba(120,92,18,.55),0 1px 2px rgba(23,19,16,.10);}
+/* Gradient restored (2026-09-03, direct request — the flat-fill
+   accessibility fix was correct on contrast but lost the button's
+   dimensional look), direction reversed back to dark-top/light-bottom
+   (2026-09-03, follow-up), then the top stop desaturated toward a
+   brown/sand tone at the SAME value (2026-09-03, follow-up) — #C0A173
+   is --gold (#C0982A) with saturation dropped ~78%→40% at an unchanged
+   V (both have R=192, the max channel); hover's #C8A878 is the same
+   treatment applied to the old hover top stop (#C8A23A). Bottom stop
+   (#E4D19B / #EDDCAE, gold-ivory) unchanged. The old dark end
+   (--gold-deep) only cleared ~4.74:1 against --ink — a thin margin
+   over WCAG AA's 4.5:1 floor for text this size; every point on the
+   current gradient stays between ~7.5:1 and ~13:1 — well clear of AA
+   (and mostly AAA) at both ends. Border also moved off --gold-deep
+   to #A8916D (2026-09-03, follow-up) — same desaturated brown/sand
+   family as the fill, but lighter/less saturated than --gold-deep so
+   it reads as a soft edge instead of a hard, saturated outline. */
+.taw-btn--primary{border:1px solid #A8916D;background:linear-gradient(180deg,#C0A173 0%,#E4D19B 100%);color:var(--ink);box-shadow:0 1px 0 rgba(255,253,247,.35) inset,0 4px 14px -6px rgba(120,92,18,.55),0 1px 2px rgba(23,19,16,.10);}
 /* No transform:translateY on hover/active (2026-09-02, removed) — a
    button must never shift vertically on hover, per direct request; the
    "lift" effect used to nudge it up 1px on hover and back down on
    press. Everything else about the hover/press feedback (brighter
    gradient, deeper shadow) stays. */
-.taw-btn--primary:hover{background:linear-gradient(180deg,#C8A23A 0%,var(--gold-deep) 100%);border-color:var(--gold-deep);box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
+.taw-btn--primary:hover{background:linear-gradient(180deg,#C8A878 0%,#EDDCAE 100%);border-color:#A8916D;box-shadow:0 1px 0 rgba(255,253,247,.4) inset,0 8px 22px -8px rgba(120,92,18,.6),0 2px 4px rgba(23,19,16,.12);}
 .taw-btn--primary:active{box-shadow:0 1px 0 rgba(255,253,247,.25) inset,0 2px 8px -4px rgba(120,92,18,.5);}
 /* Dark-brown variant (2026-09-02, FlightDesk's Search button) — scoped
    modifier rather than recoloring .taw-btn--primary itself, since that
@@ -626,7 +650,7 @@ text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 
 /* member 360 */
 .taw-m360{display:flex;flex-direction:column;gap:18px;}
-.taw-m360-hero{display:flex;align-items:center;gap:15px;}
+.taw-m360-hero{display:flex;align-items:center;gap:10px;}
 /* Sized to exactly fit the name+meta content block (2026-09-02) — with
    .taw-m360-meta now nowrap (see above), that block is a fixed 2 lines
    (1 name + 1 meta), measured live at 48.79px. .taw-m360-hero's
@@ -663,7 +687,7 @@ background:var(--champagne);border:1px solid var(--line2);}
 .taw-m360-sec-h{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px;}
 .taw-m360-desc{margin:0;font-size:13.5px;line-height:1.55;color:var(--ink);}
 .taw-m360-dates{display:flex;align-items:center;justify-content:space-between;gap:10px;
-background:var(--bone);border:1px solid var(--line);border-radius:10px;padding:12px 14px;}
+background:#FAFAFA;border:1px solid #F8F8F8;border-radius:10px;padding:12px 14px;}
 .taw-m360-dates-range{font-family:var(--serif);font-size:17px;font-weight:600;color:var(--ink);}
 .taw-m360-dates-note{font-size:11.5px;color:var(--taupe);margin-top:2px;}
 .taw-m360-constraints{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
@@ -785,6 +809,192 @@ padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
 .taw-itin-choose .title{font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink);}
 .taw-itin-choose .message{font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:6px;}
 .taw-itin-choose .taw-btn{width:100%;}
+
+/* Itinerary hierarchy view (2026-09-03, ItineraryView.tsx) — item #1 of
+   the "stop looking like a PDF" plan: days collapse to one line by
+   default, auto-open only when they hold an attention-tier item;
+   attention items render as full cards, done items collapse to a
+   single row. See ItineraryView.tsx's own docblock for the fuller why. */
+/* flex:1 1 auto;min-height:0 (2026-09-04) — joins the same min-height:0
+   flex chain as the Search card (see .taw-itin-card .taw-card-b above)
+   so ONLY .taw-itin-days-scroll below scrolls, not this whole container
+   (summary/alerts/tabs stay put, always visible). */
+.taw-itin{display:flex;flex-direction:column;gap:10px;flex:1 1 auto;min-height:0;}
+/* .taw-itin-days-scroll (2026-09-04) — the SleekScroll wrapper around
+   .taw-itin-days; joins the same flex chain so it's the ONE thing that
+   actually scrolls (see .taw-itin-card .taw-card-b above) — everything
+   above it (summary, alerts, tabs) stays fixed in view. */
+.taw-itin-days-scroll{flex:1 1 auto;min-height:0;}
+/* Zero gap here specifically (2026-09-03) — days/visa are dividers
+   now, not gapped cards; the border-bottom on .taw-itin-day IS the
+   spacing. .taw-itin itself keeps its 10px gap for the OTHER sections
+   (summary/alerts/tabs), which still need real breathing room before
+   this list starts.
+   padding-bottom (2026-09-03, direct request; moved here 2026-09-04) —
+   guarantees minimum whitespace below whichever day/visa card renders
+   LAST. Has to live on the content that actually scrolls
+   (.taw-itin-days, inside .taw-itin-days-scroll) now that .taw-itin
+   itself no longer does — padding on a non-scrolling ancestor wouldn't
+   create real trailing space inside the scrolled area. */
+.taw-itin-days{display:flex;flex-direction:column;gap:0;padding-bottom:72px;}
+.taw-itin-summary{padding:2px 2px 10px;border-bottom:1px solid var(--line);margin-bottom:2px;}
+/* Head row (2026-09-03) — title/dates block on the left, the new "Send
+   to Proposal" CTA on the right, same trailing-action placement as
+   every other Card header in the app. */
+.taw-itin-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.taw-itin-summary-title{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
+.taw-itin-summary-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.taw-itin-totals{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;}
+.taw-itin-totals div{display:flex;flex-direction:column;}
+.taw-itin-totals b{font-size:14px;color:var(--ink);}
+.taw-itin-totals span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:1px;}
+
+/* Financial rollup bar (2026-09-03, item #7) — confirmed/held/
+   unresolved as a visible proportional split, not three numbers the
+   advisor has to reconcile in their head. Unresolved is a striped
+   pattern rather than a solid fill — it's a known FLOOR on an
+   as-yet-unpriced item (see ItineraryView.tsx's `unresolved` calc),
+   not a real confirmed cost, and shouldn't visually read as one. */
+.taw-itin-fin-bar{display:flex;height:6px;border-radius:999px;overflow:hidden;margin-top:8px;background:var(--line);}
+.taw-itin-fin-seg{flex:0 0 auto;}
+.taw-itin-fin-seg--confirmed{background:var(--success);}
+.taw-itin-fin-seg--held{background:var(--warn);}
+.taw-itin-fin-seg--unresolved{background:repeating-linear-gradient(135deg,var(--taupe) 0 3px,transparent 3px 6px);}
+
+.taw-itin-alerts{background:var(--danger-bg);border:1px solid rgba(178,85,47,.2);border-radius:var(--radius-sm);padding:10px 12px;display:flex;flex-direction:column;gap:6px;}
+/* Real <button> now, not a bare div (2026-09-04, direct request —
+   collapsible via a chevron dropdown) — width:100%/text-align:left/
+   background:none/border:0/font inheritance are all needed to make a
+   <button> look and lay out exactly like the div it replaced. */
+.taw-itin-alerts-h{width:100%;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:var(--danger-ink);text-transform:uppercase;letter-spacing:.04em;background:none;border:0;padding:0;cursor:pointer;text-align:left;font-family:inherit;}
+.taw-itin-alerts-chevron{flex:none;margin-left:auto;transition:transform .16s var(--ease);}
+.taw-itin-alert{border:0;background:none;text-align:left;padding:2px 0 2px 20px;font-size:12.5px;color:var(--danger-ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(178,85,47,.35);}
+.taw-itin-alert:hover{color:var(--terracotta);}
+
+/* Divider, not a boxed card (2026-09-03, direct request) — each day
+   used to be its own bordered/rounded/backgrounded container, nested
+   inside the Itinerary Builder's own card, nested inside ITS items'
+   own row/detail padding — "too many rounds of padding". A day is now
+   just a section separated from the next by a single bottom border,
+   flowing directly in the ambient white background the outer card
+   already provides (no need for the has-attention background
+   override this replaced — nothing here has its own background left
+   to fight with the page's ivory anymore). */
+.taw-itin-day{border-bottom:1px solid var(--line);}
+.taw-itin-day:last-child{border-bottom:0;}
+/* padding bumped 10px→16px vertical (2026-09-04, direct request) — the
+   header row sat right up against the divider line above AND (when
+   collapsed) below it; this is the only place controlling that gap for
+   a collapsed day, since a collapsed day IS just this header row. */
+.taw-itin-day-h{width:100%;display:flex;align-items:center;gap:8px;padding:16px 12px;background:none;border:0;cursor:pointer;text-align:left;font-family:var(--sans);}
+.taw-itin-day-h svg:first-child{flex:none;color:var(--muted);transition:transform .16s var(--ease);}
+.taw-itin-day-label{font-size:12px;font-weight:600;color:var(--ink);}
+.taw-itin-day-date{font-size:11.5px;color:var(--muted);}
+.taw-itin-day-route{flex:1;font-size:12.5px;color:var(--ink);}
+/* Bigger than item-level prices (2026-09-04, direct request) — a day's
+   own total should read as the more prominent number of the two, with
+   .taw-itin-item-price below stepped down in WEIGHT (not size) so both
+   still line up visually at the same size within a day's item list. */
+.taw-itin-day-total{font-size:15px;font-weight:600;color:var(--ink);white-space:nowrap;}
+
+/* Out-of-bound day (2026-09-04) — a day whose real date falls outside
+   the itinerary's own committed range (see ItineraryView's dayInBound).
+   A warm left-edge accent on the header, same warn color the item-level
+   attention rows already use, so it reads as "needs a decision" at a
+   glance even collapsed — .taw-itin-day-label doubles as the click-to-
+   edit date here (no separate "Day N" text), so it keeps that class's
+   sizing rather than needing its own. */
+.taw-itin-day--outbound .taw-itin-day-h{border-left:3px solid var(--warn-ink);padding-left:9px;}
+.taw-itin-outbound-prompt{background:var(--warn-bg);border:1px solid rgba(184,144,31,.25);border-radius:var(--radius-sm);padding:10px 12px;margin:0 12px 12px 39px;display:flex;flex-direction:column;gap:8px;}
+.taw-itin-outbound-note{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:var(--warn-ink);line-height:1.5;}
+.taw-itin-outbound-note svg{flex:none;margin-top:1px;}
+.taw-itin-outbound-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.taw-itin-outbound-label{font-size:11.5px;color:var(--taupe);white-space:nowrap;}
+.taw-itin-outbound-input{width:56px;flex:none;}
+/* No border-top here (2026-09-03, direct request) — dividers now
+   belong ONLY between .taw-itin-day containers, not inside one. This
+   used to separate the day header from its items, and .taw-itin-item
+   below used to separate items from each other within a day; both
+   removed so the only line in the whole itinerary list is the one
+   between one day and the next. */
+.taw-itin-day-items{display:flex;flex-direction:column;}
+
+.taw-itin-item{}
+/* Every row is a plain open/close toggle now (2026-09-03, item #2) —
+   tier only decides the STARTING state (openItems' lazy init in
+   ItineraryView.tsx), not whether it's clickable, so a handled
+   attention item collapses back down same as any booked one. The
+   bucket-colored left border (--row-wrap--warn/info/danger) is what
+   keeps a COLLAPSED attention item visually flagged in the compact
+   list — the status pill alone isn't enough once the row's shrunk to
+   one line. Lives on the WRAP now, not the row itself (2026-09-03) —
+   the row sits next to a drag grip, so the wrap is the true left edge. */
+.taw-itin-item-row-wrap{display:flex;align-items:stretch;border-left:3px solid transparent;}
+.taw-itin-item-row-wrap--warn{border-left-color:var(--warn-ink);}
+.taw-itin-item-row-wrap--info{border-left-color:var(--info-ink);}
+.taw-itin-item-row-wrap--danger{border-left-color:var(--danger-ink);}
+.taw-itin-item-row{flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:9px 12px 9px 4px;background:none;border:0;cursor:pointer;text-align:left;font-family:var(--sans);}
+.taw-itin-item-row:hover{background:var(--bone);}
+.taw-itin-item-row svg:first-child{flex:none;color:var(--taupe);}
+.taw-itin-item-time{font-size:11.5px;color:var(--muted);width:38px;flex:none;}
+.taw-itin-item-title{flex:1;font-size:12.5px;font-weight:500;color:var(--ink);}
+.taw-itin-item-price{font-size:12.5px;font-weight:500;color:var(--ink);white-space:nowrap;}
+.taw-itin-item-price s{color:var(--muted);font-weight:400;margin-right:4px;}
+/* Bottom padding bumped 12px→20px (2026-09-04, direct request) — an
+   expanded day's last item sat right up against the divider line to
+   the NEXT day, same "too tight against the divider" issue as the
+   header row above. */
+.taw-itin-item-detail{padding:0 12px 20px 39px;display:flex;flex-direction:column;gap:6px;}
+/* The 39px left padding above is calibrated to sit under a normal item
+   row's title (after its grip + icon + time columns). The visa block's
+   header has no grip/time — just a chevron + icon directly in
+   .taw-itin-day-h — so reusing 39px would misalign; this override
+   matches the card's standard 12px edge padding instead. */
+.taw-itin-visa-detail{padding:0 12px 20px;}
+.taw-itin-item-sub{font-size:12px;color:var(--ink);}
+.taw-itin-item-meta{font-size:11.5px;color:var(--muted);}
+.taw-itin-note{font-size:11.5px;color:var(--danger-ink);}
+
+/* Same light-grey card treatment as .taw-m360-dates in Traveller Profile
+   (2026-09-03, direct request) — #FAFAFA fill + a barely-darker #F8F8F8
+   outline, instead of the warm --bone tan, for a consistent "flat info
+   card" style across the app rather than two different treatments. */
+.taw-itin-segs{background:#FAFAFA;border:1px solid #F8F8F8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:5px;}
+.taw-itin-seg{display:flex;gap:8px;font-size:11.5px;color:var(--ink);}
+.taw-itin-seg-no{font-weight:600;flex:none;width:52px;}
+.taw-itin-layover{font-size:11px;color:var(--muted);padding-left:52px;}
+
+.taw-itin-chips{display:flex;flex-wrap:wrap;gap:5px;}
+/* Lightest ivory fill + a slightly darker ivory outline (2026-09-03,
+   direct request) — #FDFCF6 is lighter than --ivory (#FAF6EB) itself;
+   the border uses --ivory as the "slightly darker" edge, staying in
+   the same warm ivory family rather than the neutral grey used
+   elsewhere (.taw-itin-segs, .taw-m360-dates). */
+.taw-itin-chip{background:#F3F2EC;border:1px solid #ECE8DD;color:var(--taupe);border-radius:20px;padding:3px 9px;font-size:10.5px;font-weight:500;}
+.taw-itin-chip--success{background:var(--success-bg);color:var(--success-ink);}
+.taw-itin-chip--warn{background:var(--warn-bg);color:var(--warn-ink);}
+
+.taw-itin-actions{display:flex;gap:6px;margin-top:2px;}
+
+/* Generic status-bucket pills (2026-09-03) — a second .taw-status
+   variant keyed by semantic bucket (warn/info/danger/success) instead
+   of a literal order-status string like .taw-status--CONFIRMING above,
+   for screens (like this one) whose statuses aren't order lifecycle
+   states but still belong in the same visual language. */
+.taw-status--warn{background:var(--warn-bg);color:var(--warn-ink);}
+.taw-status--info{background:var(--info-bg);color:var(--info-ink);}
+.taw-status--danger{background:var(--danger-bg);color:var(--danger-ink);}
+.taw-status--success{background:var(--success-bg);color:var(--success-ink);}
+
+/* Itinerary inline editing + drag-reorder (2026-09-03, item #6). */
+.taw-itin-editable{display:inline-flex;align-items:center;gap:3px;border-bottom:1px dashed var(--line2);cursor:text;}
+.taw-itin-editable:hover{border-bottom-color:var(--gold-ink);color:var(--gold-ink);}
+.taw-itin-editable svg{color:var(--muted);flex:none;}
+.taw-itin-editable:hover svg{color:var(--gold-ink);}
+.taw-itin-edit-input{font:inherit;color:inherit;background:var(--card);border:1px solid var(--gold-ink);border-radius:5px;padding:1px 5px;min-width:0;}
+.taw-itin-item-grip{display:flex;align-items:center;padding:0 4px 0 9px;color:var(--muted);cursor:grab;flex:none;touch-action:none;}
+.taw-itin-item-grip:active{cursor:grabbing;}
+.taw-itin-item.is-dragging{opacity:.45;}
 
 /* quote breakdown */
 .taw-quote-lines{display:flex;flex-direction:column;}
@@ -913,6 +1123,31 @@ animation:tawsh 1.3s ease infinite;border-radius:9px;}
 .taw-modal-panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;width:100%;max-width:380px;box-shadow:0 20px 50px -12px rgba(23,19,16,.35);display:flex;flex-direction:column;gap:14px;}
 .taw-modal-title{font-family:var(--serif);font-size:19px;font-weight:600;color:var(--ink);}
 .taw-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:4px;}
+/* --wide (2026-09-03, ItinerarySummaryModal) — the default 380px max-width
+   fits a short confirm dialog; an itinerary recap needs real room. Panel
+   also gets its own scroll + a height cap so a long itinerary doesn't
+   push the Back/Continue actions off-screen. */
+.taw-modal-panel--wide{max-width:560px;max-height:min(720px,85vh);overflow-y:auto;}
+
+/* ItinerarySummaryContent (2026-09-03) — shared by the Summary window
+   modal and the Proposal Composer page once something's been sent to it;
+   a condensed, read-only recap (no expand/collapse, no editing). */
+.taw-itinsum-title{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
+.taw-itinsum-sub{font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:2px;}
+.taw-itinsum-flag{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--warn-ink);background:var(--warn-bg);border-radius:8px;padding:8px 10px;margin-top:10px;}
+.taw-itinsum-list{display:flex;flex-direction:column;margin-top:12px;border-top:1px solid var(--line);}
+.taw-itinsum-row{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:12.5px;}
+.taw-itinsum-row:last-child{border-bottom:0;}
+.taw-itinsum-row svg{flex:none;color:var(--taupe);}
+.taw-itinsum-row-date{color:var(--muted);width:64px;flex:none;}
+.taw-itinsum-row-label{flex:1;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.taw-itinsum-row-total{font-weight:600;color:var(--ink);white-space:nowrap;}
+.taw-itinsum-dot{width:7px;height:7px;border-radius:999px;flex:none;background:var(--line-2);}
+.taw-itinsum-dot--warn{background:var(--warn);}
+.taw-itinsum-dot--info{background:var(--info);}
+.taw-itinsum-dot--danger{background:var(--danger);}
+.taw-itinsum-dot--success{background:var(--success);}
+.taw-itinsum-note{font-size:12px;color:var(--muted);margin-top:14px;font-style:italic;}
 
 /* toasts */
 .ta-adv-toasts{position:fixed;right:22px;bottom:22px;z-index:9999;display:flex;flex-direction:column;gap:10px;}

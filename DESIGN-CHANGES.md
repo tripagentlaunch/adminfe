@@ -21,6 +21,1246 @@ New entries go at the **top**. Use this template:
 
 ---
 
+## 2026-09-04 — Attention banner collapsible; only the day list scrolls, not the whole Itinerary Builder
+
+**What changed:** Two related fixes to the Itinerary Builder's layout, direct request:
+
+1. **"N items need attention" banner is now collapsible.** Its header is
+   a real `<button>` now (was a bare div) with a chevron that rotates on
+   toggle; clicking it shows/hides the alert list below. Defaults open
+   so nothing changes for anyone who's never touched it.
+2. **Only the day/visa list scrolls — not the whole card.** Previously
+   the Itinerary Builder's entire body (summary, alerts, tabs, AND the
+   day list) scrolled together as one region once content overflowed,
+   so scrolling to see more days also scrolled the summary/totals out of
+   view. Wrapped just `.taw-itin-days` in the same `SleekScroll`
+   component already used for Search results, and gave the Itinerary
+   Builder card the same `min-height:0` flex-chain treatment the Search
+   card already has (`.taw-itin-card .taw-card-b` → `.taw-itin` →
+   `.taw-itin-days-scroll`) — so the summary/alerts/tabs size to their
+   own content and stay fixed, and only the actually-overflowing day
+   list gets a scrollbar (the app's own custom sleek-scroll thumb, not
+   the browser's native one).
+
+Verified live on Arjun Mehta's AI itinerary: clicking the attention
+banner's header collapses the alert list to just the header row (day
+list below reflows to fill the freed space); confirmed via direct DOM
+inspection that `.taw-itin-days-scroll`'s inner content has
+`scrollHeight` (648px) exceeding its `clientHeight` (299px) with
+`overflow-y: auto`, and that scrolling it to `scrollTop: 300` leaves the
+summary header's own position on screen completely unchanged (before/after
+`getBoundingClientRect().top` identical, page `scrollY` stays 0) —
+confirmed visually too, scrolling down to Day 2 while the summary/totals/
+tabs stay put above it.
+
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/components/panels/WorkbenchTab.tsx`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Items outside the itinerary's committed date range get their own flagged section
+
+**What changed:** Search's "Add" (and a manual day-date edit) could
+silently place a day before or after the itinerary's own agreed date
+range — e.g. a hotel dated 25 Sept quietly joining the day list of an
+18–22 Nov trip as if it always belonged. New rule, direct request:
+
+- Every itinerary now carries its own committed date bound
+  (`startIso`/`endIso`), seeded at creation time — for "Generate AI
+  Itinerary" it's the mock data's own day span; for "Start from scratch"
+  (or Search's "Add" auto-seeding a blank itinerary before the AI/scratch
+  chooser was ever used) it's parsed from the enquiry's own
+  `ask.dateRange` (best-effort "D – D Mon" parse, same mock-data-scope
+  caveat as this session's other date/city lookups — see
+  `boundFromDateRange`'s own docblock).
+- A day landing outside that bound renders in its own section: the real
+  date as its label (not "Day N"), an amber "Outside itinerary dates"
+  pill, a left-edge accent matching the item-level attention color, and
+  auto-opens (same as any other attention condition) to a prompt
+  explaining why, with an "Include as Day #" control (pre-filled with the
+  only chronologically-correct slot — 1 if it's before the bound, one
+  past the last in-bound day if after; the advisor can still edit the
+  number, though the day's actual position in the list always stays
+  chronological — see the control's own docblock on why a real override
+  isn't safe here).
+- Confirming "Include in itinerary" extends the bound (and recomputes the
+  header's `dateRange`/`nights`) to cover it — it's genuinely part of the
+  trip now, not an exception — and the day picks up its real "Day N"
+  label and normal styling on the next render, with every other day
+  renumbering to match automatically (day order was always driven by
+  `_iso` via `resortDays`; extending the bound is the only state change
+  needed for the renumbering to fall out correctly).
+
+Verified live: started Priya Kapoor's itinerary from scratch (header
+correctly read "18 – 22 Nov · 4 nights", seeded from her enquiry's ask,
+with no days yet) → searched Goa hotels (defaults to a 25 Sept check-in,
+outside that range) → Add → the day rendered as "Fri, 25 Sept" with the
+"Outside itinerary dates" pill and the explanatory prompt, pre-filled
+"Include as Day 1" → clicked Include → header updated to "25 Sept – 22
+Nov · 58 nights", the day became "Day 1 · Fri, 25 Sept" with normal
+styling, and a confirmation toast appeared.
+
+**Files touched:** `src/lib/itineraryFromCart.ts`,
+`src/components/WorkbenchDataProvider.tsx`, `src/lib/workbenchContext.tsx`,
+`src/components/panels/WorkbenchTab.tsx`,
+`src/components/panels/ItineraryView.tsx`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — local-state feature, no backend dependency.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Divider spacing: reverted tabs→list gap, increased day-content→divider gap
+
+**What changed:** Two follow-up spacing corrections to the same divider-based day list from earlier today:
+
+1. **Reverted** the `margin-top:12px` just added on `.taw-itin-days` (the
+   gap between the All/Flights/Hotels/Visa tabs and the day/visa list
+   below) — direct follow-up feedback that this read as unwanted extra
+   space, so it's back to relying solely on `.taw-itin`'s existing 10px
+   gap between sections.
+2. **Increased** the gap between each day's own content and the divider
+   lines separating it from its neighbors — the opposite end of the
+   spacing, inside each day rather than above the whole list. A collapsed
+   day IS just its header row, so `.taw-itin-day-h`'s vertical padding
+   directly controls its gap to the dividers above/below it (10px→16px);
+   an expanded day's bottom gap to the next divider is controlled by its
+   last item's `.taw-itin-item-detail` bottom padding (12px→20px, same
+   for the visa block's `.taw-itin-visa-detail` override).
+
+Verified live on Priya Kapoor's AI itinerary: collapsed Day 1 now sits
+with clear breathing room between the dividers above and below it, and
+Day 9's expanded content (return-flight item + Remove button) has real
+space before the panel's own edge; confirmed the tabs→list gap is back
+to its original tight spacing.
+
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Editing a day's date now really moves it (was cosmetic-only), plus two styling tweaks
+
+**What changed:** Three related fixes/tweaks, the first a real correctness bug surfaced by a direct question ("if it's date-driven, the date should be modifiable, right?"):
+
+1. **Day-date edit now actually re-buckets the day.** Day-bucketing (both
+   Search's "Add" and the alert jump-list) matches by a day's real `_iso`
+   field, not its displayed `date` string — but the day header's
+   click-to-edit date field only ever patched the display string,
+   leaving `_iso` untouched. An advisor correcting a day's date silently
+   left it sorted and matched by the OLD date underneath the new label —
+   a real, undetectable-until-you-look-for-it inconsistency. Fixed by:
+   switching that one field from free text to a real `<input type="date">`
+   (day-bucketing shouldn't accept arbitrary unparseable text), and
+   wiring its commit to a new `updateDayDate()` that updates `_iso`
+   AND `date` together, then re-sorts/relabels every day exactly the
+   way a Search-added day already does. Extracted that resort+relabel
+   logic into a shared `resortDays()` in `itineraryFromCart.ts` (was
+   inlined in `findOrCreateDay`) so both paths use the identical rule
+   instead of two copies that could drift. `EditableText` gained an
+   optional `editValue`/`type` prop pair for this (the day date is the
+   only field where the displayed text and the value being edited are
+   different strings) — every other use (room type, cabin) is unaffected.
+2. **Day totals bigger, item prices lighter.** `.taw-itin-day-total`
+   12.5px→15px (still 600 weight); `.taw-itin-item-price` stays 12.5px
+   but drops to 500 weight — so a day's own total reads as the more
+   prominent number against the items under it, at a glance.
+3. **More space between the category tabs and the day/visa list.** Added
+   `margin-top:12px` on `.taw-itin-days`, on top of `.taw-itin`'s shared
+   10px gap, so the All/Flights/Hotels/Visa tabs read as clearly separate
+   from the list they filter.
+
+Verified live: edited Arjun Mehta's Day 1 (12 Oct, Mumbai → Zurich flight)
+to 18 Oct via the new native date picker — the day correctly moved to
+Day 3 (between the 17 Oct Lucerne day and the 20 Oct return-flight day)
+and every day relabeled Day 1–4 in the right order; confirmed the day
+total now visibly outsizes the item price below it, and the extra gap
+under the tabs, in the same screenshot.
+
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/lib/itineraryFromCart.ts`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — presentation + local-state correctness fix.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Hotels' search results scroll internally, matching Flights
+
+**What changed:** Flights' result list scrolls inside a fixed-height
+region via the shared `SleekScroll` component (custom thumb, native
+scrollbar hidden) — the Search card grows to fill the column's full
+height while results are showing (reported via `onExpandChange`), and
+only the innermost results list actually scrolls, not the whole page.
+Hotels' results had neither: no `SleekScroll` wrapper, and no
+`onExpandChange` wired up, so a real result list just grew the whole
+card — and the page under it — taller instead of scrolling in place.
+
+Wrapped `HotelResults`' offer list in `SleekScroll` (`taw-results-scroll`,
+same as Flights) and gave its outer container the same `taw-results-panel`
+class Flights uses, so it joins the same flex-height chain
+(`taw-fdesk` → `taw-results-view` → `taw-results-panel` →
+`taw-results-scroll`) that lets the innermost list flex-fill and scroll
+instead of growing unbounded. Also wired `HotelDesk`'s own
+`showResults` state up through a new `onExpandChange` prop — without it
+the Search card stays sized to its form's content (`.taw-card--fit`) even
+with a full result list behind it, giving `SleekScroll` nothing bounded
+to scroll within. `SearchDesksPanel` now passes its `setExpanded` to
+`HotelDesk` the same way it already did for `FlightDesk`. Visa wasn't
+touched — out of scope for this ask, and its result list is normally a
+single row.
+
+Verified live: searched Goa hotels for Priya Kapoor (10 results) — the
+Search card grows to the column's full height, the custom sleek
+scrollbar thumb appears on the list, and scrolling it reveals offers
+further down (e.g. "Sapphire Suites Goa") while the Queue and Itinerary
+Builder columns, and the filter strip/summary pill above the list, stay
+fixed in place — confirmed via direct DOM inspection that the scrollable
+element's `scrollHeight` (2655px) exceeds its `clientHeight` (450px) with
+`overflow-y: auto`, and that `window.scrollY` stays 0 while it scrolls.
+
+**Files touched:** `src/components/panels/HotelDesk.tsx`,
+`src/components/panels/SearchDesksPanel.tsx`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Removed dead per-item action buttons from the Itinerary Builder
+
+**What changed:** Every attention-tier item in the Itinerary Builder (held
+flight, awaiting-confirmation hotel, price-changed hotel, unselected
+return leg) rendered a row of curated action buttons from the mock data —
+Issue ticket, Extend hold, Swap, Chase supplier, Find backup, Accept new
+rate, Swap hotel, Choose flight, "4 in search" — none of which had an
+`onClick` at all; they were pure decoration. On top of being unwired, none
+of them belong on this screen: the Enquiries console is for composing an
+end-to-end itinerary proposal to answer a client's enquiry, not for
+booking ops — issuing a ticket, chasing a supplier, or confirming a rate
+change all happen later, in Orders, once a proposal is approved. The
+"Swap"-style ones were also just redundant even if wired: replacing a
+pick is already Remove this item, then Add the replacement via the
+always-visible Search panel — one real path instead of three fake ones
+pointing at the same outcome.
+
+Deleted the `actions` field from every item in `mockItinerary.ts` and the
+render block that mapped over it in `ItineraryView.tsx`. Remove is now the
+one and only per-item action, alongside the existing inline room-type/
+cabin edit.
+
+Verified live: generated the AI itinerary for Arjun Mehta (Switzerland) —
+the held flight, the awaiting-supplier hotel, and the price-changed hotel
+all expand with their full detail/chips as before, with only a Remove
+button where the curated action rows used to be; confirmed via search
+that "Issue ticket", "Chase supplier", and "Accept new rate" no longer
+appear anywhere in the itinerary.
+
+**Files touched:** `src/lib/mockItinerary.ts`,
+`src/components/panels/ItineraryView.tsx`.
+**Data/API status:**
+- Real (already wired): none — the deleted buttons were never wired to begin with.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Hotels/Visas search results now replace the form, and Hotels' filter bar matches Flights
+
+**What changed:** Two consistency fixes across the Search desks, both making
+Hotels/Visas match a pattern Flights already established:
+
+1. Flights' Search results REPLACE the form (mutually exclusive views, with
+   a back-chevron to return) — Hotels and Visas instead kept the form
+   sitting there and dumped results below it. Both now use the same
+   `showResults`/`backToSearch()` toggle as FlightDesk, with the same
+   back-chevron + a one-line summary pill (city/dates for Hotels,
+   nationality → destination/category for Visas) in place of the form
+   while results are showing.
+2. Hotels' filter/sort row was still the older boxed `.taw-shopbar` design
+   (segmented star buttons, a raw `<select>` for board, a labeled native
+   `<select>` for sort) — replaced with the same `.taw-filter-strip` of
+   styled `Dropdown` pills + a `Refundable` toggle chip that Flights uses,
+   so all three desks share one filter-bar language. Stars and Board are
+   now `Dropdown`s (matching Flights' Stops/Carrier treatment) instead of
+   segmented buttons/native selects; the separate "Showing X of Y stays"
+   count line was dropped too, since Flights doesn't show an equivalent.
+
+Verified live: selecting Priya Kapoor → Hotels → Search shows results
+replacing the form with a "Goa · 25 Sept – 29 Sept" pill and back-chevron;
+the Stars dropdown opens as a styled popup (not a native select) and
+filtering to "5★" correctly narrows the list to the one 5-star property.
+
+**Files touched:** `src/components/panels/HotelDesk.tsx`,
+`src/components/panels/VisaDesk.tsx`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Search desks now default to the selected enquiry's own trip (flow-testing hurdle #6)
+
+**What changed:** Flights/Hotels/Visas under Search always opened on hardcoded
+placeholder defaults (FROM DEL / TO DXB, Hotel city "Dubai", Visa destination
+"UAE") no matter which enquiry was selected — so building, say, Priya
+Kapoor's Goa itinerary meant retyping BOM → GOI and "Goa" by hand before
+Search did anything useful. Found while dogfooding the Queue → Search →
+Itinerary flow per the standing "iterate until satisfactory" plan.
+
+The selected enquiry (already held by `WorkbenchTab`) is now threaded down
+through `SearchDesksPanel` into each desk, and each desk's `useState`
+initializer reads `enquiry.ask` to seed its defaults: FlightDesk parses an
+airport code out of `ask.from` ("Mumbai (BOM)" → BOM) and looks up
+`ask.destinations[0]` against a small city→code table (covers exactly the
+mock enquiries' cities — Delhi/Mumbai/Singapore/Goa/Dubai — same "match the
+mock data" scope as the rest of this pass, not a real airport directory);
+HotelDesk seeds `city` straight from `ask.destinations[0]`; VisaDesk seeds
+`destination` from it only when that city is one of the desk's supported
+visa destinations (falls back to "UAE" otherwise — e.g. Goa is domestic and
+needs no visa). The existing `key={selEnqId}` remount (added for the
+pax/cabin hurdle) is what makes these initializers re-run per enquiry
+rather than sticking to whichever was selected first.
+
+Verified live: selecting Kabir Shah (Mumbai → Singapore, Business) shows
+FROM BOM / TO SIN / Cabin Business on the Flights desk; selecting Priya
+Kapoor (Mumbai → Goa, Economy) shows FROM BOM / TO GOI / Economy on
+Flights and City "Goa" on Hotels.
+
+**Files touched:** `src/components/panels/WorkbenchTab.tsx`,
+`src/components/panels/SearchDesksPanel.tsx`,
+`src/components/panels/FlightDesk.tsx`,
+`src/components/panels/HotelDesk.tsx`, `src/components/panels/VisaDesk.tsx`.
+**Data/API status:**
+- Real (already wired): none — this only changes local form-state defaults.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-03 — Primary button fill fixed for accessibility (contrast)
+
+**What changed:** `.taw-btn--primary` (the app's gold CTA — "Issue
+ticket", "Search Flights", "Generate AI Itinerary", etc.) used a
+top-to-bottom gradient from `--gold` down to the darker `--gold-deep`.
+Computed against the button's dark `--ink` text, the gradient's
+lighter top cleared ~6.8:1, but its darker bottom only reached
+~4.74:1 — a razor-thin margin over WCAG AA's 4.5:1 floor for text this
+size (12px bold doesn't qualify as "large text", so the stricter
+threshold applies), thin enough that real subpixel/antialiasing
+rendering could plausibly drop it below the floor.
+
+First pass flattened the fill to a solid color, which fixed contrast
+but lost the button's dimensional look — reverted per direct request,
+back to a gradient. Landed on: `--gold` at top fading to a lighter
+gold-ivory tone (`#E4D19B`) at the bottom (hover: `#C8A23A` →
+`#EDDCAE`), replacing the old `--gold-deep` dark end rather than the
+light end — same gradient direction and general look as the original,
+just with the problematic dark stop swapped for a lighter one.
+Contrast now holds ~6.83:1–~10:1 (base) and ~7.64:1–~11:1 (hover)
+across the whole gradient — every point clear of AA, most of it clear
+of AAA too, vs. the original's one thin edge.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Fixed visa card's expanded content having no padding
+
+**What changed:** The visa card's expanded content (sub, meta, chips,
+note) was rendered as bare children of `.taw-itin-item` instead of
+being wrapped in `.taw-itin-item-detail` — the class every other
+item's expanded content uses for its padding. Result: the visa
+detail text/chips sat flush against the card's own left/right edges
+and directly under the header divider, with zero spacing. Wrapped it
+in `.taw-itin-item-detail` like every other item, plus a
+`.taw-itin-visa-detail` override for left padding — the shared
+39px left padding is calibrated to sit under a normal item row's
+title (after its grip/icon/time columns), which the visa header
+doesn't have (just a chevron + icon), so reusing it verbatim would
+misalign; visa now uses the card's standard 12px edge padding instead.
+Verified live: computed padding `0px 12px 12px`.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS/markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Flight detail chips recolored to lightest ivory
+
+**What changed:** `.taw-itin-chip` (the Fare J / 2 seats / baggage /
+change-fee row) changed from the warm `var(--bone)` fill to a lightest-
+ivory fill with a slightly darker ivory outline — staying in the ivory
+family rather than the neutral grey used for the segments box and
+Traveller Profile's dates card. First pass (`#FDFCF6` / `--ivory`) was
+darkened once more per immediate follow-up, to `#F3F2EC` / `#ECE8DD`.
+Verified live: computed `rgb(243,242,236)` fill / `rgb(236,232,221)`
+border.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Flight segments box recolored to match Traveller Profile's dates card
+
+**What changed:** `.taw-itin-segs` (the EK 501/EK 87 segment box inside
+an expanded flight item) changed from the warm `var(--bone)` tan fill
+to the same neutral `#FAFAFA` fill / `#F8F8F8` border treatment as
+`.taw-m360-dates` in Traveller Profile, for one consistent "flat info
+card" style instead of two different ones. Verified live: computed
+`rgb(250,250,250)` / `rgb(248,248,248)`.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Mock data reconciled to the solo-trip scope (flow-testing hurdle #1)
+
+**What changed:** First hurdle in the "iteratively test Queue → Search →
+Itinerary → Proposal until it's clean" pass — the mock data itself
+conflicted with the scope decision that TripAgent only accepts solo
+trips booked by the cardholder who is also the traveller:
+- `mockEnquiries.ts`'s enquiry #2 was a 3-person family trip (2 adults
+  + a 7-year-old) to Goa, `groupType: "Family"`, budget ₹3.5L, asking
+  for "adjoining rooms." Rewritten solo: one traveller (Priya Kapoor),
+  `groupType: "Solo"`, budget scaled to ₹1.2L, "adjoining rooms"
+  dropped (a multi-room ask) while keeping "ground floor or elevator
+  access" — the hotel-accessibility mismatch this enquiry exists to
+  test still works fine solo, framed as a real personal need ("can't
+  do stairs with my knee") instead of a family constraint.
+- `mockItinerary.ts`'s Switzerland AI-draft was a 2-adult honeymoon —
+  `pax: 2`, `purpose: "Honeymoon"`, every flight/hotel occupancy
+  detail (seats, baggage, room "2 adults" lines) reflected two
+  travellers. Changed to `pax: 1`, `purpose: "Leisure"`, 1 seat/1
+  checked bag/1 named seat on the flight, "1 adult" on every hotel
+  line, "1 applicant" on the visa, and the unused `meta.travelers`
+  field ("Rohan · Neha Iyer" — dead data, never actually rendered)
+  changed to a generic "1 traveller" since this mock is shared across
+  whichever enquiry clicks "Generate AI Itinerary," not tied to one
+  name.
+- All three Search desks (`FlightDesk`/`HotelDesk`/`VisaDesk`)
+  defaulted their pax/rooms fields to 2 regardless of the scope
+  decision — changed to default 1 everywhere.
+- Fixed a grammar bug this surfaced: the itinerary summary line hard-
+  coded "adults"/"nights" as plural regardless of count ("1 adults");
+  now pluralizes correctly off the actual number, in both
+  `ItineraryView.tsx` and `ItinerarySummaryContent.tsx` (the same line
+  was duplicated in both).
+Verified live: Priya Kapoor's Traveller Profile now reads "Solo trip
+to Goa," tags "VACATION · SOLO," "1 adult," "Cap ₹1.2L," hard
+constraint "Ground floor or elevator access" (no "adjoining rooms");
+all three Search desks default to pax/rooms 1; the generated
+Switzerland itinerary reads "8 nights · 1 adult · Leisure" and every
+flight/hotel/visa line shows single-traveller counts.
+**Files touched:** `src/lib/mockEnquiries.ts`, `src/lib/mockItinerary.ts`,
+`src/components/panels/FlightDesk.tsx`,
+`src/components/panels/HotelDesk.tsx`,
+`src/components/panels/VisaDesk.tsx`,
+`src/components/panels/ItineraryView.tsx`,
+`src/components/panels/ItinerarySummaryContent.tsx`.
+**Data/API status:** n/a — mock/demo data and form defaults only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Fixed Search-added days sorting to the end regardless of date (flow-testing hurdle #2)
+
+**What changed:** Second hurdle from dogfooding the full flow — added
+a flight to an enquiry whose AI itinerary already existed (mixing
+Search-added and AI-mock data, an untested path), and the new day
+landed at the END of the day list even though its date (25 Sept) was
+chronologically BEFORE every existing day (Oct dates). Root cause:
+`itineraryFromCart.ts`'s day-bucketing sorts by each day's `_iso`
+field, but `mockItinerary.ts`'s days never had one (only a
+human-readable `date: "Thu 12 Oct"` string) — so they sorted as empty
+string, before any real date, regardless of what that date actually
+was. Added the correct `_iso` (e.g. `"2026-10-12"`) to all 4 mock
+days, so old and newly-added days now sort correctly against each
+other on a real, consistent basis.
+Verified live: adding a 25 Sept flight to an itinerary whose earliest
+existing day was 12 Oct correctly inserted it as the new "Day 1"
+(route "DEL → DXB"), pushing the rest down to Day 2–5 in order.
+**Files touched:** `src/lib/mockItinerary.ts`.
+**Data/API status:** n/a — mock data only.
+**Env vars added/changed:** none.
+**Backend action needed:** None — but flagging that a real AI-
+generation endpoint would need to supply a real ISO date per day, not
+just a display string, for this same sort logic to keep working.
+
+---
+
+## 2026-09-03 — Fixed Search Desks never picking up the selected member's preferences (flow-testing hurdle #3)
+
+**What changed:** Third hurdle from dogfooding — Kabir Shah's Cabin
+dropdown showed "Economy" instead of his actual "Business" preference.
+Two compounding bugs:
+1. `FlightDesk.tsx`'s `CABIN_OPTIONS` uses lowercase/snake_case keys
+   (`"business"`), but `member.preferences.cabin` is stored capitalized
+   ("Business") for human display elsewhere (Traveller Profile) — no
+   option matched, so the Cabin Dropdown's trigger rendered blank.
+   Added `normalizeCabin()` to reconcile the two at the point of use.
+2. The deeper bug: `SearchDesksPanel`/`FlightDesk`/`HotelDesk`/
+   `VisaDesk` never remount when the selected enquiry changes, so their
+   `useState(() => ...member.preferences...)` initializers only ever
+   run ONCE, capturing whichever member happened to be selected first
+   — every enquiry picked after that silently got the wrong (or
+   default) pax/cabin regardless of how correct the normalizing logic
+   was. Fixed by adding `key={selEnqId}` to `SearchDesksPanel` in
+   `WorkbenchTab.tsx`, forcing a real remount (and a clean slate —
+   leftover search results from a different traveller no longer linger
+   across an enquiry switch either, which is correct behavior, not
+   just a side effect).
+Verified live: selecting Kabir Shah first now correctly shows Cabin
+"Business" / Pax 1; switching to Priya Kapoor afterward correctly
+updates to Cabin "Economy" — previously the SECOND selection (or any
+selection after the first) would have silently kept the first
+member's stale defaults.
+**Files touched:** `src/components/panels/FlightDesk.tsx`,
+`src/components/panels/WorkbenchTab.tsx`.
+**Data/API status:** n/a — client-side form defaulting only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Added item/visa removal + fixed newly-added items defaulting collapsed (flow-testing hurdles #4–5)
+
+**What changed:** Two hurdles found while dogfooding "iterate until
+the itinerary is satisfactory":
+- **#4 — no way to undo a wrongly-added item at all.** Every other
+  operation (edit, reorder, add) had a counterpart; removal didn't
+  exist, which genuinely blocks the goal — an advisor can't iterate
+  toward "satisfactory" if a mistaken add is permanent. Added
+  `removeItem(dayId, itemId)` (drops the day entirely if it ends up
+  empty, rather than leaving a dead day-shell behind) and
+  `removeVisa()`, both rolling the removed item's price back out of
+  `totals.grand`/`held`. A "Remove" button (`.taw-btn--danger`) now
+  appears in every item's and the visa's action row.
+- **#5 — surfaced while testing #4**: a newly Search-added item
+  defaulted to COLLAPSED regardless of tier, hiding its own new Remove
+  button (among everything else) from discovery. Root cause: `openItems`
+  was a lazily-seeded map computed ONCE at mount from whatever items
+  existed then — an item added later via Search never got an entry, so
+  it silently fell back to "closed" instead of the established
+  "attention starts open" rule. Reworked so the map only holds EXPLICIT
+  user toggles; any item without one falls back to `tierOf(item.status)
+  === "attention"` computed fresh every render — correct for items
+  present at mount AND items added mid-session. Also fixed the toggle
+  handler itself, which read the raw (often-undefined) map value
+  instead of the effective open state — would have required two clicks
+  to collapse an untouched attention item instead of one.
+Fixed the identical bug one level up too, found immediately after:
+`openDays` had the exact same lazily-seeded-once-at-mount flaw as
+`openItems` — a day CREATED later by a Search add never got an entry
+either, so it silently rendered collapsed regardless of containing an
+attention item, hiding everything inside it (including the item-level
+fix above). Same treatment: only explicit day toggles are stored now,
+falling back to `dayHasAttention()` computed fresh for any day without
+one; the day toggle handler fixed the same "reads stale raw value
+instead of effective state" bug too.
+Same bug existed a THIRD time for the visa slot specifically —
+`visaOpen` was a plain boolean fixed at mount from `data.visa` (null on
+a blank/scratch itinerary), so adding a visa via Search later never
+reopened it either. Same fix: `visaOpenOverride` is `null` until an
+explicit toggle, falling back to the current tier until then.
+Verified live: adding a flight now auto-expands it immediately
+(showing its new Remove button without an extra click) AND its day
+auto-expands too; clicking Remove deletes the item, drops the now-empty
+day, and zeroes the totals — no dead day-shell left behind; removing
+one of two items in the same day correctly leaves the day and its
+other item intact; adding a visa to a blank itinerary auto-expands it
+with its Remove button visible, and Remove correctly clears it back to
+the empty state.
+**Files touched:** `src/components/panels/ItineraryView.tsx`.
+**Data/API status:** n/a — client-side state only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Search → Itinerary Builder, direct (no cart)
+
+**What changed:** Real architecture change, not a display tweak — the
+Itinerary Builder used to be entirely disconnected from Search: its
+data was local `useState` cloned once from static mock data, and
+Search's "Add" wrote into a separate `cart` array in `WorkbenchTab`
+that nothing ever read (built as a holding pen for a "Finalize
+overlay" that never got built). Direct scope call: "Cart is not
+necessary at all for this flow" — so this connects them without one.
+
+- **Itinerary data moved from `ItineraryView`-local state into
+  `WorkbenchContext`**, keyed per enquiry (`itinerariesByEnquiry`,
+  same pattern as `proposalQueue`) — Search's "Add" and the Itinerary
+  Builder's own edits (day/item updates, drag-reorder) now read/write
+  the exact same object, not two disconnected copies.
+- **`SearchDesksPanel`'s `onAdd` calls `addSearchItemToItinerary`
+  directly** — an "Add" in Flights/Hotels/Visa becomes a real
+  itinerary item immediately. It auto-seeds a blank itinerary for the
+  enquiry if none exists yet, so this works even before the advisor
+  has clicked through the AI/scratch chooser at all.
+- **New `src/lib/itineraryFromCart.ts`** — `blankItinerary()` (a real
+  empty state: no mock destination/days, `visa: null`) and
+  `addCartItemToItinerary(data, cartItem)`, which converts whatever a
+  Search desk's Add button already builds
+  (`flightCartItem`/`hotelCartItem`/`visaCartItem`) into the
+  itinerary's item shape. Flights/hotels land in the day matching
+  their date (a new day is created and inserted in date order if none
+  exists yet); visa replaces the trip's single `visa` slot (one visa
+  per trip in this model, not per-day). Freshly added items get
+  `status: "on_hold"` and a plain "Added from Search" meta line —
+  honestly less curated than the AI mock data, since nothing's
+  confirmed yet.
+- **`WorkbenchTab`'s chooser logic simplified**: shows only while the
+  selected enquiry has no itinerary data yet; the moment it has any —
+  via the chooser OR a Search add arriving first — renders the real
+  `ItineraryView`. The old separate "scratch" placeholder is gone
+  entirely; a blank itinerary is now a real state, not a stand-in.
+- **Removed the dead `cart` state and `ta:add-to-cart` listener** from
+  `WorkbenchTab.tsx` — it was explicitly built as a holding pen for
+  exactly this handoff; once the real handoff exists, keeping the old
+  one around is stale, not future-proofing.
+- Fixed a real bug this surfaced: `ItinerarySummaryContent.tsx`
+  assumed `data.visa` always exists (unguarded `data.visa.title`),
+  which crashed the Summary window the moment an itinerary was built
+  purely from Search adds with no visa. Guarded, matching the same
+  null-check already added to `ItineraryView.tsx` for this.
+
+Verified live end-to-end: selecting an enquiry with no itinerary shows
+the chooser; searching Flights and clicking Add (without touching the
+chooser) immediately shows a real Itinerary Builder ("New itinerary",
+₹23,795 total, "1 item need attention", Day 1 with the added flight,
+expanded, "Added from Search"); adding a same-date Hotel bucketed it
+into the same Day 1 and updated totals to ₹46,099; Send to Proposal →
+Summary window → Continue → Proposal Composer all completed correctly
+with this real data, no crash, no mock data anywhere in the chain.
+**Files touched:** `src/lib/itineraryFromCart.ts` (new),
+`src/lib/workbenchContext.tsx`, `src/components/WorkbenchDataProvider.tsx`,
+`src/components/panels/ItineraryView.tsx`,
+`src/components/panels/WorkbenchTab.tsx`,
+`src/components/panels/HotelDesk.tsx`,
+`src/components/panels/ItinerarySummaryContent.tsx`.
+**Data/API status:** Session-local only (same as the rest of
+`WorkbenchContext`) — lost on a full page reload.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — same flag as the earlier
+handoff work: real persistence (a draft/proposal record per enquiry)
+is the eventual dependency once this moves past session state.
+
+---
+
+## 2026-09-03 — Mock fallback data for Hotels and Visa search (matching Flights)
+
+**What changed:** Hotels and Visa search had no local fallback at all —
+on a failed live API call (every time in local dev, no backend
+reachable), Hotels showed a bare error banner and Visa the same;
+Flights already had `mockFlightSearch.ts` for exactly this case. Added
+the same fallback contract to both, sourced from real captured
+searches on the deployed reference site
+(https://tripagent-admin.vercel.app) rather than guessed data:
+- **`src/lib/mockHotelSearch.ts`** — `buildMockHotelOffers({city,
+  checkIn, checkOut, rooms, pax})`. 10 properties (1×3★/7×4★/2×5★,
+  captured price bands ₹5.8k/₹12–14k/₹22–26k per night) with the city
+  substituted into every property name, hash-seeded per search so the
+  same query stays stable but different cities/dates visibly differ.
+  Returns offers already shaped like `HotelDesk.tsx`'s own
+  `mapTripSureHotel()` output.
+- **`src/lib/mockVisaSearch.ts`** — `buildMockVisaOffer({nationality,
+  destination, pax})` covering all 7 destinations in VisaDesk's own
+  dropdown. UAE and Schengen profiles (visa type, processing days,
+  document checklist, fee) are the two real captured results; UK/USA/
+  Singapore/Thailand/Bali are filled in from realistic public
+  Indian-passport visa-requirement info. Deliberately omits
+  `visa_duration`/`entries_allowed` — VisaDesk.tsx's own comment notes
+  those are OneVasco-only fields absent on the real local-fallback
+  path, so the mock doesn't invent fields that path never actually has.
+- Wired into `HotelDesk.tsx`/`VisaDesk.tsx`'s existing `.catch()`
+  handlers with the same toast pattern FlightDesk already uses
+  ("Live API unreachable — showing demo … data — N offers loaded").
+Verified live: Dubai hotel search returns 10 offers matching the
+reference site's shape (e.g. "The Grand Budget Dubai · ★★★ · INTL ·
+NON-REF · ₹22,304 net cost" vs. the captured ₹17,373 — same property,
+different night count); switching city to Zurich correctly re-names
+every property; UAE visa search returns "e-Visa (tourist 30/60 day) ·
+3 days · 2 applicants · ₹13,400" (captured reference: ₹13,000, within
+the deliberate ±3% variance); switching to Schengen returns a
+distinct result.
+**Files touched:** `src/lib/mockHotelSearch.ts` (new),
+`src/lib/mockVisaSearch.ts` (new),
+`src/components/panels/HotelDesk.tsx`,
+`src/components/panels/VisaDesk.tsx`.
+**Data/API status:** Fallback-only mock data, same contract as
+Flights — the real API call always runs first.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Proposal Composer's Queue is now always visible
+
+**What changed:** Direct correction — the previous version swapped the
+whole two-column layout for a single full-width `ConsolePlaceholder`
+whenever `proposalQueue` was empty, so the Queue itself disappeared
+along with everything else. Console's own Queue (`EnquiryInbox.tsx`)
+never does this — it stays present and shows its own inline empty
+state. Proposal Composer now matches: the `.taw-cols-2` Queue+content
+layout always renders, with each side showing its own `Empty` state
+independently when there's nothing to show (Queue: "Nothing waiting
+here yet"; composer: the original "Not yet built" copy, now scoped to
+"once one exists" in the Queue rather than being the entire page).
+Verified live: a fresh session shows both empty states side by side
+inside the two-column layout (not one collapsed placeholder); sending
+an itinerary still populates the Queue and composer correctly.
+**Files touched:**
+`src/app/(authenticated)/console/proposal-composer/page.tsx`.
+**Data/API status:** n/a — markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Hotels/Visa search buttons match Flights' dark-brown style
+
+**What changed:** "Search Hotels" and "Check Visa Requirement" used
+the standard gold `.taw-btn--primary`, while "Search Flights" had its
+own distinct dark-brown `.taw-btn--brown` treatment — inconsistent
+across the three search desks. Added `taw-btn--brown` to both so all
+three now share one look. Verified live: both compute to the same
+`linear-gradient(rgb(107,66,38) 0%, rgb(62,39,20) 100%)` as Search
+Flights.
+**Files touched:** `src/components/panels/HotelDesk.tsx`,
+`src/components/panels/VisaDesk.tsx`.
+**Data/API status:** n/a — markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Proposal Composer gets its own Queue
+
+**What changed:** Follow-up to the handoff work — Proposal Composer's
+single-itinerary preview became a real two-column Queue + content
+layout (`.taw-cols-2`, same grid class other Console screens use).
+The single `itinerary`/`setItinerary` WorkbenchContext field was
+upgraded to a real per-enquiry queue (`proposalQueue`, an array of
+`{enquiryId, member, data, sentAt}`, upserted by `enquiryId` so
+re-sending the same enquiry replaces its entry instead of
+duplicating it) plus `selectedProposalEnqId`/`selectProposal`. The
+queue is naturally already scoped to exactly what was asked — "only
+those that have an itinerary that needs to be composed" — since
+entries only ever get added by the "Send to Proposal" action; nothing
+else populates it. `ItineraryView` now takes `enquiryId`/`member` props
+(passed down from `WorkbenchTab`) so it can tag its entry correctly.
+Queue rows reuse the exact `.taw-enq-item`/`-top`/`-name`/`-meta`/
+`-depart` markup Console's own Queue uses, so it reads as the same
+pattern, not a new one — plus a relative "Sent Xm/h/d ago" timestamp.
+Verified live: sending Priya's itinerary then Arjun's (via real in-app
+tab navigation, not a page reload) produced two distinct queue
+entries, not one overwriting the other; clicking between them updates
+the right-hand summary and the active-row highlight correctly.
+**Files touched:** `src/lib/workbenchContext.tsx`,
+`src/components/WorkbenchDataProvider.tsx`,
+`src/components/panels/ItineraryView.tsx`,
+`src/components/panels/WorkbenchTab.tsx`,
+`src/app/(authenticated)/console/proposal-composer/page.tsx`.
+**Data/API status:** Session-local only (same as the rest of
+`WorkbenchContext`) — the queue is lost on a full page reload, not
+just on navigation between tabs.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — same flag as the original
+handoff: this will need real persistence (draft/proposal records)
+once it's more than session-local state.
+
+---
+
+## 2026-09-03 — Itinerary Builder → Proposal Composer handoff, via a real Summary window
+
+**What changed:** There was no way to get from a built itinerary to
+Proposal Composer — confirmed by code investigation before building
+anything: Proposal Composer was a static placeholder unaware of
+`WorkbenchContext`, no button/link anywhere made the transition, and
+the itinerary/cart state were both local-only, disconnected from each
+other and from routing. This builds the path end-to-end, and brings
+back the "Summary" step that was removed from this screen earlier
+(per `WorkbenchTab.tsx`'s own docblock, planned since then as a
+"Finalize-triggered overlay" but left unbuilt):
+- A **"Send to Proposal"** button in the Itinerary Builder's summary
+  header opens a **Summary window** (modal) — a condensed, read-only
+  recap of the whole trip (totals + the confirmed/held/unresolved bar,
+  an "N days still need attention" flag, and a one-line-per-day/visa
+  list with status dots) built as a new shared component
+  (`ItinerarySummaryContent.tsx`) so the modal and Proposal Composer's
+  page render identically instead of drifting apart.
+- The modal's own **"Continue to Proposal Composer"** action is what
+  actually performs the handoff — writes the itinerary into
+  `WorkbenchContext` (new `itinerary`/`setItinerary` field, following
+  the exact same pattern `selEnqId`/`member` already use) and
+  navigates. Opening the modal itself has no side effects — "Send to
+  Proposal" is reversible until that confirm click.
+- `console/proposal-composer/page.tsx` now reads `itinerary` from
+  context: shows the real summary (via the same shared component,
+  with an honest "the real compose/preview/send UI isn't built yet"
+  note) once something's been sent, falls back to the original
+  placeholder (with an updated hint) when nothing has.
+- Modal chrome reuses the existing `.taw-modal-overlay`/`-panel`/
+  `-title`/`-actions` classes from `InviteCustomerForm.tsx` rather
+  than inventing new modal styling, with a new `--wide` variant since
+  an itinerary recap needs more room than a short confirm dialog.
+Verified live end-to-end: Send to Proposal → modal shows the correct
+recap → Continue → lands on `/console/proposal-composer` with the
+"Proposal Composer" tab active and the same data rendered, labeled
+"received from Itinerary Builder"; a fresh session visiting that route
+directly still shows the (updated) empty-state placeholder.
+**Files touched:** `src/components/panels/ItinerarySummaryContent.tsx`
+(new), `src/components/panels/ItinerarySummaryModal.tsx` (new),
+`src/components/panels/ItineraryView.tsx`, `src/lib/workbenchContext.tsx`,
+`src/components/WorkbenchDataProvider.tsx`,
+`src/app/(authenticated)/console/proposal-composer/page.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** Session-local only (React state in
+`WorkbenchContext`, same as everything else there) — no persistence,
+lost on refresh. Still the same mock itinerary data underneath.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — flagging that a real handoff
+will eventually need this to persist (a draft/proposal record), not
+just live in memory for the session.
+
+---
+
+## 2026-09-03 — Removed dividers inside a day container
+
+**What changed:** Follow-up to the day-as-divider restructure — there
+were still two levels of internal divider left over from the old
+boxed-card design: one between a day's header and its items
+(`.taw-itin-day-items`), and one between consecutive items within a
+day (`.taw-itin-item`). Both removed, per direct request that dividers
+belong ONLY between `.taw-itin-day` containers, not inside one. The
+day-to-day divider from the prior change is untouched. Verified live:
+Day 1's flight detail now flows directly into the Widder Hotel row
+with no line between them, and the visa card flows directly into
+Day 1's header the same way — the only rule line anywhere in the list
+is between Day 1 and Day 3.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Primary button border desaturated to match the new fill
+
+**What changed:** Follow-up to the gradient desaturation — the
+button's border (`border-color`, base and hover) moved off
+`var(--gold-deep)` to `#A8916D`, a lighter, less-saturated brown in
+the same family as the new sand-gold fill, so the border reads as a
+soft edge instead of a harder, more saturated outline than the fill
+it surrounds. Verified live: computed `rgb(168,145,109)`.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: days are dividers, not nested cards
+
+**What changed:** Each day was its own bordered/rounded/backgrounded
+card, nested inside the Itinerary Builder's own card, nested inside
+its items' own row/detail padding — "too many rounds of padding" per
+direct feedback. `.taw-itin-day` now just gets a `border-bottom`
+divider (no border/radius/background of its own), flowing in the
+ambient white background the outer card already provides — the
+`has-attention` white-background override from an earlier fix is now
+unnecessary and removed along with it, since there's no longer a
+per-day background to fight the page's ivory. The visa block and the
+day list are wrapped in a new `.taw-itin-days` container with its own
+zero gap (dividers ARE the spacing now), while `.taw-itin` itself
+keeps its 10px gap for the sections above the list (summary/alerts/
+tabs), which still need real separation before the divided list
+starts. Verified live: `.taw-itin-day` computes to `border-bottom:1px
+solid`, `border-radius:0`, transparent background — Day 1 and Day 9
+now sit as one continuous divided list instead of two separate boxes.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS/markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: minimum whitespace below the last day/visa card
+
+**What changed:** Added `padding-bottom` to the outer `.taw-itin`
+container (24px, then tripled to 72px per immediate follow-up), so
+there's always minimum breathing room below whichever day or visa
+card happens to render last — regardless of which All/Flights/Hotels/
+Visa tab is active (which changes what's last) or whether that last
+card is expanded or collapsed. Put on the container itself rather
+than a `:last-child` rule so it holds in every case without needing
+to track which element that actually is.
+Verified live: confirmed both with Day 9 auto-expanded (its default
+attention-tier state) and manually collapsed; final computed value
+`72px`.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: added an "All" tab before Flights
+
+**What changed:** Added a fourth tab, "All", first in the switcher
+(All / Flights / Hotels / Visa). It shows the visa card plus every
+day with ALL its items unfiltered — the original combined view from
+before the tabs existed — with day subtotals correctly reverting to
+the full combined amount (e.g. Day 1 back to ₹3,12,400, not the
+₹2,24,800 flight-only figure the Flights tab shows). Flights stays the
+default active tab; only the tab set changed. Verified live: Day 1
+under "All" shows both the Emirates flight and Widder Hotel together
+with the combined subtotal.
+**Files touched:** `src/components/panels/ItineraryView.tsx`.
+**Data/API status:** n/a — same mock data.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: day headers no longer ivory-tinted
+
+**What changed:** `.taw-itin-day-h.has-attention` (a day header
+containing an attention-tier item) was tinted with `var(--warn-bg)`
+(`#F1E7DA`) — close enough to the page's own ivory background
+(`#FAF6EB`) that the header text lost contrast. Changed to
+`var(--card)`, the same white every other day header already uses.
+Verified live: computed background now `rgb(255,254,251)` (`#FFFEFB`).
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: drag-reorder moved from days to items (correction)
+
+**What changed:** Direct correction to item #6's drag-reorder — days
+were the wrong level to make draggable (they're calendar-ordered, a
+day can't just move to a different date by dragging), and the request
+was for it to instead be items within a day. Removed the day-level
+grip/drag entirely (day headers are no longer draggable at all) and
+added a grip handle to each item row instead, reordering within that
+item's own day only — dragging an item onto a DIFFERENT day's item is
+a no-op, since moving between days is a date change, not a reorder.
+The bucket-colored attention accent bar moved from the item row itself
+to a new wrapper (`.taw-itin-item-row-wrap`) that now holds the grip
++ row together, so the accent still sits at the card's true left edge.
+Verified live: day headers have no grip and aren't `draggable`; each
+item row has its own `draggable` grip (2 found on the Flights tab);
+dragging Day 1's flight onto Day 9's flight (different days) leaves
+the order unchanged, confirming the cross-day guard works. Same-day
+multi-item reordering wasn't visually testable with the current mock
+data — under the new Flights/Hotels/Visa tabs (added earlier this
+session) a day never surfaces two items of the same category at once
+— but the reorder function mirrors the exact splice logic already
+verified for the (now-removed) day-level version, just scoped by
+`dayId` match.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — same mock data.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: Flights/Hotels/Visa tabs
+
+**What changed:** Added a Flights/Hotels/Visa tab switcher below the
+alert banner in the generated itinerary, reusing the exact
+`.taw-leg-switch`/`.taw-leg-tab` pattern from flight search's
+round-trip leg switcher (same "exactly one of a few mutually-exclusive
+views" shape). The day list and visa block filter to match the active
+tab — a day with both a flight and a hotel shows only the matching
+item under each tab, and days with nothing in the active category
+(e.g. Day 9's return flight under "Hotels") are hidden entirely. Each
+day's subtotal now derives from whatever's actually visible in it,
+not a static combined-day number, so it stays correct per tab.
+Clicking an alert in the (tab-independent) banner also switches to
+that alert's own category before jumping/expanding, so e.g. a hotel
+price-change alert clicked from the Flights tab correctly lands on
+Hotels. The totals/financial-rollup bar at the top stays whole-trip,
+not per-tab, per the request (only the list below the red card was
+asked to be tabbed).
+Verified live: Flights tab shows only the Emirates flight (day
+subtotal ₹2,24,800, not the combined ₹3,12,400); Hotels tab shows
+Widder/Bürgenstock/Riffelalp across Days 1/3/6, flight and Day 9
+hidden; Visa tab shows only the visa card; clicking the Zermatt alert
+from the Flights tab switches to Hotels and expands Day 6.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/lib/mockItinerary.ts`.
+**Data/API status:** n/a — same mock data, category filtering is
+client-side.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Removed "Back" control from the generated itinerary view
+
+**What changed:** The AI-generated itinerary view no longer has a
+"Back" link above it (returning to the ai/scratch chooser). Once
+generated, the itinerary is now the working view for that enquiry;
+switching enquiries in the Queue resets `buildMode` naturally. The
+from-scratch placeholder's own Back link is unchanged.
+**Files touched:** `src/components/panels/WorkbenchTab.tsx`.
+**Data/API status:** n/a — markup only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: financial rollup made visible (item #7, last of the itinerary-hierarchy plan)
+
+**What changed:** Last item in the "stop looking like a PDF" plan.
+Two problems with the old total/confirmed/held display: (1) three
+numbers with no visible relationship — the advisor had to do the
+arithmetic themselves to see the split; (2) the grand total (₹6,42,300)
+silently excluded the not-yet-selected return flight's cost entirely,
+reading as a settled number when a real, currently-unknown amount
+(at least ₹1,98,400 more) is still outstanding.
+- Added a proportional horizontal bar (confirmed = green, held = amber,
+  unresolved = a diagonal-striped pattern, not a solid fill, since it's
+  a known floor on an unpriced item rather than a real committed cost)
+  under the totals row.
+- The grand total now renders as a range whenever anything's
+  unresolved — "₹6,42,300–₹8,40,700+" — plus a new fourth "unresolved"
+  figure alongside total/confirmed/held.
+- Day 9's subtotal (previously the placeholder "1 missing") now shows
+  "from ₹1,98,400", extending the exact same range logic down to the
+  day level instead of a bare missing-data flag.
+Verified live: bar segments compute to 49.8%/26.6%/23.6%
+(confirmed/held/unresolved of the 8,40,700 low-end total, matching
+418700/223600/198400 exactly); Day 9 shows "from ₹1,98,400" as its
+day-total.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — same mock data, computed client-side from
+existing `priceIsFrom` flags.
+**Env vars added/changed:** none.
+**Backend action needed:** None — but a real AI-generation endpoint
+would need to supply consistent, reconcilable totals/confirmed/held
+numbers per item for this rollup to mean anything beyond mock data.
+
+---
+
+## 2026-09-03 — Itinerary Builder: inline editing + day drag-reorder (item #6 of the itinerary-hierarchy plan)
+
+**What changed:** Item #4 (single CTA per row) turned out to already be
+satisfied — the mock data was built with one `primary: true` action per
+row from the start, and existing `.taw-btn`/`--primary` styling already
+renders it as the only filled button against outlined secondaries; no
+code change needed there. Moved on to item #6, the one plan item that
+overlaps with the previously-deferred real editable builder — confirmed
+explicitly with the designer before starting, since it's a real scope
+decision, not a display-only tweak like #1/#2/#5.
+
+Implemented:
+- The itinerary is now local component state (cloned from the mock on
+  mount), not the static import directly — edits need somewhere to go.
+- **Inline editing**: day dates, hotel room types, and flight cabins
+  render as click-to-edit text (dashed underline + pencil icon on
+  hover; click → text input; Enter/blur commits, Escape cancels).
+  Prices, statuses, confirmation numbers, and segment detail stay
+  read-only — those are supplier-confirmed facts, not advisor-editable,
+  and out of scope regardless.
+- **Day drag-reorder**: a dedicated grip handle (native HTML5
+  drag-and-drop, no library) — only the grip itself is draggable, not
+  the whole row, so a plain click still toggles expand/collapse.
+- Fixed a real correctness issue this surfaced: the day header was a
+  `<button>`, and nesting an `<input>` inside a button (for the
+  editable date) is invalid HTML and breaks keyboard/focus behavior.
+  Day headers are now `role="button"` divs, manually wired for
+  Enter/Space activation — same semantics as a real button.
+- `roomType`/`cabin` pulled out of the old flat `detail`/chip strings
+  in the mock data into their own fields specifically so they can be
+  targeted by inline editing without string-parsing.
+
+Verified live: clicking a day's date swaps in an input (day stays
+open — the click doesn't bubble to the header's toggle); committing
+with Enter updates the displayed date; dragging Day 1's grip onto
+Day 3's position swaps their order in the rendered list; clicking the
+flight's "Cabin: Business" field opens an editable input the same way.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/lib/mockItinerary.ts`, `src/components/ui/Icon.tsx` (new `grip`
+icon), `src/styles/advisor-workbench.css`.
+**Data/API status:** Mock only, session-local — edits live in React
+state and are lost on refresh; no save/persist call exists yet.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — flagging that persisting these
+edits (and day reorder) will need a real save endpoint once this moves
+past mock data; item order isn't currently modeled as backend state
+anywhere.
+
+---
+
+## 2026-09-03 — Traveller Profile dates card recolored to neutral grey
+
+**What changed:** `.taw-m360-dates` (the "12–16 Oct · Flexible" card in
+Traveller Profile) changed from a warm tan fill (`var(--bone)`) + line
+border to a near-white grey fill (`#FAFAFA`) with a very slightly
+darker outline (`#F8F8F8`), so the date range text and the FLEXIBLE tag
+read more clearly against it. Verified live: computed
+`rgb(250,250,250)` fill / `rgb(248,248,248)` border.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: status pills carry their own next step (item #5 of the itinerary-hierarchy plan)
+
+**What changed:** Three different attention statuses (on hold, in
+progress, not selected) share the same amber "warn" bucket — fine when
+everything was always expanded with a meta line underneath, but once
+rows collapse (item #2), a bare "On hold" pill on a one-line row tells
+you nothing about how urgent it actually is. Added an explicit
+`nextStep` string per attention item/visa, folded directly into the
+pill text: "On hold · 6h 20m left", "Awaiting supplier · no reply 2d",
+"Price changed · +₹9,600", "Not selected · 4 options", "In progress ·
+decision by 11 Oct". Dropped the now-duplicated wording from the
+chips/meta below each pill (e.g. "Requested 01 Sep · no reply 2 days"
+→ chip is just "Requested 01 Sep", the "no reply 2d" part lives in the
+pill) so the same fact isn't stated twice on one card. Verified live:
+collapsing the on-hold Emirates flight still shows "On hold · 6h 20m
+left" on its one-line row; Day 6/9's price-changed and not-selected
+pills read "Price changed · +₹9,600" and "Not selected · 4 options".
+**Files touched:** `src/lib/mockItinerary.ts`,
+`src/components/panels/ItineraryView.tsx`.
+**Data/API status:** n/a — still the same mock data.
+**Env vars added/changed:** none.
+**Backend action needed:** None — but flagging that a real AI-generation
+endpoint would need to supply this `nextStep` string per item (not
+something the frontend can derive on its own for every status).
+
+---
+
+## 2026-09-03 — Traveller Profile hero: tighter avatar-to-name spacing
+
+**What changed:** `.taw-m360-hero` gap (avatar → name/meta stack) reduced
+from 15px to 10px. Verified live: computed gap now `10px`.
+**Files touched:** `src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — CSS only.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: every row is now a plain toggle (item #2 of the itinerary-hierarchy plan)
+
+**What changed:** Item #1 built the compact-row skeleton, but only
+"done" (booked) rows could actually collapse — attention rows (on
+hold, price changed, etc.) were permanently pinned open with no click
+handler, no hover affordance, and no way to tell they were interactive.
+Now every item row is a plain, symmetric open/close toggle:
+- Tier only decides the STARTING state (attention starts open, done
+  starts closed) — after that, click to collapse a handled attention
+  item back to one line, or open a booked item to check its
+  confirmation number. Same interaction everywhere.
+- Every row now has `cursor:pointer`, a hover background, and
+  `aria-expanded`.
+- A collapsed attention row keeps a status-colored left accent bar
+  (amber/blue/red, matching its status pill's bucket) so it still
+  reads as urgent at a glance even collapsed — the status pill alone
+  wasn't enough once a row shrinks to one line.
+Verified live: clicking the on-hold Emirates flight collapses it to a
+single line (accent bar still visible) sitting flush against the
+already-compact booked hotel row below it; clicking again re-expands
+the full segment/chip/action detail.
+**Files touched:** `src/components/panels/ItineraryView.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** n/a — still the same mock data from item #1.
+**Env vars added/changed:** none.
+**Backend action needed:** None.
+
+---
+
+## 2026-09-03 — Itinerary Builder: real content on the AI path (item #1 of the itinerary-hierarchy plan)
+
+**What changed:** First implementation step from the "the itinerary
+mockup reads like a printed PDF, not a working tool" design discussion.
+Picking "Generate AI Itinerary" in the builder chooser now renders a
+real (though still mock-data-backed) itinerary instead of a placeholder
+message, built around a two-tier visual hierarchy:
+- **Attention tier** (on hold, price changed, awaiting supplier, not
+  selected) — full card: detail/segments, chips, meta, action buttons.
+  Auto-expanded.
+- **Done tier** (booked) — collapses to a single compact line (icon ·
+  time · title · status pill · price); click to reveal detail, no
+  action buttons since there's nothing to do.
+- **Days** collapse to one summary line by default, auto-expanding only
+  when they contain an attention-tier item — so a 9-day trip with 2
+  live issues shows 2 open days, not 9.
+- The alert banner is now a **clickable jump-list** (not a static
+  paragraph) — each alert opens and scrolls to the day/section it's
+  about.
+- Visa follows the same attention/done tiering as any other item.
+
+New status vocabulary (`on_hold`/`booked`/`awaiting_supplier`/
+`price_changed`/`not_selected`/`in_progress`) maps onto the app's
+existing 5-bucket status-pill palette (warn/info/danger/success —
+already used by Orders) rather than inventing new colors; `tierOf()` is
+the single place status maps to visual tier, so new statuses don't need
+render-code changes. Data is a static mock (`mockItinerary.ts`, shaped
+from the designer's Switzerland/honeymoon reference) — there's no real
+AI-generation call yet, and "Start from scratch" is untouched.
+Deliberately out of scope for this pass (later items in the same plan):
+inline editing, drag-reorder, single-CTA-per-row cleanup, financial
+rollup visualization. Verified live: attention items render expanded
+with full detail; the booked hotel row collapses to one line and
+expands on click; alert clicks correctly re-open a manually-collapsed
+day (confirmed via direct DOM check after the click, since this
+browser's smooth-scroll animation didn't complete within the
+automated-test window — the state/target logic itself is correct).
+**Files touched:** `src/components/panels/ItineraryView.tsx` (new),
+`src/lib/mockItinerary.ts` (new),
+`src/components/panels/WorkbenchTab.tsx`,
+`src/styles/advisor-workbench.css`.
+**Data/API status:** Mock only — no backend call. Real AI-generation
+endpoint still needs to exist before this can show a real trip.
+**Env vars added/changed:** none.
+**Backend action needed:** None yet — flagging that an AI-itinerary-
+generation endpoint (enquiry → structured day/item list matching this
+shape) is the real dependency once this moves past mock data.
+
+---
+
 ## 2026-09-03 — Fixed squashed filter strip (regression from the Search-scroll fix)
 
 **What changed:** The flight filter strip's dropdown pills got squashed

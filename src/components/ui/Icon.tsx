@@ -51,6 +51,9 @@ const PATHS: Record<string, string> = {
   sun: "M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2",
   sunset: "M3 18h18M12 14a4 4 0 0 1 4 4H8a4 4 0 0 1 4-4zM12 2v5M9 6l3-3 3 3",
   moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
+  // Six zero-length dots (round linecap renders each as a dot) — a drag
+  // handle, used by the itinerary day-reorder grip (2026-09-03).
+  grip: "M9 6L9 6M9 12L9 12M9 18L9 18M15 6L15 6M15 12L15 12M15 18L15 18",
 };
 
 // Aliases so callers can use intent names.

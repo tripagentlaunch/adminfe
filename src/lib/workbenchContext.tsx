@@ -36,6 +36,43 @@ export interface WorkbenchContextValue {
   createOrder: (quoteId: string) => void;
   consumeCreated: () => void;
   currentAdvisor: any;
+  // proposalQueue (2026-09-03) — the "Send to Proposal" handoff, upgraded
+  // from a single itinerary slot to a real per-enquiry queue (direct
+  // request: Proposal Composer needed its own Queue, showing only
+  // enquiries with an itinerary actually waiting to be composed).
+  // ItineraryView writes one entry per enquiry when the advisor confirms
+  // in the Summary window (re-sending the same enquiry replaces its
+  // entry rather than duplicating it); console/proposal-composer/page.tsx
+  // reads the list. Session-local only, same as everything else here.
+  proposalQueue: ProposalQueueEntry[];
+  selectedProposalEnqId: string | null;
+  sendItineraryToProposal: (enquiryId: string, member: any, data: any) => void;
+  selectProposal: (enquiryId: string) => void;
+  // itinerariesByEnquiry (2026-09-03) — Search → Itinerary, direct, no
+  // cart in between (explicit scope call). Was local state inside
+  // ItineraryView (a clone of MOCK_ITINERARY, gone the moment you
+  // navigated away); now lives here per enquiryId so Search's "Add"
+  // button and the Itinerary Builder read/write the SAME object.
+  // initItinerary seeds one (mock data for "ai", a real empty shell for
+  // "scratch") ONLY if that enquiry doesn't already have one — it's a
+  // no-op once data exists, so it can't clobber items already added via
+  // Search. addSearchItemToItinerary auto-seeds a blank shell too, so
+  // "Add" works even before the advisor has gone through the AI/scratch
+  // chooser at all.
+  itinerariesByEnquiry: Record<string, any>;
+  // `enquiry` (2026-09-04) — used to seed the itinerary's own committed
+  // date bound (startIso/endIso) from the enquiry's ask.dateRange when
+  // there's no mock data to derive it from (see WorkbenchDataProvider).
+  initItinerary: (enquiryId: string, mode: "ai" | "scratch", enquiry?: any) => void;
+  updateItineraryData: (enquiryId: string, updater: (d: any) => any) => void;
+  addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
+}
+
+export interface ProposalQueueEntry {
+  enquiryId: string;
+  member: any;
+  data: any;
+  sentAt: number;
 }
 
 export const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);

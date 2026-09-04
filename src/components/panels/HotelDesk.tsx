@@ -6,10 +6,30 @@
  * — only ever used by HotelDesk in the original module too).
  * ===========================================================================*/
 import { useEffect, useState } from "react";
+import { cx } from "../../lib/cx";
 import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
-import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon } from "../ui";
+import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
+import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
+
+// SORT_OPTIONS/STAR_OPTIONS (2026-09-04) — the filter/sort row rebuilt to
+// match FlightDesk's `.taw-filter-strip` (a row of Dropdown pills + one
+// toggle chip for Refundable), replacing the older boxed `.taw-shopbar`
+// (segmented star buttons + a labeled native <select> for sort) so all
+// three Search desks share one filter-bar language instead of Hotels
+// looking like an earlier, different design pass.
+const HOTEL_SORT_OPTIONS = [
+  { key: "best", label: "Best value", icon: "sort" },
+  { key: "cheapest", label: "Cheapest", icon: "sort" },
+  { key: "toprated", label: "Top-rated", icon: "sort" },
+];
+const HOTEL_STAR_OPTIONS = [
+  { key: "any", label: "All stars" },
+  { key: "3", label: "3★+" },
+  { key: "4", label: "4★+" },
+  { key: "5", label: "5★" },
+];
 
 // TEMP toggle — flip to false to fall back to the old synthetic searchHotels()
 // generator instantly if the real TripSure data looks wrong. Remove once the
@@ -242,7 +262,21 @@ function HotelPdpDetail(props: any) {
 
 export function HotelDesk(props: any) {
   const member = props.member;
-  const [form, setForm] = useState({ city: "Dubai", checkIn: todayISO(21), checkOut: todayISO(25), rooms: 1, pax: 2 });
+  const ask = props.enquiry && props.enquiry.ask;
+  // city defaults to the enquiry's actual destination (2026-09-04,
+  // flow-testing hurdle — was always hardcoded "Dubai" regardless of what
+  // the selected enquiry asked for, so e.g. Priya's Goa itinerary needed
+  // retyping the city by hand before Search did anything useful). Falls
+  // back to "Dubai" only when there's no enquiry selected yet.
+  // pax defaults to 1, not 2 (2026-09-03) — TripAgent's scope is solo
+  // trips only (the cardholder is always the traveller).
+  const [form, setForm] = useState({
+    city: (ask && ask.destinations && ask.destinations[0]) || "Dubai",
+    checkIn: todayISO(21),
+    checkOut: todayISO(25),
+    rooms: 1,
+    pax: 1,
+  });
   // The full location object the advisor picked from the City typeahead
   // (id/name/type/coordinates/state/country) — set on AutosuggestInput's
   // onSelect, cleared whenever they type again. When present, runReal()
@@ -337,10 +371,15 @@ export function HotelDesk(props: any) {
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
         })
-        .catch((e: any) => {
-          setErr(errText(e));
+        .catch(() => {
+          // Same fallback contract as FlightDesk (see mockHotelSearch.ts's
+          // own docblock) — the real call above always runs first; only on
+          // failure (every time locally, no backend reachable) does the UI
+          // fall back to mock data instead of a bare error banner.
+          const mock = buildMockHotelOffers({ city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: Number(form.rooms) || 1, pax: Number(form.pax) || 2 });
+          setRes(mock);
           setLoading(false);
-          toast("Hotel search failed", "error");
+          toast("Live API unreachable — showing demo hotel data — " + mock.count + " hotel offers loaded", "error");
         });
       return;
     }
@@ -361,8 +400,33 @@ export function HotelDesk(props: any) {
       });
   }
   const offers = (res && res.offers) || [];
-  return (
-    <div className="taw-fade-in">
+
+  // showResults / backToSearch (2026-09-04) — same "results REPLACE the
+  // form, not sit below it" treatment as FlightDesk (see its own docblock
+  // on `showResults`), brought here and to VisaDesk so all three Search
+  // desks behave the same way instead of Hotels/Visas dumping results
+  // underneath a form that's still sitting there taking up room.
+  const showResults = loading || res != null;
+  function backToSearch() {
+    setRes(null);
+    setErr(null);
+  }
+  // onExpandChange (2026-09-04) — without this, the Search card stays
+  // sized to its own content (`.taw-card--fit`, see SearchDesksPanel's
+  // docblock) while on Hotels, so a real result list just grows the
+  // whole card (and the page under it) taller instead of scrolling
+  // inside a fixed height the way Flights does — SleekScroll below only
+  // produces a scrollbar when its flex ancestor chain actually has a
+  // bounded height to fill. Reporting showResults upward the same way
+  // FlightDesk does is what lets SearchDesksPanel grow the card to the
+  // column's full height while results are showing, giving SleekScroll
+  // something real to scroll within.
+  useEffect(() => {
+    if (props.onExpandChange) props.onExpandChange(showResults);
+  }, [showResults]);
+
+  const formView = (
+    <>
       <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
         <Field label="City" htmlFor="taw-ho-city">
           <AutosuggestInput
@@ -401,11 +465,30 @@ export function HotelDesk(props: any) {
           <input className="taw-input" type="number" min={1} value={form.pax} onChange={(e) => set("pax", e.target.value)} />
         </Field>
         <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <button className="taw-btn taw-btn--primary taw-btn--block" disabled={loading} onClick={run}>
+          <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={run}>
             {loading ? <Spinner /> : <Icon name="search" size={16} />}
             {loading ? "Searching…" : "Search Hotels"}
           </button>
         </div>
+      </div>
+    </>
+  );
+
+  const resultsView = (
+    <div className="taw-results-view">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+        {!loading ? (
+          <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
+            <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
+          </button>
+        ) : null}
+        {res ? (
+          <div className="taw-leg-switch">
+            <span className="taw-leg-tab is-active">
+              {form.city} · {fmtDate(form.checkIn)} – {fmtDate(form.checkOut)}
+            </span>
+          </div>
+        ) : null}
       </div>
       {err ? (
         <div className="taw-banner taw-banner--err">
@@ -417,9 +500,10 @@ export function HotelDesk(props: any) {
       {!loading && res ? (
         <HotelResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
       ) : null}
-      {!loading && !res && !err ? <Empty icon={<Icon name="hotel" size={28} />}>Pick a city and dates to pull live hotel rates.</Empty> : null}
     </div>
   );
+
+  return <div className="taw-fade-in taw-fdesk">{showResults ? resultsView : formView}</div>;
 }
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
@@ -459,53 +543,27 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
     const sb = (db.stars || 3) / (offNet(b) / (minNet || 1));
     return sb - sa;
   });
-  const starBtn = (val: string, label: string) => (
-    <button className={"taw-seg" + (view.stars === val ? " is-on" : "")} onClick={() => setV("stars", val)}>
-      {label}
-    </button>
-  );
+  const boardOptions = [{ key: "all", label: "Any board" }, ...boards.map((b: string) => ({ key: b, label: b }))];
   return (
-    <div>
+    <div className="taw-results-panel">
       {offers.length ? (
-        <div className="taw-shopbar">
-          <div className="taw-segrp">
-            {starBtn("any", "All")}
-            {starBtn("3", "3★+")}
-            {starBtn("4", "4★+")}
-            {starBtn("5", "5★")}
-          </div>
+        <div className="taw-filter-strip">
+          <Dropdown value={view.sort} options={HOTEL_SORT_OPTIONS} onChange={(v: any) => setV("sort", v)} ariaLabel="Sort hotels" triggerClassName="taw-filter-dd" hideOptionIcons />
+          <Dropdown value={view.stars} options={HOTEL_STAR_OPTIONS} onChange={(v: any) => setV("stars", v)} ariaLabel="Filter by stars" triggerClassName="taw-filter-dd" />
+          {boards.length > 1 ? (
+            <Dropdown value={view.board} options={boardOptions} onChange={(v: any) => setV("board", v)} ariaLabel="Filter by board" triggerClassName="taw-filter-dd" />
+          ) : null}
           <button
-            className={"taw-toggle" + (view.refundable ? " is-on" : "")}
+            className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
             onClick={() => setV("refundable", !view.refundable)}
             aria-pressed={view.refundable ? "true" : "false"}
           >
-            <Icon name="shield" size={13} />
+            <Icon name={view.refundable ? "x" : "shield"} size={12} />
             Refundable
           </button>
-          {boards.length > 1 ? (
-            <select className="taw-select taw-select--sm" value={view.board} aria-label="Filter by board" onChange={(e) => setV("board", e.target.value)}>
-              <option value="all">Any board</option>
-              {boards.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
-          ) : null}
-          <div className="taw-shopbar-sp" />
-          <label className="taw-sortlab">Sort</label>
-          <select className="taw-select taw-select--sm" value={view.sort} aria-label="Sort hotels" onChange={(e) => setV("sort", e.target.value)}>
-            <option value="best">Best value</option>
-            <option value="cheapest">Cheapest</option>
-            <option value="toprated">Top-rated</option>
-          </select>
         </div>
       ) : null}
-      {offers.length ? (
-        <div className="taw-shopcount">
-          Showing {shown.length} of {offers.length} stays
-        </div>
-      ) : null}
+      <SleekScroll className="taw-results-scroll">
       <div className="taw-results">
         {shown.length ? (
           shown.map((o: any) => {
@@ -544,7 +602,7 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
                       {inr(net)}
                       <small>net cost</small>
                     </div>
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => onAdd(hotelCartItem(o))}>
+                    <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => onAdd({ ...hotelCartItem(o), checkIn })}>
                       <Icon name="plus" size={13} />
                       Add
                     </button>
@@ -558,6 +616,7 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
           <Empty icon={<Icon name="hotel" size={28} />}>{offers.length ? "No stays match these filters — widen them to see more." : "No hotel offers for this stay."}</Empty>
         )}
       </div>
+      </SleekScroll>
     </div>
   );
 }

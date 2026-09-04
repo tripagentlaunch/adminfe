@@ -35,6 +35,41 @@ const CABIN_OPTIONS = [
   { key: "first", label: "First" },
 ];
 
+// normalizeCabin (2026-09-03, flow-testing hurdle) — member.preferences.cabin
+// is stored capitalized ("Business") for human display (Traveller Profile
+// etc.); CABIN_OPTIONS' keys are lowercase/snake_case. Seeding form.cabin
+// straight from the preference without this returned a value matching NO
+// option, so the Cabin Dropdown rendered its trigger blank — surfaced live
+// testing Kabir Shah (preferences.cabin: "Business").
+function normalizeCabin(pref: any): string | null {
+  if (!pref) return null;
+  const key = String(pref).toLowerCase().replace(/\s+/g, "_");
+  return CABIN_OPTIONS.some((o) => o.key === key) ? key : null;
+}
+
+// CITY_AIRPORT_CODES / codeFromAsk (2026-09-04, flow-testing hurdle) — the
+// desk always opened on hardcoded DEL→DXB regardless of what the selected
+// enquiry actually asked for, so building Priya's Goa itinerary meant
+// manually retyping BOM→GOI every time before Search did anything useful.
+// enquiry.ask.from is a display string ("Mumbai (BOM)") that already
+// carries the code in parens; ask.destinations[] is a bare city name with
+// no code, so it needs this lookup — covers exactly the mock enquiries'
+// cities for now, same "match the mock data" scope as the rest of this
+// pass, not a real airport directory.
+const CITY_AIRPORT_CODES: Record<string, string> = {
+  delhi: "DEL",
+  mumbai: "BOM",
+  singapore: "SIN",
+  goa: "GOI",
+  dubai: "DXB",
+};
+function codeFromAsk(text: any): string | null {
+  if (!text) return null;
+  const paren = String(text).match(/\(([A-Z]{3})\)/);
+  if (paren) return paren[1];
+  return CITY_AIRPORT_CODES[String(text).trim().toLowerCase()] || null;
+}
+
 // Results filter-strip options (2026-09-02) — every SORT_OPTIONS entry
 // carries the SAME icon so the Sort dropdown's trigger always shows a
 // sort icon regardless of which option is currently picked (Dropdown
@@ -343,17 +378,20 @@ function FlightFareDetail(props: any) {
 
 export function FlightDesk(props: any) {
   const member = props.member;
+  const ask = props.enquiry && props.enquiry.ask;
   const [form, setForm] = useState({
-    originCode: "DEL",
-    destCode: "DXB",
+    originCode: (ask && codeFromAsk(ask.from)) || "DEL",
+    destCode: (ask && ask.destinations && codeFromAsk(ask.destinations[0])) || "DXB",
     date: todayISO(21),
     // returnDate (2026-09-02) — round-trip support: EMPTY by default,
     // one-way. Whether a search is round-trip or one-way is decided
     // purely by whether this field has a value in it AT THE MOMENT
     // Search is clicked (see run()) — not a separate toggle.
     returnDate: "",
-    pax: (member && member.preferences && member.preferences.pax) || 2,
-    cabin: (member && member.preferences && member.preferences.cabin) || "economy",
+    // Defaults to 1 (2026-09-03) — TripAgent's scope is solo trips only
+    // (the cardholder is always the traveller), not 2.
+    pax: (member && member.preferences && member.preferences.pax) || 1,
+    cabin: normalizeCabin(member && member.preferences && member.preferences.cabin) || "economy",
   });
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<any>(null);

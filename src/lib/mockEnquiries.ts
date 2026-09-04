@@ -44,7 +44,7 @@ export const MOCK_MEMBERS_BY_ID: Record<string, any> = {
     nationality: "IN",
     passport_number: "P7654321",
     passport_expiry: "2029-11-03",
-    preferences: { cabin: "Economy", hotel_tier: "Family resort" },
+    preferences: { cabin: "Economy", hotel_tier: "5-star resort" },
     gender: "F",
     dob: "1989-06-02",
     company: "—",
@@ -120,31 +120,33 @@ export const MOCK_ENQUIRIES: any[] = [
   },
 
   // 2 — Wrong for hotels: flight matches the ask; the hotel pick doesn't
-  // (no adjoining rooms, no elevator access, despite both being asked for).
+  // (no elevator access, despite it being explicitly asked for). Rewritten
+  // solo (2026-09-03) — was a 3-person family trip (2 adults + a child),
+  // which conflicts with TripAgent's scope decision that it only accepts
+  // solo trips booked by the cardholder who is also the traveller. The
+  // hotel-accessibility mismatch this enquiry exists to test still works
+  // solo — dropped "adjoining rooms" (a multi-room/multi-person ask) but
+  // kept "ground floor or elevator access" as a real, solo-plausible need.
   {
     id: "mock-enq-2",
     member_id: "mock-mem-2",
     channel: "web",
     status: "open",
     created_at: "2026-08-29T11:40:00Z",
-    message: "Family trip to Goa with the kids — need adjoining rooms, ground floor or elevator access. Economy flights are fine for this short trip.",
+    message: "Solo trip to Goa — need ground floor or elevator access for my room, I can't do stairs with my knee. Economy flights are fine for this short trip.",
     intent: { destinations: ["Goa"], services: ["flight", "hotel"] },
     ask: {
-      persons: [
-        { name: "Priya Kapoor", gender: "F", age: 37 },
-        { name: "Dev Kapoor", gender: "M", age: 39 },
-        { name: "Aanya Kapoor", gender: "F", age: 7 },
-      ],
-      groupType: "Family",
+      persons: [{ name: "Priya Kapoor", gender: "F", age: 37 }],
+      groupType: "Solo",
       from: "Mumbai (BOM)",
       destinations: ["Goa"],
       dates: { nights: 4, month: "November", season: "Winter" },
       dateRange: "18 – 22 Nov",
-      dateFlex: { tag: "fixed", note: "school holidays — cannot shift" },
-      budgetCap: 350000,
+      dateFlex: { tag: "fixed", note: "leave already booked — cannot shift" },
+      budgetCap: 120000,
       purpose: "Vacation",
       flight: { class: "Economy", stops: "Direct" },
-      hotel: { stars: 5, location: "Candolim", checkIn: "14:00", checkOut: "11:00", roomConfig: "Adjoining rooms, elevator access" },
+      hotel: { stars: 5, location: "Candolim", checkIn: "14:00", checkOut: "11:00", roomConfig: "Ground floor or elevator access" },
     },
     ai_draft: {
       flight: {
@@ -156,11 +158,11 @@ export const MOCK_ENQUIRIES: any[] = [
       },
       hotel: {
         name: "Taj Exotica Goa",
-        type: "2 separate rooms, not adjoining — one accessible by stairs only",
+        type: "3rd-floor room, no elevator — stairs only",
         nights: 4,
-        reasoning: "Best-rated family resort in Candolim for these dates.",
+        reasoning: "Best-rated resort in Candolim for these dates.",
         mismatch: true,
-        mismatchNote: "Enquiry asked for adjoining rooms with elevator access — neither is true of this pick.",
+        mismatchNote: "Enquiry asked for ground floor or elevator access — neither is true of this pick.",
       },
     },
   },

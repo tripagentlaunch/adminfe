@@ -7,8 +7,9 @@
  * ===========================================================================*/
 import { useState } from "react";
 import { searchVisa, inr } from "../../services/api";
-import { errText, toast, visaCartItem } from "../../lib/advisorHelpers";
+import { toast, visaCartItem } from "../../lib/advisorHelpers";
 import { Empty, Field, Spinner, SkeletonResults, Icon } from "../ui";
+import { buildMockVisaOffer } from "../../lib/mockVisaSearch";
 
 // CX-023 — visa document checklist the advisor works through with the member.
 // All required documents (not a truncated preview), each tickable as collected,
@@ -58,11 +59,25 @@ function VisaChecklist(props: any) {
 // visa_service.vendor_search()). Confirmed live (2026-08-10) as the only
 // two case-sensitive values that return real products.
 const VISA_CATEGORIES = ["Tourist", "Business"];
+const VISA_DESTS = ["UAE", "UK", "USA", "Schengen", "Singapore", "Thailand", "Bali"];
 
 export function VisaDesk(props: any) {
   const member = props.member;
+  const ask = props.enquiry && props.enquiry.ask;
   const natDefault = member && member.nationality === "IN" ? "India" : (member && member.nationality) || "India";
-  const [form, setForm] = useState({ nationality: natDefault, destination: "UAE", pax: 2, category: VISA_CATEGORIES[0] });
+  // destination defaults to the enquiry's own destination when it's one of
+  // this desk's supported countries (2026-09-04, flow-testing hurdle — was
+  // always hardcoded "UAE"); falls back to "UAE" for destinations this desk
+  // doesn't cover (e.g. Goa, which is domestic and needs no visa anyway).
+  const askDest = ask && ask.destinations && ask.destinations[0];
+  // pax defaults to 1, not 2 (2026-09-03) — TripAgent's scope is solo
+  // trips only (the cardholder is always the traveller).
+  const [form, setForm] = useState({
+    nationality: natDefault,
+    destination: (askDest && VISA_DESTS.includes(askDest) && askDest) || "UAE",
+    pax: 1,
+    category: VISA_CATEGORIES[0],
+  });
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
@@ -91,16 +106,33 @@ export function VisaDesk(props: any) {
         setLoading(false);
         toast("Visa requirement resolved", "success");
       })
-      .catch((e: any) => {
-        setErr(errText(e));
+      .catch(() => {
+        // Same fallback contract as FlightDesk/HotelDesk (see
+        // mockVisaSearch.ts's own docblock) — the real call above always
+        // runs first; only on failure does the UI fall back to mock data
+        // instead of a bare error banner.
+        const mock = buildMockVisaOffer({ nationality: form.nationality.trim(), destination: form.destination.trim(), pax: Number(form.pax) || 1 });
+        setRes(mock);
         setLoading(false);
-        toast("Visa lookup failed", "error");
+        toast("Live API unreachable — showing demo visa data", "error");
       });
   }
   const offers = (res && res.offers) || [];
-  const dests = ["UAE", "UK", "USA", "Schengen", "Singapore", "Thailand", "Bali"];
-  return (
-    <div className="taw-fade-in">
+  const dests = VISA_DESTS;
+
+  // showResults / backToSearch (2026-09-04) — same "results REPLACE the
+  // form" treatment as FlightDesk/HotelDesk (see FlightDesk's own
+  // docblock on `showResults`), so all three Search desks behave the
+  // same way instead of Visas dumping its result below a form still
+  // sitting there taking up room.
+  const showResults = loading || res != null;
+  function backToSearch() {
+    setRes(null);
+    setErr(null);
+  }
+
+  const formView = (
+    <>
       <div className="taw-row taw-row-4" style={{ marginBottom: 13 }}>
         <Field label="Nationality" htmlFor="taw-vi-nat">
           <input className="taw-input" value={form.nationality} onChange={(e) => set("nationality", e.target.value)} />
@@ -127,10 +159,29 @@ export function VisaDesk(props: any) {
           </select>
         </Field>
       </div>
-      <button className="taw-btn taw-btn--primary taw-btn--block" disabled={loading} onClick={run} style={{ marginBottom: 13 }}>
+      <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={run}>
         {loading ? <Spinner /> : <Icon name="visa" size={16} />}
         {loading ? "Checking…" : "Check Visa Requirement"}
       </button>
+    </>
+  );
+
+  const resultsView = (
+    <div className="taw-results-view">
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+        {!loading ? (
+          <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
+            <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
+          </button>
+        ) : null}
+        {res ? (
+          <div className="taw-leg-switch">
+            <span className="taw-leg-tab is-active">
+              {form.nationality} → {form.destination} · {form.category}
+            </span>
+          </div>
+        ) : null}
+      </div>
       {err ? (
         <div className="taw-banner taw-banner--err">
           <Icon name="alert" size={16} />
@@ -190,7 +241,8 @@ export function VisaDesk(props: any) {
           )}
         </div>
       ) : null}
-      {!loading && !res && !err ? <Empty icon={<Icon name="visa" size={28} />}>Resolve a visa requirement to add it to the itinerary.</Empty> : null}
     </div>
   );
+
+  return <div className="taw-fade-in">{showResults ? resultsView : formView}</div>;
 }
