@@ -21,6 +21,110 @@ New entries go at the **top**. Use this template:
 
 ---
 
+## 2026-09-09 — New "Pipeline" tab: every enquiry's real stage, one action per row
+
+**What changed:** direct request — a new tab beside Console and Proposal Composer that tracks every enquiry across its real lifecycle stage (New / Building Itinerary / Sent to Proposal / Accepted / Revision Requested / Rejected). "Stage" has no backend concept at all (confirmed via BACKEND-HANDOFF.md) — it's derived entirely from state this app already has: `itinerariesByEnquiry[id]` existing, `proposalQueue` membership, and a proposal's `outcome` field. Built as a real sortable/filterable table (stage tag, name, destination, pax, updated, action), not a kanban board, since every transition already happens elsewhere via a real action.
+
+Each row gets exactly one action button, using only navigation that already existed: New/Building → "Start/Continue itinerary" into Console (which auto-resumes chooser vs. builder on its own off `itinerariesByEnquiry`); Sent/Rejected → "Open proposal" into Proposal Composer; Accepted → "Review & book" into Proposal Composer, where QuoteBuilder's real (already-wired) "Create Order" action lives; Revision Requested → "Revise itinerary" back into Console. A per-row outcome Dropdown existed briefly during iteration but was removed — outcome isn't advisor-set, so a single navigation button is the row's only control.
+
+Also seeded representative demo data across all 6 stages in code (`mockEnquiries.ts` + a seed effect in `WorkbenchDataProvider.tsx`), including giving every seeded `proposalQueue` entry a matching `itinerariesByEnquiry` entry — a sent proposal always has a real itinerary behind it, so without this "Revise itinerary" landed on the empty AI/scratch chooser instead of resuming the actual itinerary.
+
+Two real bugs fixed along the way: (1) row-click routed off `proposalEntry` presence, not the row's actual stage, so Revision Requested rows silently opened Proposal Composer instead of Console; (2) two CSS specificity ties against shared `.taw-recon-table` rules silently lost regardless of source order (row hover color, header font size) — fixed by scoping through `.taw-pipeline-tablewrap`. The table header is also a genuinely separate fixed row above SleekScroll's own scroll area (not a sticky row scrolled past inside it), so the custom scrollbar's travel only ever spans the row list, never the header.
+
+**Files touched:** `src/app/(authenticated)/console/pipeline/page.tsx` (new), `src/app/(authenticated)/console/layout.tsx`, `src/components/WorkbenchDataProvider.tsx`, `src/lib/workbenchContext.tsx`, `src/lib/mockEnquiries.ts`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): stage is derived from real session state every other tab reads/writes — clicking any row shows the same data in Console/Proposal Composer, not a display-only overlay.
+- Needs backend attention: there's still no real channel for a client's response to a sent proposal to arrive automatically — `outcome` only changes via this session's seed data for now. See BACKEND-HANDOFF.md.
+**Env vars added/changed:** none.
+**Backend action needed:** None new — same enquiry-lifecycle gap already tracked in BACKEND-HANDOFF.md.
+
+---
+
+## 2026-09-08 — Proposal PDF builder: cover page, react-pdf pipeline, live pricing shared with Quote Builder
+
+**What changed:** direct request, template = a sample PDF the user supplied (`Switzerland-Iyer-Itinerary.pdf`) — Proposal Composer's right column is now a real PDF builder instead of the "not yet built" placeholder: a live `<PDFViewer>` preview plus "Web link" (stubbed — explicitly out of scope, but enabled and explains itself via `toast()` rather than sitting disabled) and "Export PDF" (real — downloads an actual file via `@react-pdf/renderer`'s `pdf().toBlob()`). Only the cover page is built so far (title, date range, cities, contour-art motif, traveller name, nights/stays count, grand total); the remaining 3 pages (day grid + cost breakdown, stays, flights/visa/concierge) are next.
+
+**Architecture decision:** `@react-pdf/renderer` over plain print-CSS or a hosted doc-generation service — its `<PDFViewer>` renders the exact same component tree used for export, so the in-panel preview and the downloaded file can never drift apart, and it needs no server/headless-browser piece. Fonts (Fraunces serif + Inter sans — the closest open match to the sample's typography, per direct confirmation to match exactly rather than approximate with the app's own IBM Plex) are downloaded once into `public/fonts/` and registered via `Font.register`; colors reuse the app's existing `tokens.css` values (`--ink`/`--ivory`/`--gold`/`--muted`) since they already read close to the sample's palette.
+
+**Data policy — derive or honestly omit, never fabricate:** every field is pulled from real itinerary/pricing/advisor data (`proposalTemplateData.ts`'s `buildProposalTemplateData()`, the mirror of `cartFromItinerary()`). Two sample-PDF fields have no real source anywhere in the app and are intentionally left out rather than invented: hotel prose descriptions (curated marketing copy) and a whole-itinerary "held until / cancellable to" banner (no hold-deadline concept exists on itineraries or quotes). Passport validity and visa decision dates turned out to need no model change at all — they already exist as real fields (`visa.chips` / `visa.nextStep` / `visa.meta`); the mock Switzerland itinerary is in fact the same scenario as the sample PDF almost verbatim.
+
+**Pricing now has one source of truth.** Extracted Quote Builder's price-fetching effect into `useQuotePricing()` (`src/lib/useQuotePricing.ts`); Proposal Composer's page now owns the one real `price()` call and passes `pricing`/`quoteId`/`loading`/`err`/`inclusive` down as **controlled props** to `QuoteBuilder` (previously all internal state). This was necessary, not cosmetic — the PDF's cost breakdown must reflect the exact same live quote Quote Builder displays, not a second independent call that could race or price against a different `inclusive` setting.
+
+**Two real bugs caught during my own build-verification, both fixed:**
+1. The contour-art decorative motif rendered blue instead of gold — react-pdf's SVG stroke doesn't parse `rgba()`; switched to a plain hex `stroke` + numeric `strokeOpacity`.
+2. The same art painted over the title text — react-pdf paints in document order regardless of `position: absolute` (unlike a browser's stacking contexts), so the art `View` had to move to be the *first* child, not wherever it sat positionally.
+
+**Follow-up polish (direct requests):** action buttons reordered (Web link, then Export PDF) and right-aligned; Export restyled to match the Search Flights button (`taw-btn--brown`), Web link restyled to the gold `taw-btn--primary` Export previously used; added a real `download` icon to `Icon.tsx` (didn't exist before); both buttons unified to `8px 12px` padding and `14px` text/icon sizing so they render the same height.
+
+**Files touched:** `src/lib/proposalFonts.ts` (new), `src/lib/useQuotePricing.ts` (new), `src/lib/proposalTemplateData.ts` (new), `src/components/proposal/ContourArt.tsx` (new), `src/components/proposal/ProposalDocument.tsx` (new), `src/components/panels/QuoteBuilder.tsx` (refactored to controlled pricing props), `src/components/ui/Icon.tsx` (added `download`), `src/app/(authenticated)/console/proposal-composer/page.tsx`, `src/styles/advisor-workbench.css`, `public/fonts/*.ttf` (new, downloaded from Google Fonts).
+**Data/API status:**
+- Real (already wired): the PDF's cost breakdown reads the same live `price()` → `quote-price` response Quote Builder shows; every other field is read from real itinerary/visa/advisor state, no mock-only fields introduced.
+- Needs backend attention: none — no new endpoint or schema required. (If the business later wants a real "held until / cancellable to" deadline or curated per-hotel description copy, that's a real product/data decision for later, not a wiring gap.)
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Real Quote Builder wired into Proposal Composer, accordion-paired with Queue
+
+**What changed:** direct request — "Quote Builder can be below Queue, EXACTLY LIKE how traveller profile was below Queue in Console." Rebuilt Proposal Composer's left column as a real two-section accordion (Queue / Quote Builder), structurally identical to `QueueProfileAccordion.tsx`'s Queue/Traveller Profile pair: same `.taw-acc-stack`/`.taw-acc`/`.taw-acc-h`/`.taw-acc-toggle`/`.taw-acc-body` classes, same mutual-exclusion toggle (only one section open at a time, either's chevron flips to the other), same auto-collapse-into-the-other-section on selection (there: picking an enquiry opens Traveller Profile; here: picking a queue entry opens Quote Builder via a new `selectAndOpenQuote()`).
+
+Bigger finding underneath this: **`QuoteBuilder.tsx` was never actually unfinished** — it's a complete component already wired to the real pricing engine (`price(cart)` → the real `quote-price` edge function, returning a real `quote_id`) and real order creation (`createOrder()` → `order-create`), matching the "Search Desks → Itinerary Cart → Quote Builder" flow confirmed live on the reference site (tripagent-admin.vercel.app). It was only *unreachable* — no route rendered it (see BACKEND-HANDOFF.md's dead-code note on it and `CartPanel.tsx`). This was a wiring gap, not a build-from-scratch one.
+
+Two things made the wiring non-trivial:
+1. **Shape mismatch.** `QuoteBuilder` expects a flat `cart: [{type, baseNet, international, ...}]` array from the old Search→Cart flow; Console's itinerary is a different, day-bucketed shape (`price` not `baseNet`, no `international` flag). Added `cartFromItinerary(data)` to `itineraryFromCart.ts` — the mirror of the existing `addCartItemToItinerary()` — to flatten a sent itinerary's items + visa back into the cart shape. Also started carrying `international` through onto itinerary items at Search-add time (previously dropped), since GST/TCS math depends on it; AI-mock items predate the flag and default to `false` — honest, not a new gap.
+2. **Double chrome.** `QuoteBuilder` always rendered its own `<Card title="Quote Builder">` wrapper — redundant once mounted inside an accordion section that already provides that header. Added a `bare` prop (mirrors how `Member360` has no `Card` of its own inside `QueueProfileAccordion`) that returns just the content; every other call site (none currently reachable) is unaffected since it simply doesn't pass the prop.
+
+Also fixed a real bug caught by first-pass testing: Quote Builder's body wasn't actually gated behind the section being "open" — it rendered its full content (including firing a real pricing API call) regardless of which accordion section was expanded, so both Queue and Quote Builder showed full content simultaneously. Fixed to mirror `showProfilePlaceholder`'s exact logic: show a placeholder unless this section is both open AND an entry is selected.
+
+Verified live end-to-end: sent Kabir Shah's AI itinerary to Proposal → landed with Queue open, Quote Builder correctly collapsed to "Expand this section to price the selected itinerary" (not full content) → clicked the queue row → Queue auto-collapsed to its header, Quote Builder expanded and fired a **real** pricing call, surfacing a real, honest backend error (`Failed to create quote: invalid input syntax for type uuid: "mock-mem-3"`) — proof the wiring hits the actual endpoint rather than any mock, failing exactly where expected since mock members aren't real DB rows. Confirmed the chevron toggle flips both directions correctly.
+
+**Files touched:** `src/app/(authenticated)/console/proposal-composer/page.tsx`, `src/components/panels/QuoteBuilder.tsx`, `src/lib/itineraryFromCart.ts`.
+**Data/API status:**
+- Real (already wired): `price(cart)` → `quote-price` edge function (real pricing engine); `createOrder()` → `order-create` (real order creation) — both were already real in `QuoteBuilder.tsx`, just newly reachable.
+- Needs backend attention: pricing a mock enquiry's itinerary will always fail with the UUID error above until the itinerary is tied to a real member row — expected, not a frontend bug. See BACKEND-HANDOFF.md Tier 1 items (real enquiry data, real itinerary model) for the actual fix.
+**Env vars added/changed:** none.
+**Backend action needed:** None new — confirms the existing `quote-price`/`order-create` endpoints are live and reachable; the remaining gap is data (real members/itineraries), already tracked in BACKEND-HANDOFF.md.
+
+---
+
+## 2026-09-04 — Proposal Composer's Queue: collapse toggle, breach coloring, flush edges, height cap
+
+**What changed:** three follow-up fixes to the previous entry below, caught by a direct side-by-side comparison against Console's real Queue ("theyre clearly different" / "should not take up more height than the height of the screen" / "theres also left right padding … whereas Console's queue does not have it"):
+
+1. **Missing collapse/expand toggle.** Console's Queue is a collapsible accordion section — a chevron button at the header's right edge (`.taw-acc-toggle`, from `QueueProfileAccordion.tsx`). The Card here had no such control. Added the identical toggle via `Card`'s `actions` slot, with local `open` state (defaults true) collapsing the row list.
+2. **Hours badge never showed the red "breach" color.** The earlier reasoning ("no SLA to breach") was technically defensible but produced a real, visible inconsistency: every mock enquiry in Console happens to be well past any reasonable threshold, so Console's queue reads as uniformly red, while this one read as uniformly gray. Now applies the same `.is-breach` class once a proposal has sat 24h+ unactioned — same underlying idea (something that's sat too long deserves the same red flag), not a fabricated identical SLA.
+3. **Left/right padding where Console's queue is edge-to-edge.** Console's Queue body is the Card's `flush` (zero-padding) variant — row padding lives on `.taw-enq-item` itself, not the container, so hover/selected fill and the custom scrollbar both reach the true edges. This Card was missing `flush`. Added it — `Empty`'s own built-in padding (`.taw-empty{padding:16px 12px}`) keeps the empty state looking correct regardless.
+4. **The Queue card had no height ceiling at all** — with enough entries it would just grow past the viewport and the WHOLE PAGE would scroll, instead of the row list's own internal scrollbar taking over. Root cause: `.taw-cols-2` (this page's grid) never got the `flex:1;min-height:0` treatment `.taw-cols-3` (Console's own grid) already has — traced directly by comparing the two grid classes. Added the identical rule (plus `.taw-cols-2>*{min-height:0}` on the grid items, same reason `.taw-cols-3>*` needs it) — this also benefits `taw-cols-2`'s two other call sites (`TrendingDealsPanel.tsx`, `CommsTemplatePreview.tsx`), not just this page.
+
+Verified live: confirmed via direct DOM inspection that `.taw-cols-2` computes `flex:"1 1 0%"`/`min-height:"0px"`, the Queue card's body computes `padding:"0px"` with class `flush`, and `document.documentElement.scrollHeight` no longer exceeds `clientHeight` (the page itself is not scrollable) — screenshotted both the populated (1 entry, chevron visible, flush rows) and empty states, both correctly filling the row's full height instead of shrinking to content.
+
+**Files touched:** `src/app/(authenticated)/console/proposal-composer/page.tsx`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
+## 2026-09-04 — Proposal Composer's Queue now matches Console's Queue row-for-row
+
+**What changed:** direct request — "the Queue in proposal composer should be EXACTLY like the queue in Console, only the entries differ." Previously it reused only three of Console's `EnquiryInbox` classes (`.taw-enq-item/-top/-name/-meta/-depart`) and was missing the rest of the pattern: no `SleekScroll` wrapper (so it'd double-scroll with the card body once the list overflowed instead of Console's custom-scrollbar-only behavior), no pax count next to the name, and no top-right hours badge. Added all three, plus the inbox icon on the Card header to match Console's Queue header. The one deliberate difference: the hours badge shows plain elapsed time since sent, never in Console's SLA-breach red state — a sent proposal has no SLA to breach, so that state genuinely doesn't apply, but the badge's position/style/format ("Nh") is identical.
+
+Also gave the Queue card the same `min-height:0` flex-chain fix already applied to the Search and Itinerary Builder cards this session, so only the row list scrolls internally — not the whole card — matching how Console's Queue (inside its accordion box) already behaves.
+
+Verified live: generated Priya Kapoor's AI itinerary and sent it to Proposal — the Queue row reads "Priya Kapoor · 1 pax" with a "0h" badge top-right, "Switzerland · 12 – 20 Oct" meta line, "Sent just now" tertiary line — pixel-identical layout/spacing to Console's own Queue row for the same enquiry, side-by-side screenshot comparison confirmed.
+
+**Files touched:** `src/app/(authenticated)/console/proposal-composer/page.tsx`, `src/styles/advisor-workbench.css`.
+**Data/API status:**
+- Real (already wired): none — presentation-only change.
+- Needs backend attention: none.
+**Env vars added/changed:** none.
+**Backend action needed:** None — uses existing endpoints/no backend dependency.
+
+---
+
 ## 2026-09-04 — Attention banner collapsible; only the day list scrolls, not the whole Itinerary Builder
 
 **What changed:** Two related fixes to the Itinerary Builder's layout, direct request:

@@ -35,6 +35,13 @@ import { cx } from "../../../lib/cx";
 const SCREENS = [
   { key: "queue", label: "Console", icon: "sliders" },
   { key: "proposal-composer", label: "Proposal Composer", icon: "note" },
+  // Pipeline (2026-09-08, direct request) — a read-only tracker across
+  // every enquiry's real stage (New / Building Itinerary / Sent to
+  // Proposal / Accepted / Revision Requested / Rejected). See its own
+  // page.tsx docblock for how "stage" is derived — there's no backend
+  // concept of this at all yet, so it's computed from the SAME session-
+  // local state Console and Proposal Composer already read/write.
+  { key: "pipeline", label: "Pipeline", icon: "trend" },
 ];
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {

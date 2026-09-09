@@ -27,6 +27,11 @@ const PATHS: Record<string, string> = {
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3",
   chevron: "M6 9l6 6 6-6",
   plus: "M12 5v14M5 12h14",
+  minus: "M5 12h14",
+  zoomIn: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.35-4.35M11 8v6M8 11h6",
+  zoomOut: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.35-4.35M8 11h6",
+  pageFit: "M6 3h8l4 4v14H6zM14 3v4h4M9 9h6M9 13h6M9 17h3",
+  fullscreen: "M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3",
   arrowUR: "M7 17 17 7M9 7h8v8",
   calendar: "M4 6a1 1 0 0 1 1-1h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1zM4 9h16M8 3v4M16 3v4",
   heart: "M12 20s-7-4.5-9.3-8.6C1 8.4 2.6 5 5.8 5 8 5 12 8 12 8s4-3 6.2-3c3.2 0 4.8 3.4 3.1 6.4C19 15.5 12 20 12 20z",
@@ -54,6 +59,7 @@ const PATHS: Record<string, string> = {
   // Six zero-length dots (round linecap renders each as a dot) — a drag
   // handle, used by the itinerary day-reorder grip (2026-09-03).
   grip: "M9 6L9 6M9 12L9 12M9 18L9 18M15 6L15 6M15 12L15 12M15 18L15 18",
+  download: "M12 3v12m0 0-4-4m4 4 4-4M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3",
 };
 
 // Aliases so callers can use intent names.

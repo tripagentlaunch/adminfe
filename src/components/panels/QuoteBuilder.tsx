@@ -3,67 +3,47 @@
  * TripAgent — src/components/panels/QuoteBuilder.tsx
  * Ported from web/js/advisor.js: QuoteBuilder (line ~1698).
  * ===========================================================================*/
-import { useEffect, useMemo, useRef, useState } from "react";
-import { price, inr } from "../../services/api";
+import { useEffect, useState } from "react";
+import { inr } from "../../services/api";
 import { cx } from "../../lib/cx";
-import { errText, shortId, productIcon, canSeeMargin, marginHealth, pct } from "../../lib/advisorHelpers";
+import { shortId, productIcon, canSeeMargin, marginHealth, pct } from "../../lib/advisorHelpers";
 import { Card, Empty, Spinner, Icon } from "../ui";
 
+// `bare` (2026-09-04) — Proposal Composer mounts this inside its own
+// .taw-acc accordion section (own header/chrome, same pattern
+// QueueProfileAccordion.tsx uses for Member360 — which also has no Card
+// of its own), so QuoteBuilder needs to render just its CONTENT there,
+// not another nested "Quote Builder"-titled card inside that section.
+// Every other/older call site (none currently reachable — see
+// BACKEND-HANDOFF.md's dead-code note) keeps the original full-Card
+// behavior by simply not passing this prop.
 export function QuoteBuilder(props: any) {
   const cart = props.cart;
   const member = props.member;
-  const advisorId = props.advisorId;
+  const bare = !!props.bare;
 
-  const [pricing, setPricing] = useState<any>(null);
-  const [quoteId, setQuoteId] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState<any>(null);
-  const [inclusive, setInclusive] = useState(true);
+  // pricing/quoteId/loading/err (2026-09-08) — now CONTROLLED: Proposal
+  // Composer owns the one real price() call (useQuotePricing) and passes
+  // its result here, so this component's display and the PDF preview's
+  // cost breakdown are always reading the exact same live quote rather
+  // than two independent calls that could race or drift.
+  const pricing = props.pricing;
+  const quoteId = props.quoteId;
+  const loading = !!props.loading;
+  const err = props.err;
+  const inclusive = !!props.inclusive;
+  const onToggleInclusive = props.onToggleInclusive;
   const [sent, setSent] = useState(false);
+  // localErr — UI-only validation message (missing member), distinct from
+  // `err` (the real pricing-call failure passed down as a controlled prop).
+  const [localErr, setLocalErr] = useState<any>(null);
 
-  const reqRef = useRef(0);
-
-  // Build a stable signature of the cart so we re-price when it changes.
-  const sig = useMemo(
-    () => cart.map((i: any) => i.type + ":" + i.baseNet + ":" + (i.international ? 1 : 0)).join("|") + "|incl:" + (inclusive ? 1 : 0),
-    [cart, inclusive]
-  );
-
+  // A new quote (different cart/inclusive signature) should reopen the
+  // "send" affordance rather than keep showing a stale "Sent" state.
   useEffect(() => {
-    if (!cart.length) {
-      setPricing(null);
-      setQuoteId(null);
-      setErr(null);
-      return;
-    }
-    const myReq = ++reqRef.current;
-    setLoading(true);
-    setErr(null);
     setSent(false);
-    const items = cart.map((it: any) => {
-      const copy: any = {};
-      for (const k in it) {
-        if (k.charAt(0) !== "_") copy[k] = it[k];
-      }
-      return copy;
-    });
-    const payload: any = { cart: { items: items, inclusive: inclusive } };
-    if (member && member.id) payload.member_id = member.id;
-    if (advisorId) payload.advisor_id = advisorId;
-    price(payload)
-      .then((r: any) => {
-        if (myReq !== reqRef.current) return; // stale
-        setPricing(r.pricing || null);
-        setQuoteId(r.quote_id || null);
-        setLoading(false);
-      })
-      .catch((e: any) => {
-        if (myReq !== reqRef.current) return;
-        setErr(errText(e));
-        setLoading(false);
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sig]);
+    setLocalErr(null);
+  }, [quoteId]);
 
   function createOrder() {
     if (!quoteId) return;
@@ -76,32 +56,31 @@ export function QuoteBuilder(props: any) {
   function sendToMember() {
     if (!quoteId) return;
     if (!member || !member.id) {
-      setErr("Select a member first — a quote must be addressed to someone to send it for approval.");
+      setLocalErr("Select a member first — a quote must be addressed to someone to send it for approval.");
       return;
     }
     setSent(true);
   }
 
   if (!cart.length) {
+    const empty = (
+      <Empty icon={<Icon name="note" size={28} />}>
+        Your live pricing breakdown — per-line sell price & GST, package + TCS, planning fee and grand total —
+        appears here once the cart has items.
+      </Empty>
+    );
+    if (bare) return empty;
     return (
       <Card title="Quote Builder" icon={<Icon name="note" size={18} />}>
-        <Empty icon={<Icon name="note" size={28} />}>
-          Your live pricing breakdown — per-line sell price & GST, package + TCS, planning fee and grand total —
-          appears here once the cart has items.
-        </Empty>
+        {empty}
       </Card>
     );
   }
 
-  return (
-    <Card
-      title="Quote Builder"
-      icon={<Icon name="note" size={18} />}
-      flush
-      sub={quoteId ? "quote " + shortId(quoteId) : "live pricing"}
-    >
+  const content = (
+    <>
       {/* Inclusive/discrete toggle — a real button with switch semantics for
-          keyboard + screen-reader users; drives the same setInclusive state. */}
+          keyboard + screen-reader users; drives the controlled `inclusive` prop. */}
       <div style={{ padding: "10px 16px 0" }}>
         <button
           type="button"
@@ -110,18 +89,18 @@ export function QuoteBuilder(props: any) {
           aria-checked={inclusive ? "true" : "false"}
           style={{ border: 0, background: "transparent" }}
           title="Bundle as an inclusive package (enables TCS on overseas packages)"
-          onClick={() => setInclusive(!inclusive)}
+          onClick={() => onToggleInclusive && onToggleInclusive(!inclusive)}
         >
           <span className="taw-sw" />
           {inclusive ? "Priced as inclusive package" : "Priced as discrete components"}
         </button>
       </div>
 
-      {err ? (
+      {err || localErr ? (
         <div style={{ padding: 16 }}>
           <div className="taw-banner taw-banner--err">
             <Icon name="alert" size={16} />
-            {err}
+            {err || localErr}
           </div>
         </div>
       ) : null}
@@ -295,6 +274,13 @@ export function QuoteBuilder(props: any) {
           </div>
         </div>
       ) : null}
+    </>
+  );
+
+  if (bare) return content;
+  return (
+    <Card title="Quote Builder" icon={<Icon name="note" size={18} />} flush sub={quoteId ? "quote " + shortId(quoteId) : "live pricing"}>
+      {content}
     </Card>
   );
 }

@@ -83,7 +83,15 @@ background:var(--champagne);border:1px solid var(--line2);}
    by Console's own column-width changes. */
 .taw-main{width:100%;max-width:1480px;margin:0 auto;padding:8px 8px 8px 16px;flex:1;min-height:0;display:flex;flex-direction:column;background:#FAF6EB;overflow-y:auto;}
 .taw-grid{display:grid;gap:8px;}
-.taw-cols-2{grid-template-columns:380px 1fr;}
+/* flex:1;min-height:0 (2026-09-04, direct request) — same fix as
+   .taw-cols-3 below: without it, this row (and everything inside,
+   e.g. Proposal Composer's Queue card) just sizes to its own content
+   and .taw-main's own overflow-y:auto scrolls the WHOLE page past the
+   viewport instead of the Queue's own internal SleekScroll list taking
+   over once it overflows. Same min-height:0 needed on the grid items
+   themselves for the identical reason .taw-cols-3>* has it. */
+.taw-cols-2{grid-template-columns:380px 1fr;flex:1;min-height:0;}
+.taw-cols-2>*{min-height:0;}
 /* 3fr/4fr/3fr (2026-08-31 as 2fr/5fr/2fr; widened 2026-09-02): Queue/
    Traveller Profile | Itinerary Builder | Search — Queue/Profile and
    Search both widened from 2fr (~22%) to 3fr (30%) per follow-up
@@ -107,6 +115,85 @@ background:var(--champagne);border:1px solid var(--line2);}
    in a 607px track) because nothing let them shrink below that. */
 .taw-cols-3>*{min-height:0;}
 .taw-cols-q{grid-template-columns:1fr 420px;}
+
+/* Proposal PDF preview (2026-09-08) — same min-height:0 flex-chain pattern
+   as .taw-itin-card: the Card's body fills the grid cell's full height,
+   the actions row (Export/Web link buttons) stays fixed, and only the
+   PDFViewer itself grows to fill the rest — the iframe needs an explicit
+   pixel-bounded parent to render at all, not just "flex:1". */
+.taw-pdf-card .taw-card-b{overflow:visible;display:flex;flex-direction:column;min-height:0;}
+.taw-pdf-shell{flex:1;min-height:0;display:flex;flex-direction:column;}
+.taw-pdf-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:8px 12px 8px 12px;border-bottom:1px solid var(--line);}
+.taw-pdf-actions .taw-btn{padding:8px 12px;font-size:12px;}
+.taw-pdf-status{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+/* Canvas vs. page (2026-09-08, direct request) — .taw-pdf-preview is the
+   CANVAS: it fills the working area edge-to-edge on all 4 sides and never
+   scrolls itself (overflow:hidden); it just centers whatever's inside.
+   .taw-pdf-page-viewport is THE PAGE: sized to at most the canvas's own
+   available space (see availW/availH in proposal-composer/page.tsx) and
+   is the ONLY element with overflow:auto — when the rendered PDF box
+   (boxW×boxH, can exceed the viewport at zoom>100%) is bigger than this,
+   scrolling happens here, clipped to the page's own bounds, never
+   producing a scrollbar that spans the full grey canvas. */
+/* background:var(--ivory) (2026-09-08, fix) — was --muted-deco (a
+   visibly distinct grey), which stacked as a SECOND tone against the
+   app's own cream background whenever the page didn't fully cover the
+   canvas (fit one page's letterboxing, any zoom below 100% of the
+   canvas, maximize). Direct feedback: only one surrounding tone should
+   ever show behind the page, in every fit mode and at every zoom —
+   matching the app's own background achieves that everywhere at once. */
+/* background:#282828 (2026-09-08, fix) — matches the BROWSER'S OWN
+   native PDF viewer background exactly (confirmed via
+   iframe.contentDocument's computed body background-color; PDFViewer
+   from @react-pdf/renderer is literally just an <iframe src={pdfBlobUrl}>,
+   so the actual page rendering is the browser's built-in PDF plugin, not
+   our DOM — nothing we style can reach inside it). Any sliver where the
+   plugin's own page canvas doesn't exactly fill the iframe box now
+   blends into an identical neighbor instead of a mismatched tone. */
+.taw-pdf-preview{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#282828;}
+/* "Full screen" (2026-09-08) — an in-page maximize (fixed overlay filling
+   the browser viewport, z-index above the app chrome), not the browser's
+   native Fullscreen API. requestFullscreen() isolates its element into
+   its own top-layer subtree, which silently breaks the fit-menu's popup
+   (portaled to document.body via Dropdown.tsx's createPortal, so it sits
+   OUTSIDE that subtree and stops rendering entirely) — this sidesteps
+   that limitation altogether by staying in normal document flow. */
+.taw-pdf-preview.is-maximized{position:fixed;inset:0;z-index:1000;}
+.taw-pdf-maximize-close{position:absolute;top:12px;right:12px;z-index:1;width:28px;height:28px;display:flex;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);border-radius:9px;color:var(--ink);cursor:pointer;box-shadow:0 4px 14px -6px rgba(23,19,16,.25);}
+.taw-pdf-maximize-close:hover{background:var(--bone);}
+.taw-pdf-page-viewport{overflow:auto;box-shadow:0 8px 28px -10px rgba(23,19,16,.35);}
+/* No .taw-pdf-preview iframe rule anymore (2026-09-08) — ProposalPreview.tsx
+   now renders a real <canvas> via pdfjs-dist instead of an <iframe> (the
+   browser's own native PDF plugin had layout quirks we couldn't fully
+   control — see ProposalPreview.tsx's own header comment); the canvas
+   sizes itself directly via style width/height set in JS. */
+/* Zoom + fit controls (2026-09-08) — bottom-left cluster over the
+   preview: a segmented zoom pill, plus a small icon button (next to it)
+   opening an upward menu of Fit one page / Fit to width / Full screen.
+   Zoom resizes the PDFViewer's own pixel box (see PDF_BASE_WIDTH in
+   proposal-composer/page.tsx) so pdf.js re-rasterizes crisp at each step
+   rather than CSS-scaling a fixed render. */
+.taw-pdf-controls{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:6px;}
+.taw-pdf-zoom{display:flex;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 4px 14px -6px rgba(23,19,16,.25);}
+.taw-pdf-zoom-div{width:1px;height:16px;background:var(--line);flex:none;}
+.taw-pdf-zoom-btn{border:0;background:transparent;color:var(--ink);display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:9px;cursor:pointer;transition:.14s;flex:none;}
+.taw-pdf-zoom-btn:hover{background:var(--bone);}
+.taw-pdf-zoom-btn:disabled{opacity:.4;cursor:not-allowed;}
+/* Fit dropdown (2026-09-08, direct request) — converted from a plain
+   icon-menu button to a real Dropdown (ui/Dropdown.tsx, the SAME
+   component the Flights/Hotels/Visas desk-picker uses) so its trigger
+   shows the current selection, not just an icon. Its own small pill
+   chrome (sits outside .taw-pdf-zoom, next to it) mirrors the zoom pill's
+   look; `openUp` (Dropdown.tsx) anchors its popup above the trigger. */
+.taw-pdf-fit{height:28px;flex:none;}
+/* Descendant selector (2026-09-08, fix) — a bare `.taw-pdf-fit-trigger`
+   rule tied for specificity with Dropdown.tsx's own base
+   `.taw-dropdown-trigger` rule (both single classes on the same element),
+   so the base rule's own height:100%/padding:0 14px was winning or
+   losing depending on source order alone. Rooting it under the wrapper
+   class guarantees this always wins. */
+.taw-pdf-fit .taw-pdf-fit-trigger{height:28px;padding:0 10px;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 4px 14px -6px rgba(23,19,16,.25);font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;}
+.taw-pdf-fit .taw-pdf-fit-trigger:hover{background:var(--bone);}
 @media(max-width:1100px){.taw-cols-2,.taw-cols-3,.taw-cols-q{grid-template-columns:1fr;}}
 /* Right-column wrapper for WorkbenchTab's 3rd grid cell (Traveller
    Profile stacked above Summary) — one grid item containing two cards.
@@ -147,6 +234,17 @@ display:flex;flex-direction:column;}
 .taw-card-h{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;}
 .taw-card-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);}
 .taw-card-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}
+/* Page navigator (2026-09-08, direct request) — leftmost in
+   .taw-pdf-actions (moved off the Card header per follow-up request):
+   chevron / editable current-page box / "/" / total-pages box / chevron,
+   controlling the PDF preview's #page= hash (see ProposalPreview.tsx). */
+.taw-pdf-pagenav{display:flex;align-items:center;gap:4px;margin-right:auto;}
+.taw-pdf-pagenav-btn{border:0;background:transparent;color:var(--ink);display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:6px;cursor:pointer;transition:.14s;}
+.taw-pdf-pagenav-btn:hover{background:var(--bone);}
+.taw-pdf-pagenav-btn:disabled{opacity:.35;cursor:not-allowed;}
+.taw-pdf-pagenav-box{width:30px;height:24px;display:flex;align-items:center;justify-content:center;font-family:var(--sans);font-size:12px;color:var(--ink);background:var(--bone);border:1px solid var(--line2);border-radius:6px;text-align:center;padding:0;}
+.taw-pdf-pagenav-box--static{color:var(--muted);background:transparent;border-color:transparent;}
+.taw-pdf-pagenav-sep{color:var(--muted);font-size:12px;}
 /* A control that fills the header's FULL height as a distinct filled
    segment (2026-09-01, e.g. Search's desk picker) — position:absolute
    against .taw-card-h (not a negative-margin/align-self:stretch trick,
@@ -231,6 +329,21 @@ display:flex;flex-direction:column;}
    removed all three here over a since-superseded concern that the
    hairline border made the popup look 1-2px wider than the trigger. */
 .taw-typeahead-list.taw-dropdown-list{padding:0;top:100%;overflow:hidden;border-top-left-radius:0;border-top-right-radius:0;border-top:0;}
+/* Floating variant, openUp (2026-09-08) — for a trigger that ISN'T part
+   of a shared bar (e.g. the Proposal PDF's page-fit control, a
+   standalone pill sitting over the canvas): a real floating popover with
+   a small gap above the trigger, not flush against it — keeps the base
+   class's own rounded-all-corners + padding, just restores the top
+   border the base rule zeroes (that zeroing assumes flush-below
+   placement, which doesn't apply here). */
+/* z-index:1001 (2026-09-08, fix) — the base class's z-index:20 is far
+   below the maximized PDF preview's own z-index:1000 (which itself has
+   to clear the app shell's sidebar, z-index up to 70), so without this
+   the popup rendered but was fully hidden UNDER the maximized canvas —
+   present in the DOM, verified via getBoundingClientRect, just invisible
+   underneath the opaque overlay. Scoped to this floating variant only,
+   so it doesn't affect the base popup's stacking anywhere else. */
+.taw-typeahead-list.taw-typeahead-list--floating{border-top:1px solid #F8F8F8;z-index:1001;}
 /* Dropdown's own option rows (2026-09-02) — deliberately diverge from the
    shared .taw-typeahead-item look (used as-is by AutosuggestInput's
    from/to popup, untouched here) via a higher-specificity compound
@@ -763,6 +876,75 @@ border-radius:0;padding:12px;transition:.16s;color:inherit;}
 .taw-enq-hours.is-breach{color:var(--terracotta);}
 .taw-enq-meta{font-family:var(--sans);font-weight:500;font-size:12px;color:var(--taupe);margin-top:8px;}
 .taw-enq-depart{font-family:var(--sans);font-weight:400;font-size:11px;color:var(--muted);margin-top:8px;}
+
+/* Pipeline tab (2026-09-08, rebuilt as a real table per direct follow-up
+   request) — narrower/centered (see the page's own maxWidth:760 wrapper),
+   height-constrained to the viewport with its own internal scroll (same
+   min-height:0 flex-chain + SleekScroll pattern as the Itinerary
+   Builder's day list), color-coded stage tags readable regardless of
+   sort/filter state, and real sortable column headers. Table chrome
+   reuses .taw-recon-table/-tablewrap as-is (same look, no need for a
+   parallel set of table rules). */
+.taw-pipeline-card .taw-card-b{overflow:visible;display:flex;flex-direction:column;min-height:0;}
+.taw-pipeline-shell{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 16px 16px;gap:12px;}
+.taw-pipeline-tablewrap{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;}
+/* Header taken OUT of the scrolling region entirely (2026-09-09, direct
+   follow-up) — a real fixed header row above SleekScroll's own scroll
+   area, not a sticky row scrolled past inside it, so the custom
+   scrollbar's own travel only ever spans the row list underneath, never
+   the header. .taw-pipeline-headspacer reserves the same 8px the
+   scrollbar track takes below (.taw-sleek-scroll-track), so header and
+   body columns still line up. */
+.taw-pipeline-headrow{flex:none;display:flex;}
+.taw-pipeline-headtable{flex:1;min-width:0;}
+.taw-pipeline-headspacer{flex:none;width:8px;background:var(--bone);border-bottom:1px solid var(--line);}
+.taw-pipeline-scroll{flex:1;min-height:0;}
+.taw-pipeline-table{table-layout:fixed;}
+.taw-pipeline-table th:first-child,.taw-pipeline-table td:first-child{width:160px;}
+.taw-pipeline-table th:nth-child(4),.taw-pipeline-table td:nth-child(4){width:52px;}
+.taw-pipeline-table th:nth-child(5),.taw-pipeline-table td:nth-child(5){width:84px;}
+.taw-pipeline-table th:last-child,.taw-pipeline-table td:last-child{width:190px;}
+/* Larger header labels (2026-09-09, direct request) — up from the shared
+   .taw-recon-table th default (8.5px), scoped to Pipeline only. Needs the
+   .taw-pipeline-tablewrap ancestor for the same reason as the hover fix
+   above: ".taw-pipeline-table th" ties ".taw-recon-table th" on
+   specificity (1 class + 1 type each), so the later-in-file shared rule
+   was winning regardless of this one's own font-size. */
+.taw-pipeline-tablewrap .taw-pipeline-table th{font-size:11px;}
+.taw-pipeline-sortbtn{display:inline-flex;align-items:center;gap:4px;background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;cursor:pointer;}
+.taw-pipeline-tr{cursor:pointer;transition:background .12s;}
+/* Same light-grey hover as Queue's own row list (.taw-enq-item), not the
+   warmer --bone fill (2026-09-09, direct request). Scoped through the
+   .taw-pipeline-tablewrap ancestor, not just .taw-pipeline-tr:hover td —
+   the shared generic rule ".taw-recon-table tbody tr:hover td" (still
+   var(--bone), used by other tables reusing this chrome) has HIGHER
+   specificity (2 classes incl. :hover + 3 type selectors) than a bare
+   ".taw-pipeline-tr:hover td" (2 classes incl. :hover + 1 type selector)
+   and was winning regardless of source order — this adds the extra
+   ancestor class to outrank it. */
+.taw-pipeline-tablewrap .taw-pipeline-tr:hover td{background:#F8F8F8;}
+/* Per-stage next action (2026-09-09, direct request: "replace the
+   dropdown with the action, as a button") — ONE real button per row, in
+   the same pill-trigger slot the outcome Dropdown used to occupy, not a
+   second control alongside it. Back to Console for New/Building/
+   Revision Requested, into Proposal Composer for Sent/Accepted/
+   Rejected — see the STAGES table above for the actual per-stage label
+   and destination. */
+.taw-pipeline-action-btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;width:100%;height:28px;padding:0 8px;background:var(--card);border:1px solid var(--line2);border-radius:7px;font-family:var(--sans);font-size:11px;font-weight:500;color:var(--ink);white-space:nowrap;cursor:pointer;}
+.taw-pipeline-action-btn:hover{background:var(--bone);}
+
+/* Stage tags — one distinct tone per stage so it's readable at a glance
+   regardless of sort order (direct request). "gold" is a 5th tone beyond
+   the 4 shared semantic ones (warn/info/danger/success) since Sent and
+   Revision Requested both being "amber" would blur two different
+   meanings together. */
+.taw-pipeline-tag{display:inline-flex;align-items:center;gap:5px;font-family:var(--eyebrow);font-size:9px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;}
+.taw-pipeline-tag--neutral{background:var(--bone);color:var(--taupe);}
+.taw-pipeline-tag--info{background:var(--info-bg);color:var(--info-ink);}
+.taw-pipeline-tag--gold{background:var(--gold-bg);color:var(--gold-ink);}
+.taw-pipeline-tag--success{background:var(--success-bg);color:var(--success-ink);}
+.taw-pipeline-tag--warn{background:var(--warn-bg);color:var(--warn-ink);}
+.taw-pipeline-tag--danger{background:var(--danger-bg);color:var(--danger-ink);}
 
 /* cart */
 .taw-cart{display:flex;flex-direction:column;}
