@@ -39,17 +39,26 @@ import { Icon } from "./Icon";
 // per-option-icon list behavior (e.g. the desk-picker's flight/hotel/
 // visa icons).
 export function Dropdown(props: any) {
-  const { value, options, onChange, ariaLabel, className, triggerClassName, hideOptionIcons } = props;
+  const { value, options, onChange, ariaLabel, className, triggerClassName, hideOptionIcons, openUp } = props;
   const [open, setOpen] = useState(false);
   const [coords, setCoords] = useState<any>(null);
   const rootRef = useRef<any>(null);
   const popupRef = useRef<any>(null);
 
+  // openUp (2026-09-08) — anchors the popup's BOTTOM edge to the trigger's
+  // TOP edge instead of the usual top-anchored-below placement, for a
+  // trigger that sits near the bottom of its own container (e.g. the
+  // Proposal PDF preview's page-fit control) where opening downward could
+  // run past the viewport.
   function updateCoords() {
     const el = rootRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    setCoords({ top: r.bottom, left: r.left, width: r.width });
+    if (openUp) {
+      setCoords({ bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width });
+    } else {
+      setCoords({ top: r.bottom, left: r.left, width: r.width });
+    }
   }
 
   useEffect(() => {
@@ -86,9 +95,13 @@ export function Dropdown(props: any) {
       ? createPortal(
           <div
             ref={popupRef}
-            className="taw-typeahead-list taw-dropdown-list"
+            className={cx("taw-typeahead-list", openUp ? "taw-typeahead-list--floating" : "taw-dropdown-list")}
             role="listbox"
-            style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width }}
+            style={
+              openUp
+                ? { position: "fixed", top: "auto", bottom: coords.bottom, left: coords.left, width: coords.width }
+                : { position: "fixed", top: coords.top, left: coords.left, width: coords.width }
+            }
           >
             {options.map((o: any) => (
               <button

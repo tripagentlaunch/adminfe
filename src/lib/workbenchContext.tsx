@@ -48,6 +48,14 @@ export interface WorkbenchContextValue {
   selectedProposalEnqId: string | null;
   sendItineraryToProposal: (enquiryId: string, member: any, data: any) => void;
   selectProposal: (enquiryId: string) => void;
+  // setProposalOutcome (2026-09-08) — the Pipeline tab's "Accepted" /
+  // "Revision Requested" / "Rejected" stages need SOME record of what
+  // the client said back, and there's no real channel for that (no
+  // backend endpoint even exists for sending a proposal in the first
+  // place — see BACKEND-HANDOFF.md). So this is a manual status an
+  // advisor sets on Proposal Composer after hearing back, same "100%
+  // local state, no persistence" honesty as proposalQueue itself.
+  setProposalOutcome: (enquiryId: string, outcome: ProposalOutcome) => void;
   // itinerariesByEnquiry (2026-09-03) — Search → Itinerary, direct, no
   // cart in between (explicit scope call). Was local state inside
   // ItineraryView (a clone of MOCK_ITINERARY, gone the moment you
@@ -68,11 +76,18 @@ export interface WorkbenchContextValue {
   addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
 }
 
+// ProposalOutcome (2026-09-08) — see setProposalOutcome above.
+// "awaiting" is the default the moment a proposal is sent (matches the
+// Pipeline tab's "Sent to Proposal" stage); the other three map 1:1 to
+// its "Accepted" / "Revision Requested" / "Rejected" stages.
+export type ProposalOutcome = "awaiting" | "accepted" | "revision_requested" | "rejected";
+
 export interface ProposalQueueEntry {
   enquiryId: string;
   member: any;
   data: any;
   sentAt: number;
+  outcome: ProposalOutcome;
 }
 
 export const WorkbenchContext = createContext<WorkbenchContextValue | null>(null);

@@ -168,6 +168,11 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       title: cartItem._title,
       status: "on_hold",
       price: cartItem.baseNet,
+      // international (2026-09-04) — carried straight off the cart item
+      // (flightCartItem/hotelCartItem already set it from the real
+      // offer) so cartFromItinerary() can round-trip it back out for
+      // Quote Builder's GST/TCS math, which depends on it.
+      international: !!cartItem.international,
       cabin: d.cabin,
       segments: (d.segments || []).map((seg: any) => ({
         flightNo: seg.flightNo,
@@ -190,6 +195,7 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       title: cartItem._title,
       status: "on_hold",
       price: cartItem.baseNet,
+      international: !!cartItem.international,
       sub: [d.cityName, d.stars ? d.stars + "★" : null, d.board].filter(Boolean).join(" · "),
       roomType: d.roomType || undefined,
       detailRest: [d.nights ? d.nights + " nights" : null, d.nightlyFrom ? "from ₹" + Math.round(d.nightlyFrom).toLocaleString("en-IN") + "/night" : null]
@@ -214,4 +220,39 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
   nextDays[dayIdx] = updatedDay;
 
   return { ...base, days: nextDays, totals: { ...base.totals, grand: base.totals.grand + cartItem.baseNet, held: base.totals.held + cartItem.baseNet } };
+}
+
+// cartFromItinerary (2026-09-04) — the reverse of addCartItemToItinerary:
+// flattens a sent itinerary's flight/hotel items + visa back into the
+// {type, baseNet, international, ...} cart shape QuoteBuilder.tsx (and the
+// real pricing engine behind it, price() -> quote-price) expects. Needed
+// because Proposal Composer's Quote Builder has to price the itinerary
+// AS IT WAS SENT — QuoteBuilder was built against a live `cart` array
+// from the old Search->Cart flow, and Console's itinerary items are a
+// different (richer, day-bucketed) shape now that Search writes straight
+// into the itinerary instead. `label` isn't read by QuoteBuilder itself
+// (its line labels come back from the pricing response), but costs
+// nothing to pass through in case the backend echoes it.
+//
+// A visa is always `international: true` here — visas aren't tracked
+// with the flag the way flights/hotels are (there's no "domestic visa"),
+// so this is a real fact about the product, not a guess. AI-mock items
+// (mockItinerary.ts) predate the `international` field entirely and
+// default to false — an honest reflection of "this mock data was never
+// wired to real pricing," not a new gap this function introduces.
+export function cartFromItinerary(data: any): any[] {
+  if (!data) return [];
+  const items = (data.days || []).flatMap((day: any) =>
+    (day.items || []).map((it: any) => ({
+      type: it.type,
+      product: it.type,
+      baseNet: it.price || 0,
+      international: !!it.international,
+      label: it.title,
+    }))
+  );
+  if (data.visa) {
+    items.push({ type: "visa", product: "visa", baseNet: data.visa.price || 0, international: true, label: data.visa.title });
+  }
+  return items;
 }

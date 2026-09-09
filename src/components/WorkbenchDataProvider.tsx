@@ -18,7 +18,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { advisors as fetchAdvisors, members as fetchMembers, enquiries as fetchEnquiries, createOrder as apiCreateOrder } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
-import { WorkbenchContext, type ProposalQueueEntry } from "../lib/workbenchContext";
+import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
 import { MOCK_ENQUIRIES, MOCK_MEMBERS_BY_ID } from "../lib/mockEnquiries";
 import { MOCK_ITINERARY } from "../lib/mockItinerary";
 import { blankItinerary, addCartItemToItinerary, boundFromDateRange } from "../lib/itineraryFromCart";
@@ -66,6 +66,36 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       // Supabase data still loads and appears alongside them.
       setEnquiries(MOCK_ENQUIRIES.concat(enq || []));
       setInboxLoading(false);
+
+      // Pipeline demo seed (2026-09-08, direct request) — "populate
+      // pipeline with mock data" so its stages are visible without
+      // driving the app by hand. Real seeded state (same
+      // itinerariesByEnquiry/proposalQueue every other flow reads/
+      // writes), not a display-only overlay — click into any of these
+      // rows and Console/Proposal Composer show the same data. Resets
+      // on reload, same as every other piece of local state here.
+      // A sent proposal always has a real itinerary behind it (2026-09-09
+      // fix) — mock-enq-3..6 only had proposalQueue entries, so
+      // Pipeline's "Revise itinerary" action landed on the AI/scratch
+      // chooser instead of resuming their actual itinerary, since
+      // Console decides which to show off itinerariesByEnquiry[id]
+      // existing. Every seeded proposalQueue entry now has one too.
+      setItinerariesByEnquiry((prev) => ({
+        ...prev,
+        "mock-enq-2": MOCK_ITINERARY, // Building Itinerary
+        "mock-enq-3": MOCK_ITINERARY,
+        "mock-enq-4": MOCK_ITINERARY,
+        "mock-enq-5": MOCK_ITINERARY,
+        "mock-enq-6": MOCK_ITINERARY,
+      }));
+      setProposalQueue((prev) =>
+        prev.concat([
+          { enquiryId: "mock-enq-3", member: MOCK_MEMBERS_BY_ID["mock-mem-3"], data: MOCK_ITINERARY, sentAt: Date.now() - 2 * 3600000, outcome: "awaiting" },
+          { enquiryId: "mock-enq-4", member: MOCK_MEMBERS_BY_ID["mock-mem-4"], data: MOCK_ITINERARY, sentAt: Date.now() - 26 * 3600000, outcome: "accepted" },
+          { enquiryId: "mock-enq-5", member: MOCK_MEMBERS_BY_ID["mock-mem-5"], data: MOCK_ITINERARY, sentAt: Date.now() - 5 * 3600000, outcome: "revision_requested" },
+          { enquiryId: "mock-enq-6", member: MOCK_MEMBERS_BY_ID["mock-mem-6"], data: MOCK_ITINERARY, sentAt: Date.now() - 50 * 3600000, outcome: "rejected" },
+        ])
+      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -112,7 +142,10 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // advisor tweaks the itinerary, sends again) replaces its existing
   // queue entry in place rather than piling up duplicates for one trip.
   function sendItineraryToProposal(enquiryId: string, m: any, data: any) {
-    const entry: ProposalQueueEntry = { enquiryId, member: m, data, sentAt: Date.now() };
+    // outcome always resets to "awaiting" on send/re-send (2026-09-08) —
+    // a re-sent proposal has changed content, so any prior client
+    // response no longer applies to what's actually being sent now.
+    const entry: ProposalQueueEntry = { enquiryId, member: m, data, sentAt: Date.now(), outcome: "awaiting" };
     setProposalQueue((q) => {
       const idx = q.findIndex((e) => e.enquiryId === enquiryId);
       if (idx === -1) return q.concat([entry]);
@@ -125,6 +158,10 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
 
   function selectProposal(enquiryId: string) {
     setSelectedProposalEnqId(enquiryId);
+  }
+
+  function setProposalOutcome(enquiryId: string, outcome: ProposalOutcome) {
+    setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, outcome } : e)));
   }
 
   // No-op if this enquiry already has itinerary data (2026-09-03) — the
@@ -216,6 +253,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         selectedProposalEnqId,
         sendItineraryToProposal,
         selectProposal,
+        setProposalOutcome,
         itinerariesByEnquiry,
         initItinerary,
         updateItineraryData,
