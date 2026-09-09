@@ -57,7 +57,7 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
-import { Card, Empty, Icon } from "../ui";
+import { Card, Empty, Icon, Spinner } from "../ui";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
@@ -68,10 +68,15 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember } = props;
-  const { itinerariesByEnquiry, initItinerary, addSearchItemToItinerary } = useWorkbench();
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   const itineraryData = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
+  // generating (2026-09-06) — "Generate AI Itinerary" now waits on a real
+  // backend call (POST /enquiries/{id}/generate-itinerary — real Claude
+  // latency, not instant mock cloning), so the chooser below needs its
+  // own in-flight state to show instead of nothing.
+  const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
   return (
     <div className="taw-grid taw-cols-3">
@@ -80,8 +85,8 @@ export function WorkbenchTab(props: any) {
         members={members}
         membersById={membersById}
         inboxLoading={inboxLoading}
-        member={member}
-        enquiry={selectedEnquiry}
+        travellerProfile={travellerProfile}
+        travellerProfileLoading={travellerProfileLoading}
         selEnqId={selEnqId}
         onSelectEnquiry={onSelectEnquiry}
         onPickMember={onPickMember}
@@ -107,6 +112,16 @@ export function WorkbenchTab(props: any) {
           // itinerary exists, it IS the working view; switching
           // enquiries in the Queue is what shows a different one.
           <ItineraryView enquiryId={selEnqId} member={member} />
+        ) : generating ? (
+          // Real loading state (2026-09-06) — "Generate AI Itinerary" now
+          // waits on a real Claude call (POST /enquiries/{id}/generate-
+          // itinerary), not instant mock cloning, so there's real time to
+          // cover here instead of nothing.
+          <div className="taw-itin-choose">
+            <Spinner />
+            <div className="title">Drafting your itinerary…</div>
+            <div className="message">Aanya&apos;s AI is putting together a day-by-day draft from what the enquiry asked for — this takes a few seconds.</div>
+          </div>
         ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,
           // editable itinerary via WorkbenchContext's initItinerary; this

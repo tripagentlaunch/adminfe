@@ -38,7 +38,21 @@ export type ItineraryItemStatus =
   | "awaiting_supplier"
   | "price_changed"
   | "not_selected"
-  | "in_progress";
+  | "in_progress"
+  // "draft" (2026-09-06) — a real backend now generates "Generate AI
+  // Itinerary"'s content (see WorkbenchDataProvider.tsx's initItinerary),
+  // and every item it drafts carries this status: an illustrative,
+  // unverified suggestion (no live flight/hotel search behind it yet),
+  // never to be confused with "on_hold" (a real hold with a supplier).
+  | "draft"
+  // "searched" (2026-09-06) — a generated itinerary's flight item(s) now
+  // come from a REAL TripSure search (itinerary_service.py calls the
+  // same flight_service.search() the Search panel uses) whenever origin/
+  // destination resolve — a genuine found offer (real carrier/flight
+  // number/price), just not yet held or ticketed. Distinct from "draft"
+  // (an illustrative, unsearched AI guess) and from "on_hold" (a real
+  // hold actually placed with the supplier, which this still isn't).
+  | "searched";
 
 export function tierOf(status: ItineraryItemStatus): "attention" | "done" {
   return status === "booked" ? "done" : "attention";
@@ -63,6 +77,8 @@ export const STATUS_META: Record<ItineraryItemStatus, { label: string; bucket: "
   awaiting_supplier: { label: "Awaiting supplier", bucket: "info" },
   price_changed: { label: "Price changed", bucket: "danger" },
   booked: { label: "Booked", bucket: "success" },
+  draft: { label: "Draft", bucket: "info" },
+  searched: { label: "Searched", bucket: "info" },
 };
 
 export const MOCK_ITINERARY = {

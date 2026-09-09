@@ -14,13 +14,12 @@
  * specific layout. (workbench)/layout.tsx no longer owns any of this; it
  * only renders its own tab chrome.
  * ===========================================================================*/
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { advisors as fetchAdvisors, members as fetchMembers, enquiries as fetchEnquiries, createOrder as apiCreateOrder } from "../services/api";
+import { advisors as fetchAdvisors, members as fetchMembers, enquiries as fetchEnquiries, createOrder as apiCreateOrder, enquiryTravellerProfile, enquiryGenerateItinerary } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry } from "../lib/workbenchContext";
 import { MOCK_ENQUIRIES, MOCK_MEMBERS_BY_ID } from "../lib/mockEnquiries";
-import { MOCK_ITINERARY } from "../lib/mockItinerary";
 import { blankItinerary, addCartItemToItinerary, boundFromDateRange } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
@@ -37,6 +36,20 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   const [focusOrderId, setFocusOrderId] = useState<string | null>(null);
   const [selEnqId, setSelEnqId] = useState<string | null>(null);
   const [member, setMember] = useState<any>(null);
+  // travellerProfile (Phase 2, real backend) — the Traveller Profile
+  // panel's OWN data source now, fetched fresh per selected enquiry via
+  // GET /enquiries/{id}/traveller-profile (backend-shaped, see
+  // enquiry_service.get_traveller_profile). Deliberately separate from
+  // `member`/`selEnqId`-derived `selectedEnquiry` above, which Itinerary
+  // Builder and Search still use unchanged — only Traveller Profile reads
+  // this. null = nothing selected yet OR the fetch hasn't resolved/failed;
+  // QueueProfileAccordion's loading/placeholder state covers both.
+  const [travellerProfile, setTravellerProfile] = useState<any>(null);
+  const [travellerProfileLoading, setTravellerProfileLoading] = useState(false);
+  // Tracks the most recently REQUESTED enquiry id (synchronously, unlike
+  // state) so a slower fetch for a previously-selected enquiry resolving
+  // after a newer selection never clobbers what's now showing.
+  const travellerProfileReqId = useRef<string | null>(null);
   // proposalQueue (2026-09-03) — see workbenchContext.tsx's own comment
   // on the field; written by ItineraryView's "Send to Proposal" confirm
   // action, read by console/proposal-composer/page.tsx.
@@ -45,6 +58,12 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // itinerariesByEnquiry (2026-09-03) — see workbenchContext.tsx's own
   // comment on the field.
   const [itinerariesByEnquiry, setItinerariesByEnquiry] = useState<Record<string, any>>({});
+  // generatingItinerary (2026-09-06) — "Generate AI Itinerary" now makes a
+  // real POST /enquiries/{id}/generate-itinerary call (real Claude
+  // latency, no longer instant mock cloning — see initItinerary below),
+  // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
+  // real loading state while that's in flight.
+  const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setInboxLoading(true);
@@ -74,10 +93,28 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     setSelEnqId(e.id);
     setMember(m || (e.member_id ? membersById[e.member_id] : null));
     toast("Loaded " + (m ? m.name : "lead") + " — Member 360 ready", "info");
+
+    setTravellerProfile(null);
+    setTravellerProfileLoading(true);
+    travellerProfileReqId.current = e.id;
+    enquiryTravellerProfile(e.id)
+      .then((profile: any) => {
+        if (travellerProfileReqId.current !== e.id) return;
+        setTravellerProfile(profile);
+        setTravellerProfileLoading(false);
+      })
+      .catch(() => {
+        if (travellerProfileReqId.current !== e.id) return;
+        setTravellerProfile(null);
+        setTravellerProfileLoading(false);
+      });
   }
   function pickMember(m: any) {
     setSelEnqId(null);
     setMember(m);
+    travellerProfileReqId.current = null;
+    setTravellerProfile(null);
+    setTravellerProfileLoading(false);
     toast("Working with " + m.name, "info");
   }
 
@@ -131,23 +168,26 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // chooser calling this on click must never clobber items already
   // added via Search before the advisor picked AI/scratch.
   //
+  // "ai" mode (2026-09-06, rewritten) — a real POST /enquiries/{id}/
+  // generate-itinerary call now, replacing the old MOCK_ITINERARY clone
+  // (confirmed live: every enquiry rendered the identical Switzerland/
+  // Zurich-Lucerne-Zermatt draft regardless of its own destination). The
+  // backend already returns the itinerary in this exact shape — including
+  // its own real startIso/endIso — so there's no local seeding left to do
+  // here beyond tracking the request itself; see itinerary_service.py.
+  //
   // startIso/endIso (2026-09-04) — the itinerary's own committed date
   // bound, used to flag any day landing outside it (see ItineraryView's
-  // dayInBound). "ai" mode's mock data is a fixed dataset unrelated to
-  // any specific enquiry's ask, so its bound comes from its own days'
-  // real span, not the enquiry — "scratch" has no days yet, so its bound
-  // is parsed from the enquiry's own ask.dateRange instead (best-effort;
-  // see boundFromDateRange's own docblock on the "year" assumption).
+  // dayInBound). "scratch" has no days yet, so its bound is parsed from
+  // the enquiry's own ask.dateRange instead (best-effort; see
+  // boundFromDateRange's own docblock on the "year" assumption).
   function initItinerary(enquiryId: string, mode: "ai" | "scratch", enquiry?: any) {
-    setItinerariesByEnquiry((m) => {
-      if (m[enquiryId]) return m;
-      let seed: any;
-      if (mode === "ai") {
-        seed = JSON.parse(JSON.stringify(MOCK_ITINERARY));
-        seed.startIso = seed.days[0]?._iso || null;
-        seed.endIso = seed.days[seed.days.length - 1]?._iso || null;
-      } else {
-        seed = blankItinerary();
+    if (itinerariesByEnquiry[enquiryId] || generatingItinerary[enquiryId]) return;
+
+    if (mode === "scratch") {
+      setItinerariesByEnquiry((m) => {
+        if (m[enquiryId]) return m;
+        const seed = blankItinerary();
         const bound = boundFromDateRange(enquiry?.ask?.dateRange, 2026);
         if (bound) {
           seed.startIso = bound.startIso;
@@ -155,9 +195,21 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
           seed.dateRange = enquiry.ask.dateRange;
           seed.nights = (enquiry.ask.dates && enquiry.ask.dates.nights) || 0;
         }
-      }
-      return { ...m, [enquiryId]: seed };
-    });
+        return { ...m, [enquiryId]: seed };
+      });
+      return;
+    }
+
+    setGeneratingItinerary((g) => ({ ...g, [enquiryId]: true }));
+    enquiryGenerateItinerary(enquiryId)
+      .then((data: any) => {
+        setGeneratingItinerary((g) => ({ ...g, [enquiryId]: false }));
+        setItinerariesByEnquiry((m) => (m[enquiryId] ? m : { ...m, [enquiryId]: data }));
+      })
+      .catch((e: any) => {
+        setGeneratingItinerary((g) => ({ ...g, [enquiryId]: false }));
+        toast("Couldn't generate an itinerary: " + errText(e), "error");
+      });
   }
 
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
@@ -206,6 +258,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         focusOrderId,
         selEnqId,
         member,
+        travellerProfile,
+        travellerProfileLoading,
         pickEnquiry,
         pickMember,
         openOrderFromQueue,
@@ -217,6 +271,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         sendItineraryToProposal,
         selectProposal,
         itinerariesByEnquiry,
+        generatingItinerary,
         initItinerary,
         updateItineraryData,
         addSearchItemToItinerary,

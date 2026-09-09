@@ -10,7 +10,7 @@ import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, searchFligh
 import { AutosuggestInput } from "../AutosuggestInput";
 import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
-import { Dropdown, Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, SleekScroll } from "../ui";
+import { Dropdown, Empty, Field, Spinner, SkeletonRows, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType, mockFlightFares } from "../../lib/mockFlightSearch";
 
 // HARDCODED FALLBACK, not a real API call — GET /flights/autosuggest
@@ -380,8 +380,24 @@ export function FlightDesk(props: any) {
   const member = props.member;
   const ask = props.enquiry && props.enquiry.ask;
   const [form, setForm] = useState({
+    // originCode (2026-09-06) — Aanya's concierge chat never asks where
+    // the member is departing FROM, only the destination (confirmed
+    // against enquiry_service.get_traveller_profile's `ask` shape — no
+    // `from` field exists for a real enquiry, only for the mock ones
+    // this codeFromAsk lookup was written against). "DEL" is a disclosed
+    // assumption (Indian UHNI audience, Delhi as the default hub — see
+    // CLAUDE.md), same one itinerary_service.py's flight draft uses when
+    // origin is unknown, not a silent guess unique to this component.
     originCode: (ask && codeFromAsk(ask.from)) || "DEL",
-    destCode: (ask && ask.destinations && codeFromAsk(ask.destinations[0])) || "DXB",
+    // destCode (2026-09-06, fixed) — used to default to hardcoded "DXB"
+    // whenever codeFromAsk() couldn't resolve a code synchronously (which
+    // was EVERY real enquiry: its CITY_AIRPORT_CODES dict only ever
+    // covered the mock enquiries' five cities — see its own scope note).
+    // Confirmed live: a London enquiry opened Search on Dubai regardless.
+    // Left blank here now; the effect below resolves it for real via
+    // /flights/autosuggest the instant this desk mounts for a real
+    // destination the static dict doesn't cover.
+    destCode: (ask && ask.destinations && codeFromAsk(ask.destinations[0])) || "",
     date: todayISO(21),
     // returnDate (2026-09-02) — round-trip support: EMPTY by default,
     // one-way. Whether a search is round-trip or one-way is decided
@@ -439,6 +455,36 @@ export function FlightDesk(props: any) {
   function set(k: string, v: any) {
     setForm((f) => ({ ...f, [k]: v }));
   }
+
+  // Real destination-code resolution (2026-09-06) — resolves destCode
+  // against the SAME real /flights/autosuggest endpoint the From/To
+  // fields already query for suggestions, instead of hand-maintaining an
+  // ever-growing static city list. Only runs once per mount (this desk
+  // is already keyed by enquiry — see WorkbenchTab.tsx's own comment on
+  // `key={selEnqId}` — so a fresh mount is exactly "enquiry just
+  // changed"), and only when codeFromAsk() couldn't resolve one
+  // synchronously above; a code that WAS resolved synchronously (a mock
+  // enquiry, or a real destination string that already carries "(XXX)")
+  // is left alone.
+  useEffect(() => {
+    const destName = ask && ask.destinations && ask.destinations[0];
+    if (!destName || codeFromAsk(destName)) return;
+    let cancelled = false;
+    fastapiFlightAutosuggest(destName, 5)
+      .then((rows: any[]) => {
+        if (cancelled || !rows || !rows.length) return;
+        const best = rows.reduce((a: any, b: any) => ((b.popularity_score || 0) > (a.popularity_score || 0) ? b : a));
+        if (best && best.airport_code) set("destCode", best.airport_code);
+      })
+      .catch(() => {
+        // No real code found — destCode stays blank rather than a
+        // fabricated/wrong guess; the advisor can still type one in.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // swapOrigin() — the Switch button between From/To (2026-09-02).
   function swapOrigin() {
@@ -608,7 +654,7 @@ export function FlightDesk(props: any) {
               renderSuggestion={renderAirportSuggestion}
               getKey={(a: any) => a.airport_code}
               showDefaultsOnFocus
-              placeholder="DXB"
+              placeholder="e.g. LHR"
             />
           </Field>
         </div>
@@ -678,16 +724,24 @@ export function FlightDesk(props: any) {
   const resultsView = (
     <div className="taw-results-view">
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
-        {/* Back-to-search (2026-09-02) — the only way out of results now
-            that they've replaced the form; hidden while a search is still
-            in flight, since there's nothing to "go back to" mid-request
-            (the form isn't mounted). Icon-only now, sized to match the
-            app's other header icons (20px) — the "New search" text label
-            and the route/date summary line both removed per direct
-            request. */}
+        {/* Edit search (2026-09-02, relabeled 2026-09-06) — the only way
+            back to the From/To/date/cabin/pax fields now that results
+            have replaced the form; hidden while a search is still in
+            flight, since there's nothing to go back to mid-request (the
+            form isn't mounted). Was icon-only labeled "New search" (per
+            an earlier direct request removing its text label and the
+            route/date summary line) — confirmed live that reads as
+            "discard this search and start over," when backToSearch()
+            actually does neither (form state is untouched, only
+            res/err are cleared, so every field is still exactly as
+            searched). Relabeled "Edit search" with its text back,
+            specifically so it reads as inviting to click rather than
+            a wipe — the actual bug behind "hard to adjust filters and
+            re-search without fully backing out."  */}
         {!loading ? (
-          <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
-            <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
+          <button className="taw-btn taw-btn--sm" onClick={backToSearch} aria-label="Edit search" title="Edit search">
+            <Icon name="chevron" size={14} style={{ transform: "rotate(90deg)" }} />
+            Edit search
           </button>
         ) : null}
         {/* Departure/Return leg switcher (2026-09-02) — for a round trip
@@ -774,7 +828,21 @@ export function FlightDesk(props: any) {
           {err}
         </div>
       ) : null}
-      {loading ? <SkeletonResults /> : null}
+      {/* Real loading state (2026-09-06) — same Spinner + title/message
+          pattern already built for Itinerary Builder's "Drafting your
+          itinerary…" (WorkbenchTab.tsx), reused here for visual
+          consistency rather than the previous bare 3-box skeleton, which
+          read as the UI having frozen (no text, nothing explaining what
+          was happening) during a real multi-second TripSure call. */}
+      {loading ? (
+        <div className="taw-itin-choose">
+          <Spinner />
+          <div className="title">Searching flights…</div>
+          <div className="message">
+            Looking up real fares for {form.originCode || "your origin"} → {form.destCode || "your destination"} — this takes a few seconds.
+          </div>
+        </div>
+      ) : null}
       {!loading && res ? (
         <FlightResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} member={member} advisorId={props.advisorId} onAdd={props.onAdd} />
       ) : null}
@@ -933,7 +1001,18 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
                   </div>
                   <div className="taw-res-side">
                     <div className="taw-res-net ta-num">
-                      {inr(net)}
+                      {/* net > 0, not just != null (2026-09-06) — offNet()'s
+                          own fallback chain still bottoms out at a plain 0
+                          when a real offer genuinely carries no price data
+                          (rather than the "0" meaning "verified zero cost",
+                          which is never actually true for a real fare) —
+                          the root cause of "NET COST always shows ₹0" was
+                          mapTripSureFlightOffer's PriceSummaries/
+                          fareSourceCode casing (fixed in api.ts), but this
+                          honest fallback stays regardless of that, for any
+                          future case a real offer's price genuinely can't
+                          be read. */}
+                      {net > 0 ? inr(net) : "—"}
                       <small>net cost</small>
                     </div>
                     <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => onAdd(flightCartItem(o))}>

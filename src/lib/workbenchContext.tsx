@@ -30,6 +30,15 @@ export interface WorkbenchContextValue {
   focusOrderId: string | null;
   selEnqId: string | null;
   member: any;
+  // travellerProfile (Phase 2, real backend) — GET
+  // /enquiries/{id}/traveller-profile, fetched fresh in pickEnquiry.
+  // Backend-shaped {member, enquiry} for the Traveller Profile panel
+  // specifically (QueueProfileAccordion/Member360) — separate from
+  // `member`/enquiries.find(selEnqId) above, which Itinerary Builder and
+  // Search still use unchanged. null while loading, on fetch failure, or
+  // before any enquiry is selected.
+  travellerProfile: any;
+  travellerProfileLoading: boolean;
   pickEnquiry: (e: any, m?: any) => void;
   pickMember: (m: any) => void;
   openOrderFromQueue: (orderId: string) => void;
@@ -53,13 +62,19 @@ export interface WorkbenchContextValue {
   // ItineraryView (a clone of MOCK_ITINERARY, gone the moment you
   // navigated away); now lives here per enquiryId so Search's "Add"
   // button and the Itinerary Builder read/write the SAME object.
-  // initItinerary seeds one (mock data for "ai", a real empty shell for
-  // "scratch") ONLY if that enquiry doesn't already have one — it's a
-  // no-op once data exists, so it can't clobber items already added via
-  // Search. addSearchItemToItinerary auto-seeds a blank shell too, so
-  // "Add" works even before the advisor has gone through the AI/scratch
-  // chooser at all.
+  // initItinerary seeds one — a REAL Claude-drafted itinerary from POST
+  // /enquiries/{id}/generate-itinerary for "ai" (2026-09-06, replacing
+  // the old MOCK_ITINERARY clone), a real empty shell for "scratch" —
+  // ONLY if that enquiry doesn't already have one; it's a no-op once
+  // data exists, so it can't clobber items already added via Search.
+  // addSearchItemToItinerary auto-seeds a blank shell too, so "Add" works
+  // even before the advisor has gone through the AI/scratch chooser at all.
   itinerariesByEnquiry: Record<string, any>;
+  // generatingItinerary (2026-09-06) — true for an enquiryId while its
+  // "ai" generate-itinerary request is in flight (real Claude latency
+  // now, not instant mock cloning) — WorkbenchTab's chooser screen reads
+  // this to show a real loading state instead of nothing.
+  generatingItinerary: Record<string, boolean>;
   // `enquiry` (2026-09-04) — used to seed the itinerary's own committed
   // date bound (startIso/endIso) from the enquiry's ask.dateRange when
   // there's no mock data to derive it from (see WorkbenchDataProvider).

@@ -1553,12 +1553,19 @@ export function getTripsureFlightOffer(id) {
 // FlightFareDetail and flightCartItem() already expect, so none of that
 // downstream rendering code has to change to show real offers.
 //
-// Field-casing note: rawOffer.fare_source_code / rawOffer.validating_carrier
-// are snake_case — CONFIRMED LIVE 2026-08-07 (see backend's
-// flight_service.py search() docstring) — not the guide's/Postman's
-// documented fareSourceCode/validatingCarrier. segments[]/PriceSummaries[]
-// one level deeper were NOT reported as affected and stay camelCase/
-// PascalCase as documented.
+// Field-casing note: TripSure's own casing for these fields has FLIP-
+// FLOPPED live, confirmed twice now — 2026-08-07 had rawOffer.fare_
+// source_code/validating_carrier as snake_case (not the guide's/
+// Postman's documented fareSourceCode/validatingCarrier), but a live
+// re-check today (2026-09-06, this pass — the actual bug behind "NET
+// COST always shows ₹0") found the OPPOSITE: fareSourceCode/
+// validatingCarrier back to camelCase, AND rawOffer.PriceSummaries (one
+// level deeper, previously "not reported as affected") had flipped to
+// lowercase priceSummaries too — silently zeroing base_net below, since
+// `(rawOffer.PriceSummaries || [])[0]` read undefined against the live
+// shape. Both fareSourceCode and PriceSummaries are read tolerantly now
+// (either casing) so this can't silently break again the next time
+// TripSure's response shape shifts.
 //
 // There is no persisted offer id from TripSure (unlike the old `offers`
 // table row this UI was built around) — {searchKey}::{providerId}::
@@ -1569,8 +1576,8 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
   var segments = rawOffer.segments || [];
   var first = segments[0] || {};
   var last = segments[segments.length - 1] || first;
-  var price = (rawOffer.PriceSummaries || [])[0] || {};
-  var fareSourceCode = rawOffer.fare_source_code;
+  var price = (rawOffer.PriceSummaries || rawOffer.priceSummaries || [])[0] || {};
+  var fareSourceCode = rawOffer.fare_source_code || rawOffer.fareSourceCode;
 
   var depMs = Date.parse(first.departureDateTime);
   var arrMs = Date.parse(last.arrivalDateTime);
@@ -1833,6 +1840,26 @@ function enquiryCreate(payload) {
   return fastapiEnquiryCall("/enquiries", { method: "POST", body: payload });
 }
 
+// enquiryTravellerProfile(enquiryId) — GET /enquiries/{id}/traveller-profile.
+// Replaces the Traveller Profile panel's old mock/db()-merged member+enquiry
+// with a real, backend-shaped {member, enquiry} pair — see
+// enquiry_service.get_traveller_profile's own module note on the field
+// contract. Works for a concierge_chat lead (member_id null) same as any
+// other enquiry.
+function enquiryTravellerProfile(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/traveller-profile", { method: "GET" });
+}
+
+// enquiryGenerateItinerary(enquiryId) — POST /enquiries/{id}/generate-itinerary.
+// Itinerary Builder's "Generate AI Itinerary" button — replaces the old
+// MOCK_ITINERARY clone (lib/mockItinerary.ts) with a real, destination-
+// specific draft from the enquiry's own stored profile. See
+// itinerary_service.py's module note: every generated item is an explicit,
+// unverified draft (status "draft") — never a fabricated confirmed booking.
+function enquiryGenerateItinerary(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/generate-itinerary", { method: "POST" });
+}
+
 // --- Platform Analytics (real backend — backend/app/routers/analytics_router.py)
 // Same contract as fastapiCallAssistCall/fastapiEnquiryCall above: real
 // advisor JWT, FASTAPI_BASE. A NEW, separate surface from analyticsSummary()
@@ -2003,6 +2030,8 @@ export {
 
   // Enquiries (advisor-initiated only — see enquiry_service.py)
   enquiryCreate,
+  enquiryTravellerProfile,
+  enquiryGenerateItinerary,
 
   // Platform Analytics (new, separate from analyticsSummary's per-advisor view)
   getPlatformSummary,

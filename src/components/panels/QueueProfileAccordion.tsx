@@ -53,7 +53,10 @@ import { EnquiryInbox } from "./EnquiryInbox";
 import { Member360 } from "./Member360";
 
 export function QueueProfileAccordion(props: any) {
-  const { enquiries, members, membersById, inboxLoading, member, enquiry, selEnqId, onSelectEnquiry, onPickMember } = props;
+  const {
+    enquiries, members, membersById, inboxLoading, selEnqId,
+    onSelectEnquiry, onPickMember, travellerProfile, travellerProfileLoading,
+  } = props;
 
   const [open, setOpen] = useState<"queue" | "profile">("queue");
 
@@ -77,10 +80,13 @@ export function QueueProfileAccordion(props: any) {
   const qOpen = open === "queue";
   const profileOpen = !qOpen;
   // Placeholder whenever there's nothing real to show in that space —
-  // either because the section is collapsed, or because it's open but no
-  // member is selected yet. Both read the same right now, per direct
-  // confirmation (see docblock above).
-  const showProfilePlaceholder = !profileOpen || !member;
+  // either because the section is collapsed, or because nothing's
+  // selected yet. NOT keyed off `member` anymore (Phase 2): a
+  // concierge_chat lead has member_id null, so `member` is always null
+  // for exactly the enquiries this real profile endpoint exists for —
+  // gating on `selEnqId` instead is what actually reflects "is there an
+  // enquiry selected for this endpoint to load."
+  const showProfilePlaceholder = !profileOpen || !selEnqId;
 
   return (
     <div className="taw-acc-stack">
@@ -131,8 +137,14 @@ export function QueueProfileAccordion(props: any) {
             <Empty icon={<Icon name="user" size={26} />}>
               Select an enquiry, or expand this section, to see their traveller profile here.
             </Empty>
+          ) : travellerProfileLoading ? (
+            <Empty icon={<Icon name="user" size={26} />}>Loading traveller profile…</Empty>
+          ) : travellerProfile ? (
+            <Member360 member={travellerProfile.member} enquiry={travellerProfile.enquiry} />
           ) : (
-            <Member360 member={member} enquiry={enquiry} />
+            <Empty icon={<Icon name="user" size={26} />}>
+              Couldn't load this traveller's profile — try selecting the enquiry again.
+            </Empty>
           )}
         </div>
       </div>
