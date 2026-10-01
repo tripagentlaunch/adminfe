@@ -68,8 +68,40 @@ const MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep
 // Mon" shape every current mock enquiry uses, not a general date-range
 // parser — returns null (caller treats everything as in-bound, no
 // flagging) if it can't confidently parse.
+// ISO date(s) embedded in rangeStr (2026-09-10, bug fix) — Aanya v2/v3/v4's
+// own travel_window (this function's caller always passes enquiry.ask.
+// dateRange, which is travel_window verbatim — see enquiry_service.
+// get_traveller_profile) can already be a real ISO date/range: "2027-01-10
+// to 2027-01-18", "from 2026-12-01", or a bare "2026-12-01" are all real,
+// currently-occurring shapes, confirmed against real stored enquiries —
+// none of which the "D – D Mon" pattern below (v1's own shape) has ever
+// matched. Tried FIRST since an ISO date is exact and self-contained (it
+// carries its own year, unlike "D – D Mon" — `year` is only ever used by
+// the fallback below). Mirrors backend/app/services/itinerary_service.py's
+// _guess_date_bounds fix — same real bug, same real formats, a parallel
+// fix in each runtime since one function can't be shared across Python
+// and TypeScript.
+const ISO_DATE_RE = /\b(\d{4}-\d{2}-\d{2})\b/g;
+
 export function boundFromDateRange(rangeStr: string | undefined, year: number) {
   if (!rangeStr) return null;
+
+  const isoDates = rangeStr.match(ISO_DATE_RE);
+  if (isoDates && isoDates.length) {
+    const valid = isoDates.filter((d) => !isNaN(new Date(d).getTime()));
+    if (valid.length >= 2 && valid[1] >= valid[0]) {
+      return { startIso: valid[0], endIso: valid[1] };
+    }
+    // Exactly one real date (only a start, or only an end, was ever
+    // confirmed) — endIso stays null rather than a fabricated zero-night
+    // bound; dayInBound() already treats a null half of the bound as
+    // "nothing to flag against" (see its own docblock), the same honest
+    // degrade the backend fix uses for this identical case.
+    if (valid.length === 1) {
+      return { startIso: valid[0], endIso: null as string | null };
+    }
+  }
+
   const m = rangeStr.match(/(\d{1,2})\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)/);
   if (!m) return null;
   const monthIdx = MONTH_ABBR.indexOf(m[3].slice(0, 3).toLowerCase());
@@ -181,6 +213,7 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       })),
       chips: [cartItem.refundable ? "Refundable" : "Non-refundable"],
       meta: "Added from Search",
+      alternatives: cartItem.alternatives || [],
     };
   } else {
     // hotel — checkIn is stamped onto the item by HotelResults' Add button
@@ -203,6 +236,21 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
         .join(" · "),
       chips: [cartItem.refundable ? "Refundable" : "Non-refundable"],
       meta: "Added from Search",
+      // hotelKey/image (2026-09-10) — carried straight off the cart item
+      // (hotelCartItem already keeps them from the real TripSure offer),
+      // same "round-trippable real field" posture as `international` above
+      // — lets ProposalDocument/ProposalPreview link this stay to its real
+      // public /hotel/{hotelKey} page.
+      hotelKey: cartItem.hotelKey,
+      image: d.image,
+      alternatives: cartItem.alternatives || [],
+      // address/lat/lng (2026-09-11) — see hotelCartItem's own note
+      // (advisorHelpers.ts) on why these are carried through: a real
+      // Google Maps link in the Proposal PDF alongside the
+      // /hotel/{hotelKey} page.
+      address: d.address,
+      lat: d.lat,
+      lng: d.lng,
     };
   }
 
@@ -220,6 +268,145 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
   nextDays[dayIdx] = updatedDay;
 
   return { ...base, days: nextDays, totals: { ...base.totals, grand: base.totals.grand + cartItem.baseNet, held: base.totals.held + cartItem.baseNet } };
+}
+
+function addDaysIso(iso: string, n: number) {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export type HotelBase = { city: string; checkIn: string; checkOut: string; nights: number };
+
+// hotelBasesFromItinerary (2026-09-15, hotel-suggestion flow) — derives
+// the real hotel base(s) (one city + date range each) this itinerary
+// actually needs, so the Hotels tab can request real recommendations for
+// each one instead of the advisor guessing dates/cities by hand. Groups
+// CONSECUTIVE days sharing the same real per-day `city` (itinerary_
+// service.py's 2026-09-15 fix threads Claude's own draft city onto each
+// day — see that file's own note; absent on itineraries generated before
+// that, or on Search-first/scratch itineraries with no per-day city at
+// all, in which case this falls back to the itinerary's single overall
+// city when there's only one, never a guess for a genuinely multi-city
+// trip with no real per-day signal — that case just yields one base per
+// day instead of silently merging different cities together).
+//
+// Any day that ALREADY has a hotel item is excluded outright (never
+// re-recommend for something already decided) and breaks a run in
+// progress, same as a genuine city change would.
+//
+// The itinerary's own FINAL calendar day is never counted as an extra
+// night — it's the "breakfast, free time, airport departure" day (see
+// this feature's own spec example: 10-14 Nov is 4 NIGHTS, not 5, because
+// the 14th is checkout/departure morning) — trimmed from whichever base
+// contains it, regardless of which city it happens to be tagged with.
+// Mid-trip city transitions are trusted as Claude tagged them (the day a
+// multi-city trip moves to a new city is that NEW city's own check-in
+// day, not the old city's extra night) — a reasonable, non-fabricated
+// best effort given the real per-day data available, not a guess dressed
+// up as certainty.
+export function hotelBasesFromItinerary(data: any): HotelBase[] {
+  const allDays = (data?.days || [])
+    .filter((d: any) => d._iso)
+    .slice()
+    .sort((a: any, b: any) => String(a._iso).localeCompare(String(b._iso)));
+  if (!allDays.length) return [];
+  const tripLastIso = allDays[allDays.length - 1]._iso;
+
+  const hasHotel = (d: any) => (d.items || []).some((it: any) => it.type === "hotel");
+  const cities: string[] = data.cities || [];
+  const singleCity = cities.length === 1 ? cities[0] : cities.length === 0 ? data.destination : null;
+  const cityOf = (day: any) => day.city || singleCity || data.destination || "";
+
+  const bases: HotelBase[] = [];
+  let run: any[] = [];
+  function flush() {
+    if (!run.length) return;
+    const city = cityOf(run[0]);
+    let nights = run;
+    // Trim the trip's own final day off whichever base contains it (see
+    // this function's own note above) — never leaves a 0-night base
+    // behind just because a run happens to be exactly that one day.
+    if (nights.length > 1 && nights[nights.length - 1]._iso === tripLastIso) {
+      nights = nights.slice(0, -1);
+    }
+    if (city && nights.length) {
+      const first = nights[0];
+      const last = nights[nights.length - 1];
+      bases.push({ city, checkIn: first._iso, checkOut: addDaysIso(last._iso, 1), nights: nights.length });
+    }
+    run = [];
+  }
+  for (const day of allDays) {
+    if (hasHotel(day)) {
+      flush();
+      continue;
+    }
+    const city = cityOf(day);
+    if (!city) {
+      flush();
+      continue;
+    }
+    if (run.length && cityOf(run[run.length - 1]) !== city) flush();
+    run.push(day);
+  }
+  flush();
+  return bases;
+}
+
+// addRecommendedHotelToItinerary (2026-09-15, hotel-suggestion flow) —
+// mirrors addCartItemToItinerary's own hotel branch (same real-field
+// shape: hotelKey/image/address/lat/lng, status "searched" — an
+// advisor's pick from real, ranked search results, not yet held/booked),
+// but starts from a hotel-recommendations card (itinerary_service.
+// recommend_hotels's real TripSure fields) rather than a Search offer,
+// for a specific hotel base (one city + date range) rather than a single
+// day. The one real behavioral difference the spec calls for: refuses to
+// add the same hotelKey twice — returns the SAME `data` reference
+// unchanged (not a clone) when it's already present anywhere in the
+// itinerary, so a caller comparing references can tell nothing happened
+// and skip an unnecessary toast/re-render.
+export function addRecommendedHotelToItinerary(data: any, hotel: any, base: HotelBase): any {
+  const itinerary = data || blankItinerary();
+  const alreadyAdded = (itinerary.days || []).some((d: any) =>
+    (d.items || []).some((it: any) => it.type === "hotel" && it.hotelKey && String(it.hotelKey) === String(hotel.hotelKey))
+  );
+  if (alreadyAdded) return itinerary;
+
+  const starLabel = hotel.stars ? `${hotel.stars}-star` : undefined;
+  const item = {
+    id: uid(),
+    type: "hotel",
+    time: null,
+    duration: `${base.nights} night${base.nights === 1 ? "" : "s"}`,
+    title: `${hotel.name}, ${base.city}`,
+    status: "searched",
+    nextStep: "Not yet held",
+    price: hotel.totalPrice,
+    priceIsFrom: false,
+    roomType: starLabel,
+    sub: [starLabel, hotel.address, hotel.board].filter(Boolean).join(" · "),
+    detailRest: [`${base.nights} night${base.nights === 1 ? "" : "s"}`, hotel.board].filter(Boolean).join(" · "),
+    chips: [hotel.refundable ? "Refundable" : "Non-refundable"],
+    meta: "Added from hotel recommendations",
+    hotelKey: hotel.hotelKey,
+    image: hotel.image,
+    address: hotel.address,
+    lat: hotel.lat,
+    lng: hotel.lng,
+  };
+
+  const { days, day } = findOrCreateDay(itinerary.days, base.checkIn, base.city);
+  const dayIdx = days.indexOf(day);
+  const updatedDay = { ...day, items: day.items.concat([item]) };
+  const nextDays = days.slice();
+  nextDays[dayIdx] = updatedDay;
+
+  return {
+    ...itinerary,
+    days: nextDays,
+    totals: { ...itinerary.totals, grand: itinerary.totals.grand + hotel.totalPrice, held: itinerary.totals.held + hotel.totalPrice },
+  };
 }
 
 // cartFromItinerary (2026-09-04) — the reverse of addCartItemToItinerary:

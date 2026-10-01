@@ -82,7 +82,16 @@ export function EnquiryInbox(props: any) {
         return (
           <button
             key={e.id}
-            className={cx("taw-enq-item", selectedId === e.id && "is-active")}
+            // is-unread (2026-09-10, db/147 opened_by_advisor_at) — a real,
+            // persisted "never opened by an advisor" signal, distinct from
+            // Pipeline's own New/Building/Sent/... stage tracking. Cleared
+            // both optimistically here (props.onSelect's caller,
+            // WorkbenchDataProvider.tsx's pickEnquiry, patches this same
+            // enquiry object's opened_by_advisor_at the moment the profile
+            // load succeeds) and server-side (enquiry_service.py's
+            // get_traveller_profile), so a reload never re-highlights a
+            // lead that was already opened.
+            className={cx("taw-enq-item", selectedId === e.id && "is-active", !e.opened_by_advisor_at && "is-unread")}
             onClick={() => props.onSelect(e, m)}
           >
             <div className="taw-enq-top">

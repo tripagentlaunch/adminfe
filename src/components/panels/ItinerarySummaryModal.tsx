@@ -16,9 +16,15 @@
  * short confirm dialog.
  * ===========================================================================*/
 import { Icon } from "../ui";
-import { ItinerarySummaryContent } from "./ItinerarySummaryContent";
+import { ItinerarySummaryContent, hasDraftHotel } from "./ItinerarySummaryContent";
 
 export function ItinerarySummaryModal({ data, onClose, onContinue }: { data: any; onClose: () => void; onContinue: () => void }) {
+  // blocked (2026-09-13, direct request) — a hard gate, not just a
+  // warning: an AI-drafted placeholder hotel (no real hotelKey, TripSure
+  // never searched) must never reach a customer-facing proposal, so
+  // Continue is disabled outright rather than merely flagged. The advisor
+  // has to go back, Search, and add a real property for every stay first.
+  const blocked = hasDraftHotel(data);
   return (
     <div className="taw-modal-overlay" onClick={onClose}>
       <div className="taw-modal-panel taw-modal-panel--wide" onClick={(e) => e.stopPropagation()}>
@@ -28,7 +34,12 @@ export function ItinerarySummaryModal({ data, onClose, onContinue }: { data: any
           <button className="taw-btn" onClick={onClose}>
             Back to itinerary
           </button>
-          <button className="taw-btn taw-btn--primary" onClick={onContinue}>
+          <button
+            className="taw-btn taw-btn--primary"
+            onClick={onContinue}
+            disabled={blocked}
+            title={blocked ? "Search and add a real hotel for every stay before sending to proposal." : undefined}
+          >
             <Icon name="send" size={14} />
             Continue to Proposal Composer
           </button>

@@ -52,7 +52,24 @@ export function buildMockHotelOffers(opts: any) {
     const nightlyFrom = lo + ((seed >> (i + 2)) % (hi - lo));
     const total = nightlyFrom * nights * rooms;
     return {
-      id: searchKey + "-hotel-" + i,
+      // "mock-" prefix (2026-09-15, real Maldives 404 reproduction) — a
+      // real TripSure hotelKey is always a bare numeric string (every one
+      // seen live this session: 64838916, 32790623, 15259978, ...), so
+      // this is structurally impossible to confuse with one even if
+      // `_isMock` below is ever dropped by something that only copies a
+      // subset of fields. `_isMock` is still the primary, explicit signal
+      // hotelCartItem() (advisorHelpers.ts) checks — this prefix is
+      // defense-in-depth, not the only guard.
+      id: "mock-" + searchKey + "-hotel-" + i,
+      // _isMock (2026-09-15, same fix) — this offer came from the local
+      // demo fallback (buildMockHotelOffers), never a real TripSure
+      // /hotels/listing result. hotelCartItem() MUST refuse to assign a
+      // hotelKey from this offer — a fake-but-real-looking hotelKey is
+      // exactly what turned into the dead "We couldn't find this hotel"
+      // /hotel/{slug} link in the real Maldives reproduction: this offer's
+      // own `id` silently became an itinerary item's `hotelKey`, then a
+      // public link, with nothing anywhere flagging it as demo data.
+      _isMock: true,
       international,
       base_net: total,
       detail: {

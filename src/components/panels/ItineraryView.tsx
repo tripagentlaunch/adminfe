@@ -50,9 +50,11 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll } from "../ui";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso } from "../../lib/itineraryFromCart";
+import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
+import { hasDraftHotel } from "./ItinerarySummaryContent";
+import { HotelRecommendations } from "./HotelRecommendations";
 
 // editValue/type (2026-09-04) — added for the day date, the one field
 // here where the DISPLAYED text ("Thu 12 Oct") and the value that needs
@@ -187,7 +189,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData } = useWorkbench();
+  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -201,6 +203,26 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   function setData(updater: (d: any) => any) {
     updateItineraryData(enquiryId, updater);
   }
+  // ask (2026-09-15, hotel-suggestion flow) — the SAME real enquiry `ask`
+  // Member360/FlightDesk.tsx already read off travellerProfile (GET
+  // /enquiries/{id}/traveller-profile), reused here so HotelRecommendations
+  // never has to ask the advisor a hotel-category/budget question the
+  // enquiry already answered. Guarded against a stale profile from the
+  // PREVIOUSLY selected enquiry still sitting in context mid-fetch for
+  // this one (WorkbenchDataProvider's own travellerProfileReqId guard
+  // prevents a wrong-enquiry profile from ever being SET, but a `null`
+  // gap while the new one is still loading is real and expected).
+  const ask = travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === enquiryId ? travellerProfile.enquiry.ask : null;
+  // addedHotelKeys (2026-09-15) — every real hotelKey already anywhere in
+  // this itinerary, so HotelRecommendations can grey out (never duplicate)
+  // a card for a hotel the advisor already added, whether that happened
+  // via this same flow, Search, or AI generation's own real-search pick.
+  const addedHotelKeys = new Set<string>(
+    (data.days || []).flatMap((d: any) => (d.items || []).filter((it: any) => it.type === "hotel" && it.hotelKey).map((it: any) => String(it.hotelKey)))
+  );
+  function addRecommendedHotel(hotel: any, base: any) {
+    setData((d: any) => addRecommendedHotelToItinerary(d, hotel, base));
+  }
   // Summary window (2026-09-03) — the pause point before handing the
   // itinerary off to Proposal Composer. Only WRITES to WorkbenchContext
   // (sendItineraryToProposal, keyed by enquiryId — see workbenchContext.tsx)
@@ -209,6 +231,14 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // side effects until they commit.
   const [summaryOpen, setSummaryOpen] = useState(false);
   function sendToProposal() {
+    // Defense-in-depth (2026-09-13) — the modal's own Continue button is
+    // already disabled for this same condition (see
+    // ItinerarySummaryModal.tsx), but this function is the actual
+    // handoff, so it refuses too rather than trusting the button alone.
+    if (hasDraftHotel(data)) {
+      toast("Search and add a real hotel for every stay before sending to proposal.", "error");
+      return;
+    }
     sendItineraryToProposal(enquiryId, member, data);
     setSummaryOpen(false);
     router.push("/console/proposal-composer");
@@ -569,7 +599,15 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         <Empty icon={<Icon name="visa" size={26} />}>Nothing added from the Visa desk yet.</Empty>
       ) : null}
 
-      {category !== "visa" && visibleDays.length === 0 ? (
+      {/* Hotels tab, nothing added yet (2026-09-15) — real recommendations
+          instead of the plain empty state, per the hotel-suggestion flow.
+          Only for the DEDICATED Hotels tab, not "All" (which still needs
+          its own plain flights-or-hotels empty state when both are
+          genuinely empty) — this flow is itinerary-driven, not something
+          to surface unprompted in a mixed view. */}
+      {category === "hotels" && visibleDays.length === 0 ? (
+        <HotelRecommendations data={data} ask={ask} onAdd={addRecommendedHotel} addedHotelKeys={addedHotelKeys} />
+      ) : category !== "visa" && visibleDays.length === 0 ? (
         <Empty icon={<Icon name={category === "hotels" ? "hotel" : "flight"} size={26} />}>
           Nothing added from the {category === "all" ? "Flights or Hotels desks" : category === "hotels" ? "Hotels desk" : "Flights desk"} yet.
         </Empty>

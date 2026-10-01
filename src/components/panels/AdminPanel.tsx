@@ -13,7 +13,17 @@
  * Enquiry assignment (unassigned enquiries -> pick an advisor -> Assign).
  * ===========================================================================*/
 import { useEffect, useState } from "react";
-import { adminListAdvisors, adminUpdateAdvisor, adminListOrders, adminAssignEnquiry, enquiries as fetchEnquiries, inr } from "../../services/api";
+import {
+  adminListAdvisors,
+  adminUpdateAdvisor,
+  adminListOrders,
+  adminAssignEnquiry,
+  enquiries as fetchEnquiries,
+  siteAccessRequestsPending,
+  siteApproveAccessRequest,
+  siteDenyAccessRequest,
+  inr,
+} from "../../services/api";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelpers";
 import { Card, Empty, Spinner, Icon } from "../ui";
@@ -311,6 +321,229 @@ function EnquiryAssignSection(props: any) {
   );
 }
 
+// AccessRequestsSection (Phase C, 2026-09-16, direct request) — reviews
+// site_access_requests (a stranger applying via request-access.html on
+// tripagent-site-main) — a SEPARATE backend/database table from anything
+// else in this panel, reached via services/api.ts's siteAccessRequests*
+// calls. See that module's own note: those calls go through this app's
+// own /api/site-admin proxy route now (2026-09-16, direct request), which
+// attaches a shared-secret ADMIN_API_KEY server-side — that backend's 3
+// review endpoints reject any request without it. This screen's own
+// isAdmin() gate (see AdminPage's mount-level check) is still just a UI
+// convenience, not the real authority; the real authority is now the key
+// check on the other backend, not this panel. Still not per-admin
+// identity, though — a shared secret, not a staff-login system. Revisit
+// once a real staff-identity system exists (see the 0008 migration's own
+// note, over there, on why site_access_requests.reviewed_by isn't a
+// foreign key yet).
+//
+// Only ever lists status='pending' rows (the backend's own filter) — a
+// row disappears from this list the moment it's reviewed (approve/deny),
+// simply because load() re-fetches "pending only" and it no longer
+// qualifies; no separate client-side removal logic needed.
+function AccessRequestsSection() {
+  const [rows, setRows] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<any>(null);
+  const [busyId, setBusyId] = useState<any>(null);
+  // justApproved — a freshly-generated code/link/email-status has nowhere
+  // else to surface except this panel: keyed by request id.
+  //
+  // FIXED (2026-09-17, direct request — investigated, not assumed): this
+  // used to be looked up as justApproved[r.id] INSIDE pending.map(...), so
+  // the banner could only ever render for a row still present in the
+  // pending list. But approve()'s own load() call re-fetches "pending
+  // only" immediately afterward, which removes the just-approved row from
+  // that list — so despite this state surviving, the banner that was
+  // supposed to show it never actually had anywhere left to render. Now
+  // rendered as its own persistent section below (see approvedEntries),
+  // independent of whether the row is still pending, with a dismiss
+  // button so it doesn't have to disappear entirely on refresh.
+  const [justApproved, setJustApproved] = useState<any>({});
+
+  function dismissApproved(id: string) {
+    setJustApproved((prev: any) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  function load() {
+    setLoading(true);
+    setErr(null);
+    siteAccessRequestsPending()
+      .then((list: any) => {
+        setRows(Array.isArray(list) ? list : []);
+        setLoading(false);
+      })
+      .catch((e: any) => {
+        setErr(errText(e));
+        setLoading(false);
+      });
+  }
+  useEffect(load, []);
+
+  function approve(row: any) {
+    setBusyId(row.id);
+    siteApproveAccessRequest(row.id)
+      .then((result: any) => {
+        setBusyId(null);
+        setJustApproved((prev: any) => ({ ...prev, [row.id]: { ...result, full_name: row.full_name, email: row.email } }));
+        // FIXED (2026-09-17, direct request): this toast used to be a
+        // static string claiming the email was "not yet emailed — send
+        // manually", regardless of what actually happened. Phase 5 sends
+        // for real now, and the backend already returns result.email_sent
+        // — read it instead of hardcoding a stale claim.
+        toast(
+          result && result.email_sent
+            ? "Approved " + row.full_name + " — invitation email sent to " + row.email
+            : "Approved " + row.full_name + " — code generated, but the email did NOT send (see below)",
+          result && result.email_sent ? "success" : "error"
+        );
+        load();
+      })
+      .catch((e: any) => {
+        setBusyId(null);
+        toast(errText(e), "error");
+      });
+  }
+
+  function deny(row: any) {
+    const declineReason = window.prompt("Reason for declining " + row.full_name + "'s request (optional):", "") || undefined;
+    setBusyId(row.id);
+    siteDenyAccessRequest(row.id, declineReason)
+      .then(() => {
+        setBusyId(null);
+        toast("Declined " + row.full_name + "'s request", "success");
+        load();
+      })
+      .catch((e: any) => {
+        setBusyId(null);
+        toast(errText(e), "error");
+      });
+  }
+
+  const pending = rows || [];
+
+  return (
+    <Card
+      title="Access requests"
+      icon={<Icon name="inbox" size={18} />}
+      sub={pending.length ? pending.length + " pending" : ""}
+      actions={
+        <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} disabled={loading} aria-label="Refresh access requests">
+          {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
+        </button>
+      }
+    >
+      <div style={{ padding: 16 }}>
+        {err ? (
+          <div className="taw-banner taw-banner--err">
+            <Icon name="alert" size={16} />
+            {err}
+          </div>
+        ) : null}
+        {/* FIXED (2026-09-17, direct request): rendered here, independent
+            of `pending` — the old version of this lived inside
+            pending.map(...) and could only show for a row still in that
+            list, but load() removes the just-approved row from it
+            immediately, so it never actually appeared. Stays visible
+            (with a dismiss button) until the admin clears it, and now
+            shows the real email_sent outcome instead of a hardcoded
+            "not yet emailed" claim. */}
+        {Object.keys(justApproved).length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+            {Object.entries(justApproved).map(([id, a]: [string, any]) => (
+              <div key={id} className="taw-banner" style={{ position: "relative", paddingRight: 40 }}>
+                <div>
+                  <Icon name={a.email_sent ? "check" : "alert"} size={14} />
+                  <b>{a.full_name}</b> ({a.email}) — approved.{" "}
+                  <span className={cx("taw-status", "taw-status--" + (a.email_sent ? "success" : "danger"))}>
+                    {a.email_sent ? "Invitation email sent" : "Email failed to send"}
+                  </span>
+                </div>
+                <div style={{ marginTop: 6 }}>
+                  Code: <b style={{ fontFamily: "monospace" }}>{a.code}</b>
+                  {a.link ? (
+                    <>
+                      {" "}
+                      — <a href={a.link} target="_blank" rel="noreferrer">{a.link}</a>
+                    </>
+                  ) : null}
+                  {!a.email_sent ? " — share this code with them directly." : ""}
+                </div>
+                <button
+                  className="taw-btn taw-btn--ghost taw-btn--sm"
+                  style={{ position: "absolute", top: 10, right: 10 }}
+                  onClick={() => dismissApproved(id)}
+                  aria-label={"Dismiss " + a.full_name + "'s approval notice"}
+                >
+                  <Icon name="x" size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {loading && rows == null ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="taw-skel" style={{ height: 96 }} />
+            ))}
+          </div>
+        ) : pending.length ? (
+          <div className="taw-qlist">
+            {pending.map((r: any) => {
+              return (
+                <div key={r.id} className="taw-qrow" style={{ display: "block" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
+                    <div className="taw-qrow-main">
+                      <div className="taw-qrow-top">
+                        <span className="taw-qtype taw-icrow">
+                          <Icon name="user" size={13} />
+                          {/* first_name/last_name are the authoritative name fields
+                              (2026-09-17, direct request) — full_name is only a
+                              backward-compat fallback for a pre-migration row that
+                              never got backfilled for some reason. */}
+                          {r.first_name || r.last_name ? `${r.first_name || ""} ${r.last_name || ""}`.trim() : r.full_name}
+                        </span>
+                        <span className="taw-qstate info">{fmtDate(r.created_at)} {fmtTime(r.created_at)}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
+                        {r.email} · {r.phone}{r.city ? " · " + r.city : ""}
+                      </div>
+                      {(r.destination || r.travel_date) ? (
+                        <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 5 }}>
+                          {r.destination ? "Wants to go: " + r.destination : ""}
+                          {r.destination && r.travel_date ? " · " : ""}
+                          {r.travel_date ? "When: " + r.travel_date : ""}
+                        </div>
+                      ) : null}
+                      {r.reason ? <div style={{ fontSize: 12.5, color: "var(--taupe)", marginTop: 5 }}>{r.reason}</div> : null}
+                    </div>
+                    <div className="taw-qrow-actions">
+                      <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busyId === r.id} onClick={() => approve(r)}>
+                        {busyId === r.id ? <Spinner /> : <Icon name="check" size={13} />}
+                        Approve
+                      </button>
+                      <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busyId === r.id} onClick={() => deny(r)}>
+                        <Icon name="x" size={13} />
+                        Deny
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <Empty icon={<Icon name="inbox" size={28} />}>No pending access requests.</Empty>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function AdminPanel(props: any) {
   props = props || {};
   const advisors = props.advisors || [];
@@ -332,18 +565,21 @@ export function AdminPanel(props: any) {
 
   return (
     <div className="taw-fade-in">
-      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment — admin only">
+      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment · access requests — admin only">
         <div className="taw-desk-tabs" role="tablist" aria-label="Admin view" style={{ marginBottom: 16 }}>
           {SubBtn("agents", "user", "Agents")}
           {SubBtn("orders", "luggage", "Orders")}
           {SubBtn("enquiries", "inbox", "Enquiry assignment")}
+          {SubBtn("access-requests", "mail", "Access requests")}
         </div>
         {sub === "agents" ? (
           <AgentsSection />
         ) : sub === "orders" ? (
           <AdminOrdersSection membersById={membersById} advisorsById={advisorsById} />
-        ) : (
+        ) : sub === "enquiries" ? (
           <EnquiryAssignSection advisors={advisors} />
+        ) : (
+          <AccessRequestsSection />
         )}
       </Card>
     </div>

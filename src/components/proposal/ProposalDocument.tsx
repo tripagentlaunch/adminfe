@@ -1,15 +1,14 @@
 /* =============================================================================
  * TripAgent — src/components/proposal/ProposalDocument.tsx
- * Proposal PDF (2026-09-08, direct request) — react-pdf template matching
- * the sample "Switzerland-Iyer-Itinerary.pdf": cover, day-grid + costs,
- * stays, flights/visa/concierge. Same component tree renders both the
- * in-panel <PDFViewer> preview and the exported file — no drift between
- * the two by construction. Colors reuse the app's own tokens.css values
- * (--ink/--ivory/--gold/--muted) since they already read close to the
- * sample's palette; fonts are Fraunces (serif) + Inter (sans), the
- * closest open match to the sample's typography (see proposalFonts.ts).
+ * Proposal PDF (rebuilt 2026-09-26) — restructured into three PDF pages
+ * that mirror ProposalPreviewPage.tsx's on-screen Plan/Days/Decisions
+ * tabs (a PDF has no tabs/hover/JS state, so each "tab" becomes its own
+ * page instead). Same real data fields as the screen version
+ * (buildProposalTemplateData()'s output) — nothing here is hardcoded.
+ * Colors/fonts unchanged from the previous version (--ink/--ivory/--gold/
+ * --muted tokens, Fraunces + Inter via proposalFonts.ts).
  * ===========================================================================*/
-import { Document, Page, View, Text, StyleSheet, Svg, Path, Circle } from "@react-pdf/renderer";
+import { Document, Page, View, Text, StyleSheet, Svg, Path, Circle, Link, Image } from "@react-pdf/renderer";
 import { registerProposalFonts } from "../../lib/proposalFonts";
 import { ContourArt } from "./ContourArt";
 import { inr } from "../../services/api";
@@ -36,6 +35,8 @@ const s = StyleSheet.create({
   h2: { fontFamily: "Proposal Serif", fontWeight: 400, fontSize: 15, color: INK },
   row: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
   pageHeadRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
+  tabPill: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, borderWidth: 0.75, borderColor: LINE },
+  tabPillActive: { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, backgroundColor: GOLD_INK },
 });
 
 function PageHeader({ left, right }: { left: string; right: string }) {
@@ -50,13 +51,37 @@ function PageHeader({ left, right }: { left: string; right: string }) {
   );
 }
 
+// TabRow — a static (non-clickable) visual echo of the screen's Plan/
+// Days/Decisions tab bar, so each page reads as one section of the same
+// three-part document instead of a disconnected page. `active` highlights
+// which "tab" this page corresponds to — purely decorative in a PDF.
+function TabRow({ active, hasVisa }: { active: "Plan" | "Days" | "Decisions"; hasVisa: boolean }) {
+  const tabs: Array<"Plan" | "Days" | "Decisions"> = hasVisa ? ["Plan", "Days", "Decisions"] : ["Plan", "Days"];
+  return (
+    <View style={{ flexDirection: "row", gap: 8, marginBottom: 22 }}>
+      {tabs.map((t) => (
+        <View key={t} style={t === active ? s.tabPillActive : s.tabPill}>
+          <Text
+            style={{
+              fontFamily: "Proposal Sans",
+              fontWeight: 600,
+              fontSize: 8,
+              letterSpacing: 0.6,
+              color: t === active ? IVORY : MUTED,
+            }}
+          >
+            {t.toUpperCase()}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function Cover({ data }: { data: any }) {
   return (
     <Page size="A4" style={[s.page, s.coverPage]}>
       <View style={{ padding: "48pt 40pt", height: "100%", flexDirection: "column", justifyContent: "space-between", position: "relative" }}>
-        {/* Painted FIRST (2026-09-08 fix) so it sits behind every other
-            child below — react-pdf paints in document order regardless of
-            position:absolute, unlike a browser's own stacking contexts. */}
         <View style={{ position: "absolute", left: 0, right: 0, top: "34%" }}>
           <ContourArt width={595} height={360} stroke={GOLD} strokeOpacity={0.55} />
         </View>
@@ -95,10 +120,6 @@ function Cover({ data }: { data: any }) {
   );
 }
 
-// Small paper-plane glyph (2026-09-08) — react-pdf/PDF fonts can't
-// reliably render the ✈ emoji, so this draws the same simple arrow-plane
-// shape the app's own Icon.tsx "send" glyph uses, scaled down, for the
-// calendar strip's real arrival/departure captions.
 function PlaneGlyph({ size = 8, color = GOLD }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
@@ -107,14 +128,6 @@ function PlaneGlyph({ size = 8, color = GOLD }: { size?: number; color?: string 
   );
 }
 
-// PhotoPlaceholder (2026-09-08, direct feedback) — the stay thumbnail
-// previously reused ContourArt (the cover's decorative motif), which
-// reads as a finished illustration rather than an empty slot: "these
-// are supposed to be image placeholders." A plain mountain/sun icon on
-// a flat tint is the honest signal — the app's own established pattern
-// for "no data yet" (see Design Principles memory: honest empty states
-// over fabricated content) — since there's no real per-hotel photo
-// source in this app yet, not a decorative flourish to build instead.
 function PhotoPlaceholder({ width, height }: { width: number; height: number }) {
   const cx = width / 2;
   const cy = height / 2;
@@ -131,21 +144,261 @@ function PhotoPlaceholder({ width, height }: { width: number; height: number }) 
   );
 }
 
+function ArrowGlyph({ size = 8, color = IVORY }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M5 12h14M13 6l6 6-6 6" stroke={color} strokeWidth={2.6} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function PinGlyph({ size = 8, color = MUTED }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        d="M12 21s-7-6.1-7-11.2A7 7 0 0 1 19 9.8C19 14.9 12 21 12 21z"
+        stroke={color}
+        strokeWidth={1.8}
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <Circle cx={12} cy={9.8} r={2.2} stroke={color} strokeWidth={1.6} fill="none" />
+    </Svg>
+  );
+}
+
+const STAY_STATUS_META: Record<string, string> = {
+  on_hold: "ON HOLD",
+  booked: "CONFIRMED",
+  price_changed: "PRICE UPDATED",
+};
+
 const COL_W = 50;
 const COL_GAP = 6;
 
-// DayCostPage — day-by-day calendar strip + real cost breakdown
-// (2026-09-08, rebuilt per direct feedback to actually match the sample:
-// stays render as spanning colored blocks across their real number of
-// nights — not one flat tile per day — using calendarDays/calendarBlocks
-// from proposalTemplateData.ts. Only the arrival/departure time captions
-// are real (parsed from actual flight data); the sample's mid-trip
-// transit captions ("Funicular from lakeshore") are curated narrative
-// with no source in this data model, so those are left out rather than
-// invented — the SAME "derive or omit" rule as the rest of this
-// template. Cost lines are the SAME real pricing.lines the app's own
-// Quote Builder shows, never a separate/invented number.
-function DayCostPage({ data }: { data: any }) {
+// FlightRow — same confirmed/not-yet-selected rendering the old
+// FlightsPage used, shared now by the Plan page's "Getting there" section.
+function FlightRow({ f, i }: { f: any; i: number }) {
+  return f.depTime ? (
+    <View
+      style={{ backgroundColor: IVORY_DIM, borderRadius: 4, padding: 14, marginTop: i === 0 ? 6 : 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+    >
+      <View>
+        <Text style={[s.label, { fontSize: 7.5 }]}>{f.date}</Text>
+        <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, marginTop: 4 }}>{f.depTime}</Text>
+        {f.depCity ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{f.depCity}</Text> : null}
+      </View>
+      <View style={{ alignItems: "center" }}>
+        <Text style={{ fontSize: 8.5, letterSpacing: 1, color: MUTED }}>
+          {(f.segments || []).map((seg: any) => seg.flightNo).filter(Boolean).join("  ·  ")}
+        </Text>
+        <View style={{ borderBottomWidth: 0.75, borderBottomColor: LINE, width: 90, marginTop: 6 }} />
+        <Text style={{ fontSize: 8, color: MUTED, marginTop: 6 }}>{f.duration}{f.cabin ? ` · ${f.cabin}` : ""}</Text>
+      </View>
+      <View style={{ alignItems: "flex-end" }}>
+        <Text style={[s.label, { fontSize: 7.5 }]}>{f.arrivalDate || f.date}</Text>
+        <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, marginTop: 4 }}>{f.arrivalTime || ""}</Text>
+        {f.arrCity ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{f.arrCity}</Text> : null}
+      </View>
+    </View>
+  ) : (
+    <View
+      style={{ backgroundColor: IVORY_DIM, borderRadius: 4, padding: 14, marginTop: i === 0 ? 6 : 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+    >
+      <View>
+        <Text style={[s.label, { fontSize: 7.5 }]}>{f.date}</Text>
+        <Text style={{ fontFamily: "Proposal Serif", fontSize: 13, marginTop: 4, color: MUTED }}>{f.depCity || f.title}{f.arrCity ? ` – ${f.arrCity}` : ""}</Text>
+      </View>
+      <Text style={[s.label, { fontSize: 7.5 }]}>{f.nextStep ? f.nextStep.toUpperCase() : "NOT YET SELECTED"}</Text>
+    </View>
+  );
+}
+
+// StayCard — same real-photo-banner card design as before, just factored
+// out so PlanPage can render it under "Where you stay".
+function StayCard({ st, i, isLast }: { st: any; i: number; isLast: boolean }) {
+  const photo = st.image ? (
+    // eslint-disable-next-line jsx-a11y/alt-text -- react-pdf's own Image; no alt prop exists on it
+    <Image src={st.image} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+  ) : (
+    <PhotoPlaceholder width={280} height={100} />
+  );
+  const statusLabel = STAY_STATUS_META[st.status];
+  const isStockPhoto = st.imageSource === "pexels";
+  const photoBlock = (
+    <View style={{ width: "100%", height: 190, backgroundColor: IVORY_DIM, alignItems: "center", justifyContent: "center", position: "relative" }}>
+      {photo}
+      {isStockPhoto ? (
+        <View
+          style={{
+            position: "absolute",
+            left: 10,
+            bottom: 10,
+            backgroundColor: "rgba(23,19,16,0.74)",
+            borderRadius: 3,
+            paddingVertical: 4,
+            paddingHorizontal: 8,
+          }}
+        >
+          <Text style={{ fontFamily: "Proposal Sans", fontWeight: 600, fontSize: 7.5, letterSpacing: 0.6, color: IVORY }}>REPRESENTATIVE IMAGE</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+  return (
+    <View
+      wrap={false}
+      style={{
+        marginBottom: isLast ? 0 : 22,
+        borderWidth: 0.75,
+        borderColor: LINE,
+        borderRadius: 8,
+        overflow: "hidden",
+      }}
+    >
+      {st.url ? (
+        <Link src={st.url} style={{ width: "100%", height: 190 }}>
+          {photoBlock}
+        </Link>
+      ) : (
+        photoBlock
+      )}
+
+      <View style={{ padding: 18 }}>
+        <View style={[s.pageHeadRow, { alignItems: "center" }]}>
+          <Text style={s.label}>
+            {(st.city || "").toUpperCase()}
+            {st.dateRange ? `  ·  ${st.dateRange}` : ""}
+          </Text>
+          {statusLabel ? (
+            <View style={{ backgroundColor: IVORY_DIM, borderWidth: 0.75, borderColor: LINE, borderRadius: 3, paddingVertical: 3, paddingHorizontal: 7 }}>
+              <Text style={{ fontFamily: "Proposal Sans", fontWeight: 600, fontSize: 7, letterSpacing: 0.8, color: GOLD_INK }}>{statusLabel}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        {st.url ? (
+          <Link src={st.url} style={{ textDecoration: "none" }}>
+            <Text style={{ fontFamily: "Proposal Serif", fontSize: 19, marginTop: 7, color: INK }}>{st.name}</Text>
+          </Link>
+        ) : (
+          <Text style={{ fontFamily: "Proposal Serif", fontSize: 19, marginTop: 7 }}>{st.name}</Text>
+        )}
+        {st.roomAndBoard ? <Text style={{ fontSize: 9.5, color: MUTED, marginTop: 3 }}>{st.roomAndBoard}</Text> : null}
+
+        {st.officialWebsiteUrl || st.mapsUrl ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 12 }}>
+            {st.officialWebsiteUrl ? (
+              <Link src={st.officialWebsiteUrl}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 6,
+                    backgroundColor: GOLD_INK,
+                    borderRadius: 20,
+                    paddingVertical: 7,
+                    paddingHorizontal: 14,
+                  }}
+                >
+                  <Text style={{ fontFamily: "Proposal Sans", fontWeight: 600, fontSize: 8.5, letterSpacing: 0.5, color: IVORY }}>VISIT OFFICIAL WEBSITE</Text>
+                  <ArrowGlyph size={8} color={IVORY} />
+                </View>
+              </Link>
+            ) : null}
+            {st.mapsUrl ? (
+              <Link src={st.mapsUrl}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <PinGlyph size={9} color={MUTED} />
+                  <Text style={{ fontFamily: "Proposal Sans", fontSize: 8.5, color: MUTED }}>View on map</Text>
+                </View>
+              </Link>
+            ) : null}
+          </View>
+        ) : null}
+
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 16, paddingTop: 12, borderTopWidth: 0.75, borderTopColor: LINE }}>
+          <Text style={[s.label, { fontSize: 7.5 }]}>STAY TOTAL</Text>
+          <Text style={{ fontFamily: "Proposal Serif", fontSize: 15, color: GOLD_INK }}>{inr(st.price)}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// PlanPage — mirrors the screen's "Plan" tab: the shape (dates/traveller/
+// route), getting there (flights), where you stay (hotel cards), what it
+// costs. Same real fields ProposalPreviewPage.tsx's Plan tab reads.
+function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <TabRow active="Plan" hasVisa={hasVisa} />
+      <PageHeader left="THE SHAPE" right={(data.dateRange || "").toUpperCase()} />
+
+      <View style={{ marginBottom: 24 }}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 0.75, borderBottomColor: LINE }}>
+          <Text style={s.label}>DATES</Text>
+          <Text style={{ fontSize: 10.5 }}>
+            {data.dateRange}
+            {data.nights ? ` · ${data.nights} nights` : ""}
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 0.75, borderBottomColor: LINE }}>
+          <Text style={s.label}>TRAVELLER</Text>
+          <Text style={{ fontSize: 10.5 }}>
+            {data.pax || 1}
+            {data.flights?.[0]?.cabin ? ` · ${data.flights[0].cabin} cabin` : ""}
+          </Text>
+        </View>
+        {data.cities?.length ? (
+          <View style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 8, borderBottomWidth: 0.75, borderBottomColor: LINE }}>
+            <Text style={s.label}>ROUTE</Text>
+            <Text style={{ fontSize: 10.5 }}>{data.cities.join(" → ")}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {data.flights?.length ? (
+        <View style={{ marginBottom: 24 }} wrap={false}>
+          <PageHeader left="GETTING THERE" right="" />
+          {data.flights.map((f: any, i: number) => (
+            <FlightRow key={i} f={f} i={i} />
+          ))}
+        </View>
+      ) : null}
+
+      {data.stays?.length ? (
+        <View style={{ marginBottom: 24 }}>
+          <PageHeader left="WHERE YOU STAY" right={`${data.stays.length} ${data.stays.length === 1 ? "STAY" : "STAYS"}`} />
+          {data.stays.map((st: any, i: number) => (
+            <StayCard key={i} st={st} i={i} isLast={i === data.stays.length - 1} />
+          ))}
+        </View>
+      ) : null}
+
+      {data.costLines?.length ? (
+        <View wrap={false}>
+          <PageHeader left="WHAT IT COSTS" right={`${data.pax || 1} TRAVELLER${data.pax > 1 ? "S" : ""}, ALL IN`} />
+          {data.costLines.map((ln: any, i: number) => (
+            <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 0.75, borderBottomColor: LINE }}>
+              <Text style={{ fontSize: 10.5 }}>{ln.label || ln.type}</Text>
+              <Text style={{ fontFamily: "Proposal Serif", fontSize: 12 }}>{inr(ln.sell)}</Text>
+            </View>
+          ))}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 14 }}>
+            <Text style={s.label}>TRIP TOTAL</Text>
+            <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, color: GOLD_INK }}>{inr(data.grandTotal)}</Text>
+          </View>
+        </View>
+      ) : null}
+    </Page>
+  );
+}
+
+// DaysPage — mirrors the screen's "Days" tab: the real calendar strip
+// (unchanged from the previous DayCostPage — same calendarDays/
+// calendarBlocks/calendarCaptions from proposalTemplateData.ts).
+function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   const days = data.calendarDays || [];
   const blocks = data.calendarBlocks || [];
   const captions = data.calendarCaptions || {};
@@ -153,9 +406,10 @@ function DayCostPage({ data }: { data: any }) {
 
   return (
     <Page size="A4" style={s.page}>
+      <TabRow active="Days" hasVisa={hasVisa} />
       <PageHeader left={`YOUR ${days.length} DAYS`} right={(data.dateRange || "").toUpperCase()} />
 
-      <View style={{ marginTop: 6, marginBottom: 28, width: stripWidth }}>
+      <View style={{ marginTop: 6, width: stripWidth }}>
         <View style={{ flexDirection: "row" }}>
           {days.map((d: any, i: number) => (
             <View key={i} style={{ width: COL_W, marginRight: i < days.length - 1 ? COL_GAP : 0, alignItems: "center" }}>
@@ -198,131 +452,32 @@ function DayCostPage({ data }: { data: any }) {
           ))}
         </View>
       </View>
+    </Page>
+  );
+}
 
-      <PageHeader left="WHAT IT COSTS" right={`${data.pax || 1} TRAVELLER${data.pax > 1 ? "S" : ""}, ALL IN`} />
+// DecisionsPage — mirrors the screen's "Decisions" tab: only rendered
+// when data.visa exists (same condition ProposalPreviewPage.tsx uses to
+// hide the Decisions tab entirely). Concierge contact moved here from the
+// old FlightsPage, since "before you travel" logistics belong with visa.
+function DecisionsPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <TabRow active="Decisions" hasVisa={hasVisa} />
+      <PageHeader left="BEFORE MONEY MOVES" right="" />
 
-      <View>
-        {(data.costLines || []).map((ln: any, i: number) => (
-          <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 10, borderBottomWidth: 0.75, borderBottomColor: LINE }}>
-            <Text style={{ fontSize: 10.5 }}>{ln.label || ln.type}</Text>
-            <Text style={{ fontFamily: "Proposal Serif", fontSize: 12 }}>{inr(ln.sell)}</Text>
-          </View>
-        ))}
-        <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 14 }}>
-          <Text style={s.label}>TOTAL</Text>
-          <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, color: GOLD_INK }}>{inr(data.grandTotal)}</Text>
-        </View>
+      <View style={{ backgroundColor: IVORY_DIM, borderRadius: 4, padding: 16, marginTop: 6 }}>
+        <Text style={{ fontFamily: "Proposal Serif", fontSize: 13 }}>
+          <Text style={{ fontWeight: 700 }}>{(data.visa?.title || "Visa").toUpperCase()}. </Text>
+          {data.visa?.decisionNote || data.visa?.sub}
+        </Text>
+        {data.visa?.submittedNote ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 6 }}>{data.visa.submittedNote}</Text> : null}
       </View>
-    </Page>
-  );
-}
 
-// StaysPage — one block per hotel, real data only: no curated
-// neighborhood/place prose (see proposalTemplateData.ts's note on why
-// that's omitted rather than invented). Thumbnail is PhotoPlaceholder —
-// an honest "no photo yet" slot, not decorative art standing in for one
-// (there's no real per-hotel photo source in the app yet).
-function StaysPage({ data }: { data: any }) {
-  const stays = data.stays || [];
-  return (
-    <Page size="A4" style={s.page}>
-      <PageHeader left="WHERE YOU STAY" right={`${stays.length} ${stays.length === 1 ? "STAY" : "STAYS"}`} />
-      {stays.map((st: any, i: number) => (
-        <View key={i} style={{ flexDirection: "row", gap: 20, paddingVertical: 20, borderBottomWidth: i < stays.length - 1 ? 0.75 : 0, borderBottomColor: LINE }}>
-          <View style={{ width: 170, height: 115, backgroundColor: IVORY_DIM, borderRadius: 4, overflow: "hidden", alignItems: "center", justifyContent: "center" }}>
-            <PhotoPlaceholder width={170} height={115} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={s.pageHeadRow}>
-              <Text style={s.label}>{(st.city || "").toUpperCase()}</Text>
-              <Text style={s.label}>{st.dateRange}</Text>
-            </View>
-            <Text style={{ fontFamily: "Proposal Serif", fontSize: 15, marginTop: 4 }}>{st.name}</Text>
-            {st.roomAndBoard ? <Text style={{ fontSize: 9.5, color: MUTED, marginTop: 3 }}>{st.roomAndBoard}</Text> : null}
-            <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
-              <Text style={[s.label, { fontSize: 7.5 }]}>{(st.status || "").replace(/_/g, " ").toUpperCase()}</Text>
-              <Text style={{ fontFamily: "Proposal Serif", fontSize: 12 }}>{inr(st.price)}</Text>
-            </View>
-          </View>
-        </View>
-      ))}
-    </Page>
-  );
-}
-
-// FlightsPage — flights + visa/passport + concierge contact. Every
-// section is independently conditional: an itinerary with no visa yet,
-// or before an advisor record loads, should just show less — never a
-// placeholder pretending data exists (same "honest omission" rule as the
-// rest of this template).
-function FlightsPage({ data }: { data: any }) {
-  const flights = data.flights || [];
-  return (
-    <Page size="A4" style={s.page}>
-      <PageHeader left="GETTING THERE AND BACK" right="" />
-
-      {flights.map((f: any, i: number) =>
-        f.depTime ? (
-          // Confirmed leg — real departure AND arrival, both derived
-          // from real fields (day.route for cities, duration for the
-          // arrival date — see addDurationDate in proposalTemplateData.ts).
-          <View
-            key={i}
-            style={{ backgroundColor: IVORY_DIM, borderRadius: 4, padding: 14, marginTop: i === 0 ? 6 : 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
-          >
-            <View>
-              <Text style={[s.label, { fontSize: 7.5 }]}>{f.date}</Text>
-              <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, marginTop: 4 }}>{f.depTime}</Text>
-              {f.depCity ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{f.depCity}</Text> : null}
-            </View>
-            <View style={{ alignItems: "center" }}>
-              <Text style={{ fontSize: 8.5, letterSpacing: 1, color: MUTED }}>
-                {(f.segments || []).map((seg: any) => seg.flightNo).filter(Boolean).join("  ·  ")}
-              </Text>
-              <View style={{ borderBottomWidth: 0.75, borderBottomColor: LINE, width: 90, marginTop: 6 }} />
-              <Text style={{ fontSize: 8, color: MUTED, marginTop: 6 }}>{f.duration}{f.cabin ? ` · ${f.cabin}` : ""}</Text>
-            </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={[s.label, { fontSize: 7.5 }]}>{f.arrivalDate || f.date}</Text>
-              <Text style={{ fontFamily: "Proposal Serif", fontSize: 20, marginTop: 4 }}>{f.arrivalTime || ""}</Text>
-              {f.arrCity ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 2 }}>{f.arrCity}</Text> : null}
-            </View>
-          </View>
-        ) : (
-          // Not yet selected — real status, not a fabricated time (see
-          // mockItinerary.ts's return leg: time:null, nextStep:"4
-          // options"). Showing this honestly instead of blank fields.
-          <View
-            key={i}
-            style={{ backgroundColor: IVORY_DIM, borderRadius: 4, padding: 14, marginTop: i === 0 ? 6 : 10, flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
-          >
-            <View>
-              <Text style={[s.label, { fontSize: 7.5 }]}>{f.date}</Text>
-              <Text style={{ fontFamily: "Proposal Serif", fontSize: 13, marginTop: 4, color: MUTED }}>{f.depCity || f.title}{f.arrCity ? ` – ${f.arrCity}` : ""}</Text>
-            </View>
-            <Text style={[s.label, { fontSize: 7.5 }]}>{f.nextStep ? f.nextStep.toUpperCase() : "NOT YET SELECTED"}</Text>
-          </View>
-        )
-      )}
-
-      {data.visa || data.concierge ? (
-        <View style={{ marginTop: 28 }}>
-          <PageHeader left="BEFORE YOU TRAVEL" right="" />
-          {data.visa ? (
-            <View style={{ flexDirection: "row", gap: 24 }}>
-              <View style={{ flex: 1 }}>
-                <Text style={s.label}>{(data.visa.title || "VISA").toUpperCase()}</Text>
-                <Text style={{ fontFamily: "Proposal Serif", fontSize: 13, marginTop: 4 }}>{data.visa.decisionNote || data.visa.sub}</Text>
-                {data.visa.submittedNote ? <Text style={{ fontSize: 9, color: MUTED, marginTop: 3 }}>{data.visa.submittedNote}</Text> : null}
-              </View>
-              {data.visa.passportNote ? (
-                <View style={{ flex: 1 }}>
-                  <Text style={s.label}>PASSPORTS</Text>
-                  <Text style={{ fontFamily: "Proposal Serif", fontSize: 13, marginTop: 4 }}>{data.visa.passportNote}</Text>
-                </View>
-              ) : null}
-            </View>
-          ) : null}
+      {data.visa?.passportNote ? (
+        <View style={{ marginTop: 24 }}>
+          <PageHeader left="PASSPORTS" right="" />
+          <Text style={{ fontFamily: "Proposal Serif", fontSize: 13, marginTop: 4 }}>{data.visa.passportNote}</Text>
         </View>
       ) : null}
 
@@ -345,23 +500,22 @@ function FlightsPage({ data }: { data: any }) {
   );
 }
 
-// PAGE_COUNT (2026-09-08) — the page navigator control in Proposal
-// Composer's header needs a total-pages number, but there's no clean way
-// to introspect a rendered PDF's page count from OUR side (the preview
-// is the browser's own native PDF viewer inside an iframe, not something
-// we render/measure ourselves — see the z-index/background fixes in
-// DESIGN-CHANGES.md for the full story on that boundary). Keep this in
-// sync by hand whenever a <Page> is added to/removed from the Document
-// below. 4 pages: Cover, day-grid + costs, stays, flights/visa/concierge.
-export const PAGE_COUNT = 4;
+// PAGE_COUNT — Cover, Plan, Days, +Decisions only when data.visa exists
+// (matches the screen's own hasVisa gate, so the page navigator and the
+// tab bar never disagree about how many sections this proposal has).
+export function pageCountFor(data: any): number {
+  return data?.visa ? 4 : 3;
+}
+export const PAGE_COUNT = 4; // kept for any caller still importing the old static constant; prefer pageCountFor(data).
 
 export function ProposalDocument({ data }: { data: any }) {
+  const hasVisa = !!data.visa;
   return (
     <Document>
       <Cover data={data} />
-      <DayCostPage data={data} />
-      <StaysPage data={data} />
-      <FlightsPage data={data} />
+      <PlanPage data={data} hasVisa={hasVisa} />
+      <DaysPage data={data} hasVisa={hasVisa} />
+      {hasVisa ? <DecisionsPage data={data} hasVisa={hasVisa} /> : null}
     </Document>
   );
 }

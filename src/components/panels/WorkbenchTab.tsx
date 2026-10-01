@@ -71,6 +71,23 @@ export function WorkbenchTab(props: any) {
   const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
+  // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
+  // is the RAW enquiries-table row (WorkbenchDataProvider's plain
+  // fetchEnquiries() read); a real Supabase row has no `ask` field at all
+  // (confirmed repeatedly this session) — only the 3 MOCK_ENQUIRIES
+  // entries carry one hardcoded in mockEnquiries.ts. So every "seed
+  // Search/scratch-itinerary defaults from ask.*" path fed by
+  // `selectedEnquiry` (FlightDesk/HotelDesk/VisaDesk's origin/destination/
+  // date defaults, addSearchItemToItinerary/initItinerary's date-bound
+  // seeding) has silently only ever worked for the 3 mock enquiries,
+  // never a real one — confirmed live while wiring the Search panel's
+  // Departure date to a real enquiry's real dates (this same investigation
+  // pass). `travellerProfile.enquiry.ask` — GET /enquiries/{id}/
+  // traveller-profile's own real, backend-shaped output — is the correct
+  // source; merged in here (once loaded) rather than fixed at each
+  // individual consumer, so every one of them benefits from a single fix.
+  const askReady = !!(travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selEnqId);
+  const selectedEnquiryWithAsk = askReady ? { ...selectedEnquiry, ask: travellerProfile.enquiry.ask } : selectedEnquiry;
   const itineraryData = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
   // generating (2026-09-06) — "Generate AI Itinerary" now waits on a real
   // backend call (POST /enquiries/{id}/generate-itinerary — real Claude
@@ -120,7 +137,13 @@ export function WorkbenchTab(props: any) {
           <div className="taw-itin-choose">
             <Spinner />
             <div className="title">Drafting your itinerary…</div>
-            <div className="message">Aanya&apos;s AI is putting together a day-by-day draft from what the enquiry asked for — this takes a few seconds.</div>
+            {/* "a few seconds" (2026-09-06) was wrong and misleading once
+                real per-city TripSure flight/hotel search landed here
+                (2026-09-11 investigation: a real multi-city trip takes
+                40s-2min, not seconds) — an advisor watching a spinner that
+                broke its own promise is exactly what tempts a reload/
+                retry mid-request. Copy now sets real expectations instead. */}
+            <div className="message">Aanya&apos;s AI is searching real flights and hotels city by city for this trip — a multi-city itinerary can take a minute or two. No need to refresh or click again.</div>
           </div>
         ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,
@@ -132,11 +155,11 @@ export function WorkbenchTab(props: any) {
             <Icon name="sparkle" size={28} />
             <div className="title">Start this itinerary</div>
             <div className="message">Generate a draft from what the enquiry asked for, or build it from scratch — either way, everything stays fully editable.</div>
-            <button className="taw-btn taw-btn--primary taw-btn--block" onClick={() => initItinerary(selEnqId, "ai", selectedEnquiry)}>
+            <button className="taw-btn taw-btn--primary taw-btn--block" onClick={() => initItinerary(selEnqId, "ai", selectedEnquiryWithAsk)}>
               <Icon name="sparkle" size={16} />
               Generate AI Itinerary
             </button>
-            <button className="taw-btn taw-btn--block" onClick={() => initItinerary(selEnqId, "scratch", selectedEnquiry)}>
+            <button className="taw-btn taw-btn--block" onClick={() => initItinerary(selEnqId, "scratch", selectedEnquiryWithAsk)}>
               <Icon name="plus" size={16} />
               Start from scratch
             </button>
@@ -155,12 +178,22 @@ export function WorkbenchTab(props: any) {
           Keying on the enquiry also clears any leftover search results
           from a previous traveller when switching — correct behavior,
           not just a side effect of the fix. */}
+      {/* key also flips once askReady goes true (2026-09-10, bug fix) —
+          FlightDesk/HotelDesk/VisaDesk seed their own defaults from
+          `enquiry.ask` inside a useState(() => ...) initializer, which
+          (same class of bug the selEnqId key above already fixes) only
+          ever runs at mount, never again on a later prop change. Since
+          `ask` arrives from travellerProfile's OWN async fetch — always
+          AFTER this panel's first mount for a freshly-selected enquiry —
+          without this second key segment every desk permanently mounts
+          with `ask` still undefined and never gets another chance to pick
+          it up. See selectedEnquiryWithAsk's own comment above. */}
       <SearchDesksPanel
-        key={selEnqId}
+        key={selEnqId + (askReady ? ":ask" : "")}
         member={member}
-        enquiry={selectedEnquiry}
+        enquiry={selectedEnquiryWithAsk}
         advisorId={advisorId}
-        onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiry)}
+        onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiryWithAsk)}
       />
     </div>
   );

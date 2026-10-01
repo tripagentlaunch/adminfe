@@ -98,22 +98,59 @@ export function Member360(props: any) {
   const ask = (enquiry && enquiry.ask) || null;
   const requestDate = enquiry && enquiry.created_at ? fmtDate(enquiry.created_at).toUpperCase() : "";
 
-  const constraints: string[] = [];
-  if (ask && ask.flight) {
-    const f = ask.flight;
-    const bits = [f.class ? f.class + " class" : null, f.seat, f.meal ? f.meal + " meal" : null].filter(Boolean);
-    if (bits.length) constraints.push(bits.join(" · "));
-    if (f.airline) {
-      const airlineBits = [f.airline, f.stops, f.frequentFlyer].filter(Boolean);
-      constraints.push(airlineBits.join(" · "));
-    }
+  // Preference rows (2026-09-10, Dubai/v4 reproduction fix) — each of
+  // these now comes from the backend as a real three-state object
+  // ({state: "not_asked" | "no_preference" | "value", value}), not a
+  // plain string that either exists or silently doesn't. Rendered as one
+  // row per field, always, so "we never asked" and "they said no
+  // preference" read as two visibly different things instead of both
+  // just... not showing up. `format` turns a real "value" state into the
+  // exact same display text the old flat constraints list used to
+  // produce (e.g. "5-star minimum", "Aisle") — cosmetic parity only, the
+  // NEW behavior is the row always existing and NOT_ASKED/NO_PREFERENCE
+  // rendering distinctly instead of vanishing.
+  type PrefState = { state: "not_asked" | "no_preference" | "value"; value: string | null } | undefined;
+  // prefRow now also accepts a plain string (2026-09-10, bug fix) —
+  // accommodation_style (unlike cabin/seat/meal/airline/stars/location)
+  // isn't run through _field_state() on the backend (it's one of
+  // summarize_conversation.py's own narrative fields, opportunistically
+  // extracted from free text with no dedicated yes/no question a member
+  // could answer "no preference" to — see enquiry_service.py's own note),
+  // so it arrives here as a bare string or undefined, never a {state,
+  // value} object. Normalized to the same shape inline rather than
+  // fabricating a "not_asked"/"no_preference" distinction the data doesn't
+  // actually support — a plain string always renders as "value".
+  function prefRow(label: string, field: PrefState | string | null | undefined, format?: (v: string) => string) {
+    const normalized: PrefState | null = typeof field === "string" ? { state: "value", value: field } : field ?? null;
+    if (!normalized) return null;
+    return { label, state: normalized.state, text: normalized.state === "value" ? format ? format(normalized.value || "") : normalized.value || "" : null };
   }
-  if (ask && ask.hotel) {
-    const h = ask.hotel;
-    const bits = [h.stars ? h.stars + "-star minimum" : null, h.location ? h.location + " radius" : null].filter(Boolean);
-    if (bits.length) constraints.push(bits.join(" · "));
-    if (h.roomConfig) constraints.push(h.roomConfig);
-  }
+  const prefRows = ask
+    ? [
+        prefRow("Cabin class", ask.flight && ask.flight.class),
+        prefRow("Flight preference", ask.flight && ask.flight.prefs),
+        prefRow("Seat", ask.flight && ask.flight.seat),
+        prefRow("Meal", ask.flight && ask.flight.meal),
+        prefRow("Airline", ask.flight && ask.flight.airline),
+        prefRow("Hotel star rating", ask.hotel && ask.hotel.stars, (v) => v + "-star minimum"),
+        prefRow("Hotel location", ask.hotel && ask.hotel.location),
+        prefRow("Accommodation style", ask.hotel && ask.hotel.style),
+      ].filter((r): r is { label: string; state: "not_asked" | "no_preference" | "value"; text: string | null } => r !== null)
+    : [];
+
+  // noteRows (2026-09-10, bug fix) — must_haves/deal_breakers/
+  // fixed_commitments were captured in enquiries.detail all along but
+  // never reached this panel at all (confirmed during a systematic
+  // DETAIL_FIELDS-vs-`ask` audit). Narrative/paragraph-shaped, not the
+  // short label:value shape prefRows renders — a small labeled-notes
+  // list fits better than forcing them into that list.
+  const noteRows = ask
+    ? [
+        ask.mustHaves ? { label: "Must-haves", text: ask.mustHaves } : null,
+        ask.dealBreakers ? { label: "Deal-breakers", text: ask.dealBreakers } : null,
+        ask.fixedCommitments ? { label: "Fixed commitments", text: ask.fixedCommitments } : null,
+      ].filter((r): r is { label: string; text: string } => r !== null)
+    : [];
 
   const passportYear = m.passport_expiry ? new Date(m.passport_expiry).getFullYear() : null;
 
@@ -155,7 +192,14 @@ export function Member360(props: any) {
           {ask && ask.dateRange ? (
             <div className="taw-m360-dates">
               <div>
-                <div className="taw-m360-dates-range">{ask.dateRange}</div>
+                <div className="taw-m360-dates-range">
+                  {ask.dateRange}
+                  {/* tripLength (2026-09-10, bug fix) — trip_length was
+                      captured all along, never read into `ask` until now;
+                      appended here rather than a whole new row since it's
+                      the same underlying trip-timing fact as dateRange. */}
+                  {ask.tripLength ? " · " + ask.tripLength : ""}
+                </div>
                 {ask.dateFlex ? (
                   <div className="taw-m360-dates-note">
                     {ask.dateFlex.tag === "flexible" ? "Flexible" : ask.dateFlex.tag === "asap" ? "Fixed · urgent" : "Fixed"}
@@ -169,24 +213,61 @@ export function Member360(props: any) {
             </div>
           ) : null}
 
-          {ask && (ask.from || ask.destinations || ask.persons || enquiry.budgetCap || ask.budgetCap) ? (
+          {ask && (ask.from || ask.destinations || ask.persons || ask.budgetCap || ask.budgetPerPerson) ? (
             <div className="taw-tags">
-              {ask.from && ask.destinations && ask.destinations[0] ? (
+              {/* 2026-09-10, Dubai/v4 reproduction fix: origin and
+                  destination now render independently — this used to
+                  require BOTH ask.from AND ask.destinations together, so
+                  a known destination with no captured origin (the common
+                  case before origin_city had anywhere to be written at
+                  all) silently showed no route chip whatsoever. */}
+              {ask.from || (ask.destinations && ask.destinations[0]) ? (
                 <span className="taw-tag">
-                  {originCode(ask.from)} → {destCode(ask.destinations[0])}
+                  {ask.from ? originCode(ask.from) : "—"}
+                  {" → "}
+                  {ask.destinations && ask.destinations[0] ? destCode(ask.destinations[0]) : "—"}
                 </span>
               ) : null}
               {paxLabel(ask.persons) ? <span className="taw-tag">{paxLabel(ask.persons)}</span> : null}
+              {/* budgetPerPerson (2026-09-10) — shown alongside the total
+                  cap when both are known, instead of the old single
+                  figure that silently discarded whichever one it wasn't
+                  currently holding (see enquiry_service.py's own note on
+                  the "₹2L per person" mislabeling bug this replaces). */}
               {ask.budgetCap ? <span className="taw-tag">Cap {capLabel(ask.budgetCap)}</span> : null}
+              {ask.budgetPerPerson ? <span className="taw-tag">{capLabel(ask.budgetPerPerson)}/person</span> : null}
             </div>
           ) : null}
 
-          {constraints.length ? (
+          {prefRows.length ? (
             <div className="taw-m360-sec">
-              <div className="taw-sec-label">Hard constraints</div>
-              <ul className="taw-m360-constraints">
-                {constraints.map((c, i) => (
-                  <li key={i}>{c}</li>
+              <div className="taw-sec-label">Flight &amp; hotel preferences</div>
+              <ul className="taw-m360-pref-list">
+                {prefRows.map((r) => (
+                  <li key={r.label} className="taw-m360-pref">
+                    <span className="taw-m360-pref-label">{r.label}</span>
+                    {r.state === "value" ? (
+                      <span className="taw-m360-pref-val">{r.text}</span>
+                    ) : r.state === "no_preference" ? (
+                      <span className="taw-m360-pref-val taw-m360-pref-val--no-pref">No preference</span>
+                    ) : (
+                      <span className="taw-m360-pref-val taw-m360-pref-val--not-asked">Not yet asked</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {noteRows.length ? (
+            <div className="taw-m360-sec">
+              <div className="taw-sec-label">Notes</div>
+              <ul className="taw-m360-pref-list">
+                {noteRows.map((r) => (
+                  <li key={r.label} className="taw-m360-pref" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                    <span className="taw-m360-pref-label">{r.label}</span>
+                    <span className="taw-m360-pref-val">{r.text}</span>
+                  </li>
                 ))}
               </ul>
             </div>

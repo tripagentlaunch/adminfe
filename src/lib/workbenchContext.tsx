@@ -89,6 +89,14 @@ export interface WorkbenchContextValue {
   initItinerary: (enquiryId: string, mode: "ai" | "scratch", enquiry?: any) => void;
   updateItineraryData: (enquiryId: string, updater: (d: any) => any) => void;
   addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
+  // pipelineStatusByEnquiry (real backend, 2026-09-10) — GET /enquiries/
+  // pipeline-status, fetched once on mount. The persisted counterpart to
+  // itinerariesByEnquiry/proposalQueue above: survives a reload, visible to
+  // any advisor. Keyed by enquiry_id: { itinerary_generated_at, proposal:
+  // { sent_at, outcome, decided_at } | null }. Pipeline (console/pipeline/
+  // page.tsx) merges this with the two session-local sources, preferring
+  // the local one whenever both exist for an enquiry (freshest).
+  pipelineStatusByEnquiry: Record<string, any>;
 }
 
 // ProposalOutcome (2026-09-08) — see setProposalOutcome above.

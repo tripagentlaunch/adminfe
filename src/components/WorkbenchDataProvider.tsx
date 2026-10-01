@@ -16,10 +16,23 @@
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { advisors as fetchAdvisors, members as fetchMembers, enquiries as fetchEnquiries, createOrder as apiCreateOrder, enquiryTravellerProfile, enquiryGenerateItinerary } from "../services/api";
+import {
+  advisors as fetchAdvisors,
+  members as fetchMembers,
+  enquiries as fetchEnquiries,
+  createOrder as apiCreateOrder,
+  enquiryTravellerProfile,
+  enquiryGenerateItinerary,
+  enquiryRefreshItinerary,
+  enquiryItineraryStarted,
+  enquiryProposalSend,
+  enquiryProposalOutcome,
+  enquiryPipelineStatus,
+} from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
 import { MOCK_ENQUIRIES, MOCK_MEMBERS_BY_ID } from "../lib/mockEnquiries";
+import { MOCK_ITINERARY } from "../lib/mockItinerary";
 import { blankItinerary, addCartItemToItinerary, boundFromDateRange } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
@@ -64,6 +77,15 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
   // real loading state while that's in flight.
   const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
+  // pipelineStatusByEnquiry (real backend, GET /enquiries/pipeline-status) —
+  // the persisted counterpart to itinerariesByEnquiry/proposalQueue above,
+  // surviving a reload / visible to any advisor. Pipeline (console/pipeline/
+  // page.tsx) merges this with the two session-local sources, preferring
+  // the local one whenever both exist (freshest — an action just taken in
+  // THIS session, before a round-trip confirms it). Keyed by enquiry_id,
+  // same shape the backend returns per entry: { itinerary_generated_at,
+  // proposal: { sent_at, outcome, decided_at } | null }.
+  const [pipelineStatusByEnquiry, setPipelineStatusByEnquiry] = useState<Record<string, any>>({});
 
   useEffect(() => {
     setInboxLoading(true);
@@ -71,7 +93,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       fetchAdvisors("select=*&order=name.asc").catch(() => []),
       fetchMembers("select=*&order=name.asc&limit=100").catch(() => []),
       fetchEnquiries("select=*&order=created_at.desc&limit=60").catch(() => []),
-    ]).then(([adv, mem, enq]: any) => {
+      enquiryPipelineStatus().catch(() => null),
+    ]).then(([adv, mem, enq, pipeline]: any) => {
       setAdvisors(adv || []);
       if (!advisorId && adv && adv.length) setAdvisorId(adv[0].id);
       setMembers(mem || []);
@@ -86,35 +109,39 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       setEnquiries(MOCK_ENQUIRIES.concat(enq || []));
       setInboxLoading(false);
 
+      const statusByEnquiry: Record<string, any> = {};
+      ((pipeline && pipeline.statuses) || []).forEach((s: any) => {
+        statusByEnquiry[s.enquiry_id] = s;
+      });
+      setPipelineStatusByEnquiry(statusByEnquiry);
+
       // Pipeline demo seed (2026-09-08, direct request) — "populate
-      // pipeline with mock data" so its stages are visible without
-      // driving the app by hand. Real seeded state (same
-      // itinerariesByEnquiry/proposalQueue every other flow reads/
-      // writes), not a display-only overlay — click into any of these
-      // rows and Console/Proposal Composer show the same data. Resets
-      // on reload, same as every other piece of local state here.
-      // A sent proposal always has a real itinerary behind it (2026-09-09
-      // fix) — mock-enq-3..6 only had proposalQueue entries, so
-      // Pipeline's "Revise itinerary" action landed on the AI/scratch
-      // chooser instead of resuming their actual itinerary, since
-      // Console decides which to show off itinerariesByEnquiry[id]
-      // existing. Every seeded proposalQueue entry now has one too.
+      // pipeline with mock data" so its "Building" stage is visible
+      // without driving the app by hand. Real seeded state (same
+      // itinerariesByEnquiry every other flow reads/writes), not a
+      // display-only overlay. Resets on reload, same as every other
+      // piece of local state here.
+      //
+      // REMOVED 2026-09-14 (direct request, real "Widder Hotel, Zurich"
+      // export bug) — this used to also seed mock-enq-3..6 here AND push
+      // all four straight into proposalQueue (below), all four sharing
+      // the SAME generic MOCK_ITINERARY (a hand-authored demo itinerary,
+      // "Widder Hotel, Zurich" among its stays — see mockItinerary.ts) —
+      // completely disconnected from each enquiry's own real ask/
+      // ai_draft. An advisor could reach and even export/share a
+      // Proposal PDF built entirely from that fake content. mock-enq-4/5/6
+      // (and their backing mock-mem-4/5/6) existed ONLY for this, so
+      // they're deleted outright from mockEnquiries.ts, not just unseeded
+      // here. mock-enq-3 keeps its OWN, unrelated ai_draft mismatch-demo
+      // purpose in MOCK_ENQUIRIES (Console/Itinerary Builder's "AI draft
+      // vs. what was actually asked" testing) — only its proposalQueue/
+      // itinerariesByEnquiry presence here is gone. mock-enq-2's own seed
+      // below is untouched (a different, still-wanted demo: Pipeline's
+      // "Building Itinerary" stage).
       setItinerariesByEnquiry((prev) => ({
         ...prev,
         "mock-enq-2": MOCK_ITINERARY, // Building Itinerary
-        "mock-enq-3": MOCK_ITINERARY,
-        "mock-enq-4": MOCK_ITINERARY,
-        "mock-enq-5": MOCK_ITINERARY,
-        "mock-enq-6": MOCK_ITINERARY,
       }));
-      setProposalQueue((prev) =>
-        prev.concat([
-          { enquiryId: "mock-enq-3", member: MOCK_MEMBERS_BY_ID["mock-mem-3"], data: MOCK_ITINERARY, sentAt: Date.now() - 2 * 3600000, outcome: "awaiting" },
-          { enquiryId: "mock-enq-4", member: MOCK_MEMBERS_BY_ID["mock-mem-4"], data: MOCK_ITINERARY, sentAt: Date.now() - 26 * 3600000, outcome: "accepted" },
-          { enquiryId: "mock-enq-5", member: MOCK_MEMBERS_BY_ID["mock-mem-5"], data: MOCK_ITINERARY, sentAt: Date.now() - 5 * 3600000, outcome: "revision_requested" },
-          { enquiryId: "mock-enq-6", member: MOCK_MEMBERS_BY_ID["mock-mem-6"], data: MOCK_ITINERARY, sentAt: Date.now() - 50 * 3600000, outcome: "rejected" },
-        ])
-      );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -132,6 +159,17 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         if (travellerProfileReqId.current !== e.id) return;
         setTravellerProfile(profile);
         setTravellerProfileLoading(false);
+        // Unread/new-lead indicator (2026-09-10, db/147) — the backend call
+        // just above (GET /enquiries/{id}/traveller-profile) already
+        // persisted opened_by_advisor_at server-side as its own side
+        // effect (enquiry_service.py's get_traveller_profile), tied to
+        // this SAME successful load; this is only the optimistic mirror so
+        // the Queue row un-highlights immediately instead of waiting for
+        // the next full enquiries refetch. Never overwrites an existing
+        // timestamp (matches the backend's own idempotent behavior).
+        setEnquiries((prev) =>
+          prev.map((row) => (row.id === e.id && !row.opened_by_advisor_at ? { ...row, opened_by_advisor_at: new Date().toISOString() } : row))
+        );
       })
       .catch(() => {
         if (travellerProfileReqId.current !== e.id) return;
@@ -178,6 +216,16 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // Upsert by enquiryId (2026-09-03) — re-sending the same enquiry (an
   // advisor tweaks the itinerary, sends again) replaces its existing
   // queue entry in place rather than piling up duplicates for one trip.
+  //
+  // Real persistence (2026-09-10) — POST /enquiries/{id}/proposal-sends
+  // alongside the local write above, so Pipeline's "Sent to Proposal"
+  // stage survives a reload / is visible to any advisor (see db/145's own
+  // module note). Fire-and-forget: the local proposalQueue write is what
+  // Proposal Composer actually reads from today, so a persistence hiccup
+  // here must never block the advisor's send action itself — it only
+  // means Pipeline won't see it as "sent" until reload picks it up next
+  // time (same degrade-quietly posture as every other best-effort call
+  // in this file).
   function sendItineraryToProposal(enquiryId: string, m: any, data: any) {
     // outcome always resets to "awaiting" on send/re-send (2026-09-08) —
     // a re-sent proposal has changed content, so any prior client
@@ -191,14 +239,29 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       return next;
     });
     setSelectedProposalEnqId(enquiryId);
+    enquiryProposalSend(enquiryId).catch((e: any) => {
+      console.warn("proposal-sends persist failed (Pipeline will reflect this once retried): " + errText(e));
+    });
   }
 
   function selectProposal(enquiryId: string) {
     setSelectedProposalEnqId(enquiryId);
   }
 
+  // Real persistence (2026-09-10) — PATCH /enquiries/{id}/proposal-sends/
+  // outcome, the one advisor-set signal Pipeline's Accepted/Revision
+  // Requested/Rejected stages have (see db/145's own module note: there's
+  // no automated capture path). Local proposalQueue update stays first/
+  // optimistic (instant UI feedback, same as before); a real failure here
+  // DOES get surfaced via toast, unlike the fire-and-forget calls above —
+  // this one has a visible caller (Proposal Composer's new outcome
+  // control) that should know if the record didn't actually stick.
   function setProposalOutcome(enquiryId: string, outcome: ProposalOutcome) {
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, outcome } : e)));
+    if (outcome === "awaiting") return; // never a real PATCH target — see enquiryProposalOutcome's own note
+    enquiryProposalOutcome(enquiryId, outcome).catch((e: any) => {
+      toast("Recorded here, but didn't save to the server: " + errText(e), "error");
+    });
   }
 
   // No-op if this enquiry already has itinerary data (2026-09-03) — the
@@ -234,14 +297,44 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         }
         return { ...m, [enquiryId]: seed };
       });
+      // Real "Building" signal (2026-09-10) — the "ai" path below gets this
+      // set server-side as a byproduct of generate-itinerary succeeding;
+      // "scratch" never calls the backend at all otherwise, so this is the
+      // only place that tells it a real itinerary now exists. Fire-and-
+      // forget/idempotent, same posture as sendItineraryToProposal's call.
+      enquiryItineraryStarted(enquiryId).catch(() => {});
       return;
     }
 
     setGeneratingItinerary((g) => ({ ...g, [enquiryId]: true }));
     enquiryGenerateItinerary(enquiryId)
       .then((data: any) => {
+        // Fast path returns almost instantly (Claude draft only, no real
+        // TripSure search yet — see itinerary_service.py's run_real_search
+        // flag). Show it to the advisor right away instead of waiting.
         setGeneratingItinerary((g) => ({ ...g, [enquiryId]: false }));
         setItinerariesByEnquiry((m) => (m[enquiryId] ? m : { ...m, [enquiryId]: data }));
+
+        // Real flight/hotel search still needs to happen — fire it now,
+        // in the background, and merge the results in once they land.
+        // The advisor is already looking at (and can edit) the draft
+        // while this runs; realSearchPending on the itinerary object lets
+        // the UI show a small "searching real flights & hotels…" hint
+        // per day if it wants to (data.realSearchPending === true here).
+        enquiryRefreshItinerary(enquiryId)
+          .then((refreshed: any) => {
+            setItinerariesByEnquiry((m) => {
+              // Only merge if the advisor hasn't since edited/replaced
+              // this itinerary out from under us.
+              if (!m[enquiryId]) return m;
+              return { ...m, [enquiryId]: refreshed };
+            });
+          })
+          .catch((e: any) => {
+            // Real search failing doesn't invalidate the draft the advisor
+            // is already looking at — just surface it, don't clear anything.
+            toast("Real flight/hotel search didn't complete: " + errText(e), "error");
+          });
       })
       .catch((e: any) => {
         setGeneratingItinerary((g) => ({ ...g, [enquiryId]: false }));
@@ -261,6 +354,13 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // seeding as initItinerary's "scratch" path, since Search's "Add" can
   // be the very first thing that creates this enquiry's itinerary.
   function addSearchItemToItinerary(enquiryId: string, cartItem: any, enquiry?: any) {
+    // Read directly off state (not inside the updater below) purely to
+    // decide whether THIS call is the one creating the itinerary — same
+    // pattern initItinerary uses above. Real "Building" signal (2026-09-10):
+    // Search's "Add" can be the very first thing that creates an enquiry's
+    // itinerary (see this function's own docblock above), so it needs the
+    // same call initItinerary's "scratch" path makes.
+    const isFirstItem = !itinerariesByEnquiry[enquiryId];
     setItinerariesByEnquiry((m) => {
       let base = m[enquiryId];
       if (!base) {
@@ -275,6 +375,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       }
       return { ...m, [enquiryId]: addCartItemToItinerary(base, cartItem) };
     });
+    if (isFirstItem) enquiryItineraryStarted(enquiryId).catch(() => {});
     toast((cartItem._title || cartItem.type) + " added to itinerary", "success");
   }
 
@@ -313,6 +414,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         initItinerary,
         updateItineraryData,
         addSearchItemToItinerary,
+        pipelineStatusByEnquiry,
       }}
     >
       {children}

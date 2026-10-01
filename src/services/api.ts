@@ -1390,6 +1390,65 @@ function journeyApprove(payload) {
 // anyone without that env var set yet.
 const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8787";
 
+// SITE_API_BASE (2026-09-16, Phase C access-request admin review) —
+// tripagent-site-main's OWN backend, a SEPARATE codebase/deployment from
+// this one, NOT the same thing as FASTAPI_BASE above (that's tripagent-
+// full — this app's own backend). site_access_requests/create_invitation_
+// code() only exist there — confirmed both point at the same Supabase
+// project (gnifmusartvwngcuquou) during investigation, but that backend's
+// own RLS denies anon/authenticated access to that table outright (deny-
+// all, service-role only — see supabase/migrations/0008_site_access_
+// requests.sql over there), so this app can't read/write it directly via
+// its own Supabase client; it has to go through THAT backend's API, same
+// as any other cross-service call.
+//
+// UPDATED 2026-09-16 (direct request): that backend's 3 review endpoints
+// now require a shared-secret X-Admin-Key header (app/dependencies/
+// admin_auth.py over there). AdminPanel.tsx is a "use client" component —
+// its code runs in the browser — so siteApiCall() below no longer calls
+// SITE_API_BASE directly; it goes through this app's OWN same-origin proxy
+// (src/app/api/site-admin/[...path]/route.ts), a real Next.js Route
+// Handler that runs server-side and attaches the key from a server-only
+// ADMIN_API_KEY env var (never NEXT_PUBLIC_-prefixed, never in the client
+// bundle). The browser never sees the key. SITE_API_BASE itself is now
+// only read server-side, by that route handler.
+function siteApiCall(path, options) {
+  return fetch("/api/site-admin" + path, {
+    method: options.method,
+    headers: { "Content-Type": "application/json" },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError(typeof body.detail === "string" ? body.detail : "Request failed.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// siteAccessRequestsPending() -> real site_access_requests rows,
+// status='pending', newest first (backend's own order-by).
+function siteAccessRequestsPending() {
+  return siteApiCall("/access-requests/pending", { method: "GET" });
+}
+
+// siteApproveAccessRequest(id) -> { ok, code, expires_at, expires_on,
+// link, email_sent: false } — a real invite code, generated for real, but
+// (per direct request — Phase 5 email wiring isn't finished) never
+// auto-emailed; show it in the UI for manual sending.
+function siteApproveAccessRequest(id) {
+  return siteApiCall("/access-requests/" + encodeURIComponent(id) + "/approve", { method: "POST", body: {} });
+}
+
+// siteDenyAccessRequest(id, declineReason?) -> { ok: true }
+function siteDenyAccessRequest(id, declineReason) {
+  return siteApiCall("/access-requests/" + encodeURIComponent(id) + "/deny", {
+    method: "POST",
+    body: { decline_reason: declineReason || null },
+  });
+}
+
 // acceptAdvisorInvite(token, password) — /join's only call. Public endpoint
 // (backend/app/routers/advisor_team_router.py's POST /advisor/team/accept-
 // invite/{token}): the invitee has no Supabase session yet, so unlike every
@@ -1472,6 +1531,29 @@ function hotelDetailsV2(payload) {
 
 function hotelPriceCheckV2(payload) {
   return fastapiHotelCall("/hotels/price-check", { method: "POST", body: payload });
+}
+
+// hotelRecommendations(payload) — POST /hotels/recommendations (2026-09-15,
+// hotel-suggestion flow). payload: { city, checkIn, checkOut, adults, rooms,
+// starMin?, budgetTotal? }. Real TripSure search, ranked into up to 3 real
+// candidates (best_match/best_value/premium) server-side, no LLM involved —
+// see itinerary_service.recommend_hotels's own docstring. One call per
+// hotel base (one city + date range); the caller groups a multi-city
+// itinerary into its real per-city bases before calling this per base.
+function hotelRecommendations(payload) {
+  return fastapiHotelCall("/hotels/recommendations", { method: "POST", body: payload });
+}
+
+// hotelSetWebsite(hotelKey, website) — PATCH /hotels/{hotelKey}/website
+// (backend db/149). Advisor-entered override for hotel_snapshots.website:
+// the hotel's OWN real, official site, filled in manually since neither
+// TripSure nor an automated lookup (Google Places, ruled out as unreliable
+// for independent/regional properties — 2026-09-11 investigation) can
+// supply this reliably. `website` null clears it. Reused everywhere this
+// hotelKey's link is built (proposalTemplateData.ts's hotelUrl(), the
+// public /hotel/{hotelKey} page) once set.
+function hotelSetWebsite(hotelKey, website) {
+  return fastapiHotelCall("/hotels/" + encodeURIComponent(hotelKey) + "/website", { method: "PATCH", body: { website: website || null } });
 }
 
 // --- Flight search (real preprod data, via FastAPI's /flights/search — ----
@@ -1732,6 +1814,21 @@ function rfqGet(rfq_id) {
   return fastapiRfqCall("/rfq/" + encodeURIComponent(rfq_id), { method: "GET" });
 }
 
+// fetchAdvisors() — GET /admin/advisors (admin_router.py, admin-role-gated
+// server-side via get_current_admin). Same real advisor JWT + FASTAPI_BASE
+// pattern as fastapiRfqCall/fastapiPulseCall above.
+function fetchAdvisors() {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/advisors", {
+    method: "GET",
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    if (!res.ok) return res.text().then(function (t) { throw new ApiError(t || "Request failed", { status: res.status }); });
+    return res.json();
+  });
+}
+
 // --- Pulse engine (real backend — backend/app/routers/pulse_router.py) ----
 // Same contract as fastapiRfqCall: real advisor JWT, FASTAPI_BASE.
 function fastapiPulseCall(path, options) {
@@ -1814,9 +1911,26 @@ function callAssistRun(payload) {
 // Advisor-JWT-gated, same contract as fastapiCallAssistCall above. This is
 // NOT the member-facing enquiry surface — today the only caller is Call
 // Copilot's Share action (advisor-initiated, channel:'advisor').
+// timeoutMs (2026-09-11, "Generate AI Itinerary" abort investigation) —
+// optional per-call cap via a real AbortController, since plain fetch()
+// never times out on its own. Reproduced live: this endpoint calls Claude
+// for a draft, then real TripSure flight/hotel searches (itinerary_
+// service.py) — a 4-city itinerary took 122s with every TripSure call
+// succeeding on its FIRST attempt (no retries), purely from those searches
+// running one after another; now ~40-50s after parallelizing them
+// (itinerary_service.py's own 2026-09-11 fix) — but still real, non-
+// trivial time with nothing bounding it before, which is what an
+// unexplained "signal is aborted without reason" actually was: not a
+// timeout THIS code set, something upstream (proxy/browser/network) doing
+// it uncontrolled. Timing it out here instead, comfortably above the
+// measured range, turns that into an honest, specific error message.
 function fastapiEnquiryCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  var timeoutMs = options.timeoutMs;
+  var controller = typeof AbortController !== "undefined" && timeoutMs ? new AbortController() : null;
+  var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs) : null;
 
   return fetch(FASTAPI_BASE + path, {
     method: options.method,
@@ -1825,6 +1939,7 @@ function fastapiEnquiryCall(path, options) {
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
+    signal: controller ? controller.signal : undefined,
   }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
@@ -1832,6 +1947,20 @@ function fastapiEnquiryCall(path, options) {
       }
       return body;
     });
+  }).catch(function (err) {
+    // Checked against OUR OWN controller's aborted flag, not err.name/
+    // err.message — a raw AbortError's message ("signal is aborted
+    // without reason") is exactly the unhelpful text this replaces, and
+    // its exact wording isn't guaranteed across runtimes anyway.
+    if (controller && controller.signal.aborted) {
+      throw new ApiError(
+        "Still processing after " + Math.round(timeoutMs / 1000) + "s — longer than usual. It may finish shortly; please check back or try again.",
+        { status: 0, cause: err }
+      );
+    }
+    throw err;
+  }).finally(function () {
+    if (timer) clearTimeout(timer);
   });
 }
 
@@ -1856,8 +1985,131 @@ function enquiryTravellerProfile(enquiryId) {
 // specific draft from the enquiry's own stored profile. See
 // itinerary_service.py's module note: every generated item is an explicit,
 // unverified draft (status "draft") — never a fabricated confirmed booking.
+// 180s (2026-09-11) — comfortably above the measured real range: ~40-50s
+// typical for a 4-city itinerary after itinerary_service.py's parallel-
+// search fix, ~122s in the worst case seen pre-fix with zero retries
+// involved. See fastapiEnquiryCall's own note on why this exists.
+const GENERATE_ITINERARY_TIMEOUT_MS = 180000;
+
 function enquiryGenerateItinerary(enquiryId) {
-  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/generate-itinerary", { method: "POST" });
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/generate-itinerary", {
+    method: "POST",
+    timeoutMs: GENERATE_ITINERARY_TIMEOUT_MS,
+  });
+}
+
+// enquiryRefreshItinerary(enquiryId) — POST /enquiries/{id}/generate-itinerary/refresh.
+// Fires right after enquiryGenerateItinerary resolves (which now returns
+// FAST — Claude draft only, no real TripSure search). This second call
+// re-runs ONLY the real flight/hotel search using the same cached draft,
+// so the advisor sees the drafted plan almost instantly and the real
+// flights/hotels fill in a bit later, instead of staring at one long
+// spinner for the whole thing.
+function enquiryRefreshItinerary(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/generate-itinerary/refresh", {
+    method: "POST",
+    timeoutMs: GENERATE_ITINERARY_TIMEOUT_MS,
+  });
+}
+
+// enquiryItineraryStarted(enquiryId) — POST /enquiries/{id}/itinerary-started.
+// Real "Building" signal for the Pipeline tab (console/pipeline/page.tsx) —
+// idempotent, so safe to call every time a "scratch" or Search-added
+// itinerary is first seeded (the "ai" path already gets this set server-side
+// by generate-itinerary itself; see itinerary_service.py). Best-effort by
+// convention at the call site — a persistence hiccup here must never block
+// the itinerary work the advisor is actually doing.
+function enquiryItineraryStarted(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/itinerary-started", { method: "POST" });
+}
+
+// enquiryProposalSend(enquiryId) — POST /enquiries/{id}/proposal-sends.
+// Real "Sent to Proposal" record backing Pipeline — call alongside (not
+// instead of) sendItineraryToProposal's existing local proposalQueue write.
+// Upserts by enquiry: a re-send replaces sent_at and resets outcome to
+// "awaiting" server-side too, matching proposalQueue's own upsert semantics.
+function enquiryProposalSend(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/proposal-sends", { method: "POST" });
+}
+
+// enquiryProposalOutcome(enquiryId, outcome) — PATCH /enquiries/{id}/proposal-sends/outcome.
+// outcome is one of "accepted"|"revision_requested"|"rejected" (never
+// "awaiting" — that's a server-set default on send, not a value this PATCHes
+// to). 404s if this enquiry was never sent.
+function enquiryProposalOutcome(enquiryId, outcome) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/proposal-sends/outcome", { method: "PATCH", body: { outcome: outcome } });
+}
+
+// enquiryPipelineStatus() — GET /enquiries/pipeline-status. One bulk read
+// for the whole Pipeline tab: { statuses: [{ enquiry_id, itinerary_generated_at,
+// proposal: { sent_at, outcome, decided_at } | null }] } — real, persisted
+// state surviving a reload, merged with (and overridden by, for freshness)
+// this session's own itinerariesByEnquiry/proposalQueue local state.
+function enquiryPipelineStatus() {
+  return fastapiEnquiryCall("/enquiries/pipeline-status", { method: "GET" });
+}
+
+// enquiryProposalShareCreate(enquiryId, snapshot) — POST /enquiries/{id}/
+// proposal-share. Proposal Composer's "Web link" button (2026-09-10):
+// `snapshot` is buildProposalTemplateData()'s already-assembled output
+// (the exact same object ProposalDocument/downloadPdf already render from);
+// this call mints a token and stores a sanitized, frozen copy of it server-
+// side. Returns { token, expires_at }.
+function enquiryProposalShareCreate(enquiryId, snapshot) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/proposal-share", {
+    method: "POST",
+    body: { snapshot: snapshot },
+  });
+}
+
+// proposalShareGet(token) — GET /proposal-share/{token}. PUBLIC endpoint —
+// same deliberate exception as acceptAdvisorInvite() above: the viewer on
+// the public /proposal/[token] page has no TripAgent session at all, so
+// this sends no Authorization header. Resolves with the sanitized snapshot
+// for an active link; rejects with an ApiError carrying { status: 404 } for
+// an unknown token or { status: 410, body: { detail: { status: "expired"
+// | "revoked" } } } for a dead one — the public page reads e.body.detail.
+function proposalShareGet(token) {
+  return fetch(FASTAPI_BASE + "/proposal-share/" + encodeURIComponent(token), {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        // detail is a plain string for a 404 (unknown token) but a
+        // {status:"expired"|"revoked", ...} object for a 410 (see
+        // proposal_share_router.py's get_proposal_share) — only ever use it
+        // as the ApiError message when it's actually a string; the full
+        // parsed body (including a structured detail) is always on
+        // err.body for the public page to read directly.
+        var detail = body.detail;
+        var message = typeof detail === "string" ? detail : "This proposal link isn't available.";
+        throw new ApiError(message, { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// hotelPublicGet(hotelKey) — GET /hotels/public/{hotelKey}. PUBLIC endpoint —
+// same deliberate exception as proposalShareGet() above: the viewer on the
+// public /hotel/[hotelKey] page (a hotel name/photo clicked in a Proposal
+// PDF or its in-app preview) has no TripAgent session at all, so this sends
+// no Authorization header. Resolves with the display-only hotel_snapshots
+// row for a hotelKey that's appeared in a real TripSure listing() search;
+// rejects with an ApiError carrying { status: 404 } for one that hasn't.
+function hotelPublicGet(hotelKey) {
+  return fetch(FASTAPI_BASE + "/hotels/public/" + encodeURIComponent(hotelKey), {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError(typeof body.detail === "string" ? body.detail : "This hotel link isn't available.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
 }
 
 // --- Platform Analytics (real backend — backend/app/routers/analytics_router.py)
@@ -2018,6 +2270,7 @@ export {
   rfqAward,
   rfqList,
   rfqGet,
+  fetchAdvisors,
 
   // Pulse engine (Trending Now + Great Deals)
   pulseTrending,
@@ -2032,6 +2285,17 @@ export {
   enquiryCreate,
   enquiryTravellerProfile,
   enquiryGenerateItinerary,
+  enquiryRefreshItinerary,
+  enquiryItineraryStarted,
+  enquiryProposalSend,
+  enquiryProposalOutcome,
+  enquiryPipelineStatus,
+  enquiryProposalShareCreate,
+  proposalShareGet,
+
+  // Public hotel page (/hotel/[hotelKey]) — hotelKey/image threaded onto
+  // itinerary items, see hotel_router.py's public_router
+  hotelPublicGet,
 
   // Platform Analytics (new, separate from analyticsSummary's per-advisor view)
   getPlatformSummary,
@@ -2086,6 +2350,8 @@ export {
   hotelListingV2,
   hotelDetailsV2,
   hotelPriceCheckV2,
+  hotelRecommendations,
+  hotelSetWebsite,
   fastapiFlightSearch,
   fastapiFlightAutosuggest,
 
@@ -2094,4 +2360,14 @@ export {
   adminUpdateAdvisor,
   adminListOrders,
   adminAssignEnquiry,
+
+  // Phase C access-request admin review (tripagent-site-main's backend —
+  // see siteApiCall's own note: gated by a shared-secret ADMIN_API_KEY,
+  // attached server-side by this app's own /api/site-admin proxy route,
+  // never sent from browser-visible code. Real gate, but a shared secret,
+  // not per-admin identity — unlike the role re-check the admin calls
+  // above get from their own backend.)
+  siteAccessRequestsPending,
+  siteApproveAccessRequest,
+  siteDenyAccessRequest,
 };

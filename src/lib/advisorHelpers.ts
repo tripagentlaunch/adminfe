@@ -214,7 +214,7 @@ export function fareBrand(d: any) {
 // Cart-item builders — web/js/advisor.js line ~799/821/842. Map raw offers
 // (from search) into the shape the pricing engine reads (type + baseNet +
 // label fields).
-export function flightCartItem(offer: any) {
+export function flightCartItem(offer: any, alternatives?: any[]) {
   var d = offer.detail || {};
   var net = Number(offer.base_net != null ? offer.base_net : offer.baseNet != null ? offer.baseNet : d.baseNet) || 0;
   return {
@@ -231,14 +231,47 @@ export function flightCartItem(offer: any) {
     cabin: d.cabin,
     pax: d.pax,
     refundable: d.refundable,
+    alternatives: alternatives || [],
     _title: (d.airlineName || d.airline || "Flight") + " " + (d.flightNo || ""),
     _sub: (d.originCode || "") + " → " + (d.destCode || "") + (d.duration ? " · " + d.duration : ""),
     _detail: d,
   };
 }
-export function hotelCartItem(offer: any) {
+// _looksLikeRealHotelKey(id) (2026-09-15, real Maldives 404 reproduction)
+// — every real TripSure hotelKey seen live this session (64838916,
+// 32790623, 15259978, ...) is a bare numeric string; buildMockHotelOffers'
+// demo ids (mockHotelSearch.ts) are deliberately "mock-<searchKey>-hotel-
+// <n>", which can never match this. Structural, format-based backstop —
+// belt-and-suspenders alongside the explicit `_isMock` flag check below,
+// so a fake hotelKey can't leak through even if some future offer shape
+// forgets to set `_isMock`.
+function _looksLikeRealHotelKey(id: any): boolean {
+  return typeof id === "string" && /^\d+$/.test(id);
+}
+
+export function hotelCartItem(offer: any, alternatives?: any[]) {
   var d = offer.detail || {};
   var net = Number(offer.base_net != null ? offer.base_net : offer.baseNet != null ? offer.baseNet : d.baseNet) || 0;
+  // realHotelKey (2026-09-15, real Maldives 404 reproduction) — the actual
+  // bug behind a dead "/hotel/{slug}" public link: this function used to
+  // copy offer.id straight into hotelKey with no way to tell a demo
+  // fallback offer (buildMockHotelOffers, shown — with an honest error
+  // toast — whenever the real TripSure search fails) apart from a real
+  // TripSure result (mapTripSureHotel). A mock offer's id then flowed
+  // untouched through itineraryFromCart.ts into proposalTemplateData.ts's
+  // hotelUrl(), producing a real-looking public link to a hotel that was
+  // never actually searched. Two independent checks, either one refusing
+  // is enough to withhold hotelKey entirely (never a fabricated one):
+  // explicit `_isMock` (mockHotelSearch.ts's own marker) and the
+  // structural numeric-format check above (mapTripSureHotel's real
+  // offer.id is always hotel.hotelKey, TripSure's own bare-numeric id).
+  // A withheld hotelKey here is NOT a regression — it's exactly the
+  // existing, already-correct "AI-drafted/not-yet-searched" behavior:
+  // hotelUrl()/hotelMapsUrl() (proposalTemplateData.ts) already treat a
+  // missing hotelKey as "no link, no fabricated data", the same honest
+  // PhotoPlaceholder/no-link state a genuinely unsearched item gets.
+  var rawKey = offer.id || offer._tripsure?.hotelId;
+  var realHotelKey = !offer._isMock && _looksLikeRealHotelKey(rawKey) ? rawKey : undefined;
   return {
     _cid: uniqId(),
     type: "hotel",
@@ -252,6 +285,26 @@ export function hotelCartItem(offer: any) {
     board: d.board,
     roomType: d.roomType,
     refundable: d.refundable,
+    alternatives: alternatives || [],
+    // hotelKey/image (2026-09-10) — TripSure's own real property identifier
+    // (mapTripSureHotel sets offer.id = hotel.hotelKey, HotelDesk.tsx) and
+    // photo, previously discarded here even though d.image was already
+    // sitting on offer.detail. Carried through so the itinerary item this
+    // becomes (see itineraryFromCart.ts) can link the hotel name/image to
+    // its real public /hotel/{hotelKey} page instead of nowhere. undefined
+    // for a mock/demo offer (see realHotelKey above) — never a fabricated
+    // link for data that was never actually searched.
+    hotelKey: realHotelKey,
+    // image (2026-09-15, same fix) — mockHotelSearch.ts's own offers
+    // already carry image: null (never a fabricated photo), so this needs
+    // no extra guard; kept as d.image for both real and mock offers.
+    image: d.image,
+    // address/lat/lng (2026-09-11) — see mapTripSureHotel's own note
+    // (HotelDesk.tsx) on why these are carried through: a real Google
+    // Maps link in the Proposal PDF alongside the /hotel/{hotelKey} page.
+    address: d.address,
+    lat: d.lat,
+    lng: d.lng,
     _title: d.hotelName || "Hotel",
     _sub: (d.cityName || "") + (d.nights ? " · " + d.nights + "N" : "") + (d.roomType ? " · " + d.roomType : ""),
     _detail: d,

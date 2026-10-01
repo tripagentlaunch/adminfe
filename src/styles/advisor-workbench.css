@@ -194,6 +194,14 @@ background:var(--champagne);border:1px solid var(--line2);}
    class guarantees this always wins. */
 .taw-pdf-fit .taw-pdf-fit-trigger{height:28px;padding:0 10px;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:9px;box-shadow:0 4px 14px -6px rgba(23,19,16,.25);font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;}
 .taw-pdf-fit .taw-pdf-fit-trigger:hover{background:var(--bone);}
+/* Proposal Composer's outcome control (2026-09-10) — sits in the Card
+   header's `actions` slot, so it needs its own sizing/chrome the same way
+   .taw-pdf-fit does above (a bare .taw-dropdown-trigger has no intrinsic
+   size outside a sized parent). Same pill look, no icon (hence no
+   leading-icon gap tightening). */
+.taw-pdf-outcome{height:28px;flex:none;}
+.taw-pdf-outcome .taw-pdf-outcome-trigger{height:28px;padding:0 10px;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:9px;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;}
+.taw-pdf-outcome .taw-pdf-outcome-trigger:hover{background:var(--bone);}
 @media(max-width:1100px){.taw-cols-2,.taw-cols-3,.taw-cols-q{grid-template-columns:1fr;}}
 /* Right-column wrapper for WorkbenchTab's 3rd grid cell (Traveller
    Profile stacked above Summary) — one grid item containing two cards.
@@ -649,6 +657,20 @@ border-radius:12px;background:var(--card);transition:.16s;}
 .taw-chip--tier{background:var(--gold-bg);color:var(--gold);border-color:rgba(184,144,31,.3);}
 .taw-chip--fare{background:var(--gold-bg);color:var(--gold-ink);border-color:rgba(184,144,31,.25);font-weight:600;}
 
+/* Hotel-suggestion flow (2026-09-15) — recommendation label + live/
+   verified chips, same .taw-chip base as every other chip above; only
+   the three new color variants are added here. */
+.taw-chip--reco{font-weight:600;}
+.taw-chip--reco-best_match{background:var(--gold-bg);color:var(--gold-ink);}
+.taw-chip--reco-best_value{background:var(--success-bg);color:var(--sage);}
+.taw-chip--reco-premium{background:var(--info-bg);color:var(--info);}
+.taw-chip--reco-recommended{background:var(--bone);color:var(--taupe);}
+.taw-chip--verified{background:var(--success-bg);color:var(--sage);}
+.taw-hotelrec{display:flex;flex-direction:column;gap:18px;}
+.taw-hotelrec-base{display:flex;flex-direction:column;gap:8px;}
+.taw-hotelrec-base-h{display:flex;align-items:center;gap:8px;font-family:var(--serif);font-size:15px;color:var(--ink);padding-bottom:4px;border-bottom:1px solid var(--line);}
+.taw-hotelrec-loading{display:flex;align-items:center;gap:8px;color:var(--taupe);font-size:12.5px;padding:14px 0;}
+
 /* flight shopping bar (FLT-011 filters / FLT-012 sort) */
 .taw-shopbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:11px 13px;margin-bottom:10px;background:var(--bone);border:1px solid var(--line);border-radius:11px;}
 /* FlightDesk's results filter strip (2026-09-02) — ONE horizontally-
@@ -803,10 +825,20 @@ background:var(--champagne);border:1px solid var(--line2);}
 background:#FAFAFA;border:1px solid #F8F8F8;border-radius:10px;padding:12px 14px;}
 .taw-m360-dates-range{font-family:var(--serif);font-size:17px;font-weight:600;color:var(--ink);}
 .taw-m360-dates-note{font-size:11.5px;color:var(--taupe);margin-top:2px;}
-.taw-m360-constraints{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
-.taw-m360-constraints li{position:relative;padding-left:16px;font-size:13px;color:var(--ink);line-height:1.4;}
-.taw-m360-constraints li::before{content:"";position:absolute;left:1px;top:8px;width:5px;height:5px;
-background:var(--taupe);border-radius:50%;}
+/* Three-state preference rows (2026-09-10, Dubai/v4 reproduction fix) —
+   replaces the old .taw-m360-constraints flat bullet list, which could
+   only ever show a field that had a real value and silently vanished
+   the row otherwise (no way to tell "no preference" from "never asked").
+   A real VALUE reads as normal ink text; NO PREFERENCE and NOT YET ASKED
+   both use the same muted tone as everywhere else in this panel
+   (var(--muted), matching .taw-muted) but are worded distinctly so
+   they're never mistaken for each other. */
+.taw-m360-pref-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;}
+.taw-m360-pref{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:13px;line-height:1.4;}
+.taw-m360-pref-label{color:var(--taupe);flex:none;}
+.taw-m360-pref-val{color:var(--ink);text-align:right;}
+.taw-m360-pref-val--no-pref{color:var(--muted);font-style:italic;}
+.taw-m360-pref-val--not-asked{color:var(--muted);}
 .taw-m360-docs{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
 .taw-m360-doc{border-radius:10px;padding:11px 13px;}
 .taw-m360-doc--ok{background:var(--success-bg);}
@@ -866,6 +898,17 @@ background:var(--taupe);border-radius:50%;}
 border-radius:0;padding:12px;transition:.16s;color:inherit;}
 .taw-enq-item:hover{background:#F8F8F8;}
 .taw-enq-item.is-active{background:#F8F8F8;box-shadow:inset 3px 0 0 #999999;}
+/* Unread/new-lead indicator (2026-09-10, db/147 opened_by_advisor_at) —
+   same inset-box-shadow left-bar technique .is-active already uses on this
+   exact row, just the brand accent colour instead of neutral grey, so a
+   new lead reads as "needs attention" without inventing a second visual
+   language for this list. .is-active wins if both ever apply at once (an
+   advisor can select a lead the instant it arrives, before the opened
+   timestamp round-trip lands) — declared after .is-unread so its own
+   box-shadow takes precedence via source order. */
+.taw-enq-item.is-unread{box-shadow:inset 3px 0 0 var(--accent);}
+.taw-enq-item.is-unread .taw-enq-name{color:var(--accent);}
+.taw-enq-item.is-active{box-shadow:inset 3px 0 0 #999999;}
 .taw-enq-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
 .taw-enq-name{font-family:var(--sans);font-weight:700;font-size:14px;color:var(--ink);display:flex;align-items:baseline;gap:5px;min-width:0;}
 /* 2026-09-01 — Queue row trimmed to exactly 5 fields (see EnquiryInbox.tsx):
@@ -1317,6 +1360,7 @@ animation:tawsh 1.3s ease infinite;border-radius:9px;}
 .taw-itinsum-title{font-family:var(--serif);font-size:16px;font-weight:600;color:var(--ink);}
 .taw-itinsum-sub{font-size:12px;color:var(--muted);margin-top:2px;margin-bottom:2px;}
 .taw-itinsum-flag{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--warn-ink);background:var(--warn-bg);border-radius:8px;padding:8px 10px;margin-top:10px;}
+.taw-itinsum-flag--danger{color:var(--danger-ink);background:var(--danger-bg);}
 .taw-itinsum-list{display:flex;flex-direction:column;margin-top:12px;border-top:1px solid var(--line);}
 .taw-itinsum-row{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:12.5px;}
 .taw-itinsum-row:last-child{border-bottom:0;}
@@ -1500,20 +1544,60 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
 
 /* Supplier Broadcast (RFQ) panel — layout only; everything else reuses the
    taw-* vocabulary above (Card/banner/badge/button classes). */
+.rfq-panel{max-width:1100px;margin:0 auto;padding:28px 24px 60px;}
+.rfq-panel h2{font-family:var(--serif);font-weight:600;font-size:26px;margin:0 0 6px;color:var(--ink);}
 .rfq-panel-head{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
 .rfq-stepper{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;}
-.rfq-step{font-family:var(--eyebrow);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:6px 10px;border-radius:999px;background:var(--bone);}
-.rfq-step.is-active{color:var(--ink);background:var(--champagne);}
+.rfq-step{display:inline-flex;align-items:center;gap:8px;font-family:var(--eyebrow);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);padding:8px 16px 8px 8px;border-radius:999px;background:var(--bone);border:1px solid var(--line);}
+.rfq-step.is-active{color:var(--ink);background:var(--champagne);border-color:var(--gold);}
 .rfq-step.is-done{color:var(--taupe);}
+.rfq-step-num{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;font-family:var(--serif);font-size:11px;font-weight:600;background:var(--card);border:1px solid var(--line);color:var(--muted);}
+.rfq-step.is-active .rfq-step-num{background:var(--gold);border-color:var(--gold);color:#fff;}
+.rfq-step.is-done .rfq-step-num{background:var(--gold-deep);border-color:var(--gold-deep);color:#fff;}
 .rfq-board{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;}
 .rfq-bid{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--card);}
 .rfq-bid.is-recommended{border-color:var(--gold);}
 .rfq-bid.is-awarded{border-color:var(--gold-deep);background:var(--champagne);}
 .rfq-bid.is-losing{opacity:.5;}
-.rfq-bid-h{display:flex;justify-content:space-between;gap:10px;}
+.rfq-bid-h{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;}
+.rfq-bid-name{font-family:var(--serif);font-weight:600;font-size:16px;color:var(--ink);}
 .rfq-bid-price{font-family:var(--serif);font-weight:600;font-size:18px;}
 .rfq-inbox{display:flex;flex-direction:column;gap:10px;}
 .rfq-inrow{border-bottom:1px solid var(--line);padding-bottom:10px;}
+.rfq-product-picker{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 20px;}
+.rfq-product-opt{display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;font-size:14px;font-weight:500;color:var(--ink);transition:.15s;}
+.rfq-product-opt:hover{border-color:var(--gold);}
+.rfq-product-opt.is-active{background:var(--champagne);border-color:var(--gold);}
+.rfq-compose-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;align-items:start;}
+@media(max-width:820px){.rfq-compose-grid{grid-template-columns:1fr;}}
+.rfq-compose-side{padding-top:28px;}
+
+.rfq-gate{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--champagne);padding:24px 26px;margin-bottom:18px;}
+.rfq-gate::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gold);}
+.rfq-gate h4{font-family:var(--serif);font-weight:600;font-size:24px;margin:10px 0 8px;color:var(--ink);}
+.rfq-gate p{margin:0 0 18px;color:var(--taupe);font-size:13.5px;line-height:1.65;max-width:680px;}
+.rfq-gate-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+.rfq-gate-pulse{position:absolute;right:20px;top:20px;width:9px;height:9px;border-radius:50%;background:var(--gold);}
+
+.rfq-draft{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--card);}
+.rfq-draft-tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);background:var(--bone);flex-wrap:wrap;}
+.rfq-draft-tab{background:transparent;border:none;color:var(--muted);padding:11px 16px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;display:inline-flex;align-items:center;gap:6px;}
+.rfq-draft-tab.is-active{color:var(--ink);border-bottom-color:var(--gold);}
+.rfq-draft-body{padding:18px 20px;}
+.rfq-draft-subject{font-size:13px;font-weight:700;margin-bottom:10px;color:var(--ink);}
+.rfq-draft-subject span{color:var(--muted);font-weight:600;margin-right:6px;}
+.rfq-draft-pre{margin:0;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.7;color:var(--taupe);max-height:340px;overflow:auto;}
+
+.rfq-panel-list{display:flex;flex-direction:column;}
+.rfq-sup{display:flex;align-items:center;gap:14px;padding:13px 2px;border-bottom:1px solid var(--line);}
+.rfq-sup:last-child{border-bottom:none;}
+.rfq-sup-rank{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:600;border:1px solid var(--gold);color:var(--gold-ink,var(--gold-deep));flex:none;font-family:var(--serif);}
+.rfq-sup-grow{flex:1;min-width:0;}
+.rfq-sup-name{font-size:14px;font-weight:700;color:var(--ink);}
+.rfq-sup-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;}
+.rfq-sup-score{text-align:right;flex:none;}
+.rfq-sup-score .v{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--gold-ink,var(--gold-deep));}
+.rfq-sup-score .l{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);}
 
 /* Area header/tabs — a title row plus an underline-style tab strip,
    modeled on a specific Jira space-page layout. Originally built for

@@ -12,6 +12,7 @@ import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { Dropdown, Empty, Field, Spinner, SkeletonRows, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType, mockFlightFares } from "../../lib/mockFlightSearch";
+import { boundFromDateRange } from "../../lib/itineraryFromCart";
 
 // HARDCODED FALLBACK, not a real API call — GET /flights/autosuggest
 // requires q with min_length=2 (flight_router.py:get_autosuggest) and 422s
@@ -398,15 +399,34 @@ export function FlightDesk(props: any) {
     // /flights/autosuggest the instant this desk mounts for a real
     // destination the static dict doesn't cover.
     destCode: (ask && ask.destinations && codeFromAsk(ask.destinations[0])) || "",
-    date: todayISO(21),
+    // date/returnDate (2026-09-10, fixed) — used to be hardcoded to
+    // "today + 21 days" regardless of which enquiry was open, same
+    // "always DEL→DXB" class of bug destCode/originCode above were
+    // already fixed for (confirmed live: Switzerland enquiry with real
+    // dates on file, 2027-01-10 to 2027-01-18, still opened Search on an
+    // unrelated October 2026 default). boundFromDateRange (shared with
+    // blankItinerary's own seeding, itineraryFromCart.ts) now parses
+    // ask.dateRange for real — including the ISO-format dates v2/v3/v4
+    // actually store, not just v1's "D – D Mon" shape. Falls back to the
+    // original today+21/one-way defaults whenever ask.dateRange is
+    // missing or genuinely unparseable, same as before.
+    date: boundFromDateRange(ask && ask.dateRange, 2026)?.startIso || todayISO(21),
     // returnDate (2026-09-02) — round-trip support: EMPTY by default,
     // one-way. Whether a search is round-trip or one-way is decided
     // purely by whether this field has a value in it AT THE MOMENT
-    // Search is clicked (see run()) — not a separate toggle.
-    returnDate: "",
-    // Defaults to 1 (2026-09-03) — TripAgent's scope is solo trips only
-    // (the cardholder is always the traveller), not 2.
-    pax: (member && member.preferences && member.preferences.pax) || 1,
+    // Search is clicked (see run()) — not a separate toggle. Now seeded
+    // from the enquiry's real end date when boundFromDateRange resolved
+    // one (see date, above) — still empty/one-way whenever it didn't.
+    returnDate: boundFromDateRange(ask && ask.dateRange, 2026)?.endIso || "",
+    // pax (2026-09-10, fixed) — used to default from member.preferences.pax,
+    // a member-level field that doesn't exist for a real member; confirmed
+    // live as a real bug, not the "solo trips only" scope this comment used
+    // to claim (a real enquiry can and does have 2+ travellers — Traveller
+    // Profile already shows "2 adults" correctly via paxLabel(ask.persons)
+    // for the exact same enquiry Search silently defaulted to 1 pax on).
+    // Same source, same pattern as Traveller Profile's own paxLabel —
+    // ask.persons.length is the enquiry's real traveller count.
+    pax: (ask && ask.persons && ask.persons.length) || 1,
     cabin: normalizeCabin(member && member.preferences && member.preferences.cabin) || "economy",
   });
   const [loading, setLoading] = useState(false);
@@ -1015,7 +1035,22 @@ function FlightResults({ offers, view, setV, openOffer, toggleDetail, member, ad
                       {net > 0 ? inr(net) : "—"}
                       <small>net cost</small>
                     </div>
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => onAdd(flightCartItem(o))}>
+                    <button
+                      className="taw-btn taw-btn--accent taw-btn--sm"
+                      onClick={() => {
+                        const others = shown.filter((x: any) => x.id !== o.id).slice(0, 2);
+                        const alternatives = others.map((alt: any) => {
+                          const ad = alt.detail || {};
+                          return {
+                            name: ad.airlineName || ad.airline || "Flight",
+                            detail: [ad.duration, ad.cabin].filter(Boolean).join(" · "),
+                            price: offNet(alt),
+                            image: null,
+                          };
+                        });
+                        onAdd(flightCartItem(o, alternatives));
+                      }}
+                    >
                       <Icon name="plus" size={13} />
                       Add
                     </button>

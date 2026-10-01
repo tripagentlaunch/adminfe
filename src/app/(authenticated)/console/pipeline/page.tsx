@@ -86,7 +86,7 @@ function SortHeader({ label, sortKey, active, dir, onClick }: { label: string; s
 
 export default function PipelinePage() {
   const router = useRouter();
-  const { enquiries, membersById, itinerariesByEnquiry, proposalQueue, pickEnquiry, selectProposal } = useWorkbench();
+  const { enquiries, membersById, itinerariesByEnquiry, proposalQueue, pickEnquiry, selectProposal, pipelineStatusByEnquiry } = useWorkbench();
 
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated");
@@ -103,18 +103,30 @@ export default function PipelinePage() {
   const allRows = useMemo(() => {
     return enquiries.map((e: any) => {
       const proposalEntry = proposalQueue.find((p) => p.enquiryId === e.id);
-      const hasItinerary = !!itinerariesByEnquiry[e.id];
-      const stage = proposalEntry ? (proposalEntry.outcome === "awaiting" ? "sent" : proposalEntry.outcome) : hasItinerary ? "building" : "new";
+      // Real, persisted fallback (2026-09-10, GET /enquiries/pipeline-status)
+      // — this session's own proposalQueue/itinerariesByEnquiry win when
+      // present (freshest, and the only source Console/Proposal Composer
+      // actually render from), so a real enquiry's stage still shows
+      // correctly after a reload or for a second advisor, even though
+      // neither of those local sources has anything for it yet.
+      const persisted = pipelineStatusByEnquiry[e.id];
+      const persistedProposal = persisted && persisted.proposal;
+      const hasItinerary = !!itinerariesByEnquiry[e.id] || !!(persisted && persisted.itinerary_generated_at);
+      const outcome = proposalEntry ? proposalEntry.outcome : persistedProposal && persistedProposal.outcome;
+      const stage = outcome ? (outcome === "awaiting" ? "sent" : outcome) : hasItinerary ? "building" : "new";
       const member = e.member_id ? membersById[e.member_id] : null;
       const intent = e.ask || {};
       let dests = intent.destinations || intent.destination || [];
       if (typeof dests === "string") dests = [dests];
       const destText = (dests || []).slice(0, 2).join(", ");
       const pax = intent.persons ? intent.persons.length : null;
-      const updatedAt = proposalEntry?.sentAt || (e.created_at ? new Date(e.created_at).getTime() : 0);
+      const updatedAt =
+        proposalEntry?.sentAt ||
+        (persistedProposal ? new Date(persistedProposal.sent_at).getTime() : 0) ||
+        (e.created_at ? new Date(e.created_at).getTime() : 0);
       return { enquiry: e, member, proposalEntry, stage, name: member ? member.name : "New lead", destText, pax, updatedAt };
     });
-  }, [enquiries, membersById, itinerariesByEnquiry, proposalQueue]);
+  }, [enquiries, membersById, itinerariesByEnquiry, proposalQueue, pipelineStatusByEnquiry]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: allRows.length };

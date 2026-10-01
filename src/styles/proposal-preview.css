@@ -1,0 +1,547 @@
+/* =============================================================================
+ * TripAgent — src/styles/proposal-preview.css
+ * On-screen Proposal Composer preview (2026-09-25) — adapted from a design
+ * prototype the user shared (switzerland-itinerary-preview.html / lab.css),
+ * itself modeled on a competitor's ("Instinct") tabbed itinerary layout.
+ * Same Proposal Serif (Fraunces)/ink-ivory-gold palette already used by the
+ * exported PDF (ProposalDocument.tsx) so the on-screen preview and the
+ * downloaded PDF read as the same product, just two different mediums.
+ *
+ * "Proposal Sans" here is Inter (public/fonts/Inter-*.ttf, already used by
+ * the PDF), NOT Switzer — the prototype's own font choice — since no
+ * Switzer font files exist anywhere in this repo. Swap the @font-face URLs
+ * below for real Switzer files if/when they're sourced.
+ *
+ * The prototype's "Swap" / alternatives feature (1 recommended + 2
+ * alternative flights/hotels per leg) is NOT implemented here — confirmed
+ * against the real backend (tripagent-full, 2026-09-25) that no itinerary
+ * ever persists more than one selected flight/hotel per leg; there is
+ * nothing real to show as an "alternative." Only the single real
+ * recommended pick renders.
+ * ===========================================================================*/
+@font-face {
+  font-family: "Proposal Serif";
+  src: url("/fonts/Fraunces-300.ttf") format("truetype");
+  font-weight: 300;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Proposal Serif";
+  src: url("/fonts/Fraunces-400.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Proposal Serif";
+  src: url("/fonts/Fraunces-500.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Proposal Sans";
+  src: url("/fonts/Inter-400.ttf") format("truetype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Proposal Sans";
+  src: url("/fonts/Inter-500.ttf") format("truetype");
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Proposal Sans";
+  src: url("/fonts/Inter-600.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+
+.pv-page {
+  /* Fix (2026-09-26): the preview loads its data asynchronously and the
+     hero/tabs mount ABOVE content that was already visible, which makes
+     Chrome's scroll anchoring silently push scrollTop down to compensate
+     — landing the advisor past the hero on every load, never at the top,
+     with no visible scroll jump to explain it. */
+  overflow-anchor: none;
+  --ink: #3a352e;
+  --ivory: #faf6eb;
+  --card: #fff;
+  --gold: #c0982a;
+  --gold-ink: #785c12;
+  --muted: #7a7263;
+  --line: #f2f2f2;
+  font-family: "Proposal Sans", sans-serif;
+  color: var(--ink);
+  background: var(--ivory);
+  min-height: 100%;
+  padding: 40px 24px 80px;
+}
+
+.pv-shell {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.pv-hero {
+  position: relative;
+  background-size: cover;
+  background-position: center;
+  background-color: var(--ink);
+  padding: 28px 48px 40px;
+}
+.pv-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(23, 19, 16, 0.55) 0%, rgba(23, 19, 16, 0.35) 40%, rgba(23, 19, 16, 0.72) 100%);
+}
+.pv-hero-content {
+  position: relative;
+}
+
+.pv-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 20px;
+  padding: 0 0 60px;
+}
+.pv-wordmark {
+  font-family: "Proposal Serif", serif;
+  font-size: 18px;
+  color: var(--ivory);
+}
+.pv-madefor {
+  font-size: 12px;
+  color: rgba(250, 246, 235, 0.7);
+}
+.pv-header-left {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.pv-dlbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 132px;
+  height: 32px;
+  border: 0.7px solid rgba(250, 246, 235, 0.6);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ivory);
+  font-family: "Proposal Sans", sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.pv-dlbtn:hover {
+  background: rgba(250, 246, 235, 0.15);
+}
+
+.pv-card {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(23, 19, 16, 0.04);
+  overflow: hidden;
+}
+.pv-body {
+  position: relative;
+  z-index: 1;
+  background: var(--card);
+  border-radius: 24px 24px 0 0;
+  margin-top: -24px;
+  padding: 32px 48px 48px;
+}
+@media (max-width: 640px) {
+  .pv-body {
+    padding-left: 20px;
+    padding-right: 20px;
+    padding-top: 20px;
+  }
+  .pv-hero {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+  .pv-header {
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 40px;
+  }
+  .pv-header-left {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 3px;
+  }
+  .pv-title {
+    font-size: 32px;
+  }
+  .pv-summary {
+    font-size: 13px;
+  }
+}
+
+.pv-title {
+  font-family: "Proposal Serif", serif;
+  font-weight: 300;
+  font-size: 40px;
+  margin: 0;
+  color: var(--ivory);
+}
+.pv-subtitle {
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 10px;
+}
+.pv-summary {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: rgba(250, 246, 235, 0.85);
+  max-width: 620px;
+  margin: 18px 0 0;
+}
+
+.pv-tabs {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 28px;
+}
+.pv-tab-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 34px;
+  background: #e9edf1;
+  border-radius: 999px;
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 0;
+}
+.pv-tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 34px;
+  padding: 0 22px;
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  font-family: "Proposal Sans", sans-serif;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+.pv-tab.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+.pv-tabcontent {
+  animation: pv-tabcontent-in 0.25s ease backwards;
+}
+@keyframes pv-tabcontent-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.pv-section-title {
+  font-family: "Proposal Serif", serif;
+  font-weight: 400;
+  font-size: 22px;
+  margin: 40px 0 16px;
+}
+.pv-section-title:first-of-type {
+  margin-top: 0;
+}
+
+.pv-deflist {
+  display: flex;
+  flex-direction: column;
+}
+.pv-defrow {
+  display: flex;
+  gap: 24px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.pv-defrow:last-child {
+  border-bottom: 0;
+}
+.pv-deflabel {
+  flex: 0 0 110px;
+  color: var(--muted);
+}
+.pv-defvalue {
+  text-align: left;
+  font-weight: 500;
+}
+
+.pv-recgroup {
+  margin-top: 22px;
+}
+.pv-recgroup:first-of-type {
+  margin-top: 4px;
+}
+.pv-recgroup-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.pv-recgroup-head--flight {
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 20px;
+}
+.pv-recgroup-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.pv-recgroup-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+.pv-recgroup-eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pv-option-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: inherit;
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 0% 1px;
+  transition: background-size 0.3s ease;
+}
+.pv-option-name:hover {
+  color: inherit;
+  background-size: 100% 1px;
+}
+.pv-option-name--block {
+  display: inline-block;
+}
+.pv-option-detail {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+.pv-option-price {
+  font-family: "Proposal Serif", serif;
+  font-size: 15px;
+  color: var(--ink);
+}
+.pv-option-price--hotel {
+  font-size: 19px;
+}
+.pv-recflight-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pv-recflight,
+.pv-recstay {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 10px;
+}
+.pv-recflight-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.pv-recflight-time {
+  font-family: "Proposal Serif", serif;
+  font-size: 20px;
+}
+.pv-recflight-city {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.pv-recflight-mid {
+  text-align: center;
+  flex: 1;
+}
+.pv-recflight-nos {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.pv-recflight-line {
+  border-top: 1px solid #dcdcdc;
+  width: 80px;
+  margin: 6px auto;
+}
+.pv-recflight-sub {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.pv-recflight-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #dcdcdc;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pv-recstay {
+  display: flex;
+  align-items: stretch;
+  gap: 16px;
+  padding: 0;
+}
+.pv-recstay-photo {
+  width: 260px;
+  min-height: 210px;
+  flex: none;
+  align-self: stretch;
+  border-radius: 0 10px 10px 0;
+  object-fit: cover;
+}
+.pv-recstay-body {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 0 16px 16px;
+}
+@media (max-width: 640px) {
+  .pv-recstay {
+    flex-direction: column-reverse;
+  }
+  .pv-recstay-photo {
+    width: 100%;
+    height: 160px;
+    min-height: 0;
+    border-radius: 10px 10px 0 0;
+  }
+  .pv-recstay-body {
+    padding: 16px;
+  }
+}
+
+.pv-costtable {
+  display: flex;
+  flex-direction: column;
+}
+.pv-costrow {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.pv-costrow--total {
+  border-bottom: 0;
+  padding-top: 14px;
+  font-weight: 600;
+  font-size: 20px;
+}
+.pv-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  width: 240px;
+  height: 44px;
+  margin-top: 32px;
+  background: var(--ink);
+  color: var(--ivory);
+  border: 0;
+  border-radius: 4px;
+  font-family: "Proposal Sans", sans-serif;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pv-cta:hover {
+  opacity: 0.9;
+}
+
+.pv-days {
+  display: flex;
+  flex-direction: column;
+}
+.pv-day {
+  display: flex;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+  align-items: flex-start;
+}
+.pv-day:last-child {
+  border-bottom: 0;
+}
+.pv-day-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f8f9fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #555;
+}
+.pv-day-head {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.pv-day-body {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.pv-callout {
+  background: var(--ivory);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.pv-callout strong {
+  display: block;
+  margin-bottom: 4px;
+}
+.pv-bullets {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--ink);
+}
+.pv-bullets li + li {
+  margin-top: 4px;
+}
+
+.pv-footnote {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--muted);
+}

@@ -16,8 +16,8 @@
  * AppShell, not nested inside WorkbenchShell) rather than an in-panel
  * advisor picker like the legacy View had.
  * ===========================================================================*/
-import { useCallback, useState } from "react";
-import { rfqAward, rfqCompose, rfqDispatch, rfqGet, rfqParse, rfqRank, rfqSimulate, inr } from "../../services/api";
+import { useCallback, useEffect, useState } from "react";
+import { fetchAdvisors, rfqAward, rfqCompose, rfqDispatch, rfqGet, rfqParse, rfqRank, rfqSimulate, inr } from "../../services/api";
 import { cx } from "../../lib/cx";
 import { errText, fmtTime, shortId, toast } from "../../lib/advisorHelpers";
 import { Card, Empty, Icon, Spinner } from "../ui";
@@ -49,12 +49,109 @@ function prettyFlag(flag: any) {
   return String(flag).replace(/_/g, " ").toLowerCase();
 }
 
+function channelIcon(ch: any) {
+  switch (String(ch || "").toLowerCase()) {
+    case "whatsapp":
+    case "sms":
+      return "chat";
+    case "email":
+      return "mail";
+    case "portal":
+      return "home";
+    case "api":
+      return "sliders";
+    default:
+      return "inbox";
+  }
+}
+
+const DRAFT_META_KEYS = new Set(["source", "spec_used"]);
+
+function DraftPreview({ draft }: any) {
+  const d = draft || {};
+  const keys = Object.keys(d).filter((k) => !DRAFT_META_KEYS.has(k));
+  const [tab, setTab] = useState(keys[0] || null);
+  const activeKey = keys.includes(tab as any) ? tab : keys[0];
+  const active: any = activeKey ? d[activeKey] : {};
+
+  if (!keys.length) {
+    return <Empty icon={<Icon name="inbox" size={26} />}>No draft channels were produced.</Empty>;
+  }
+
+  return (
+    <div className="rfq-draft">
+      <div className="rfq-draft-tabs" role="tablist">
+        {keys.map((k) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            className={cx("rfq-draft-tab", k === activeKey && "is-active")}
+            onClick={() => setTab(k)}
+          >
+            <Icon name={channelIcon(k)} size={13} />
+            {k}
+          </button>
+        ))}
+      </div>
+      <div className="rfq-draft-body">
+        {active.subject ? (
+          <div className="rfq-draft-subject">
+            <span>Subject:</span> {active.subject}
+          </div>
+        ) : null}
+        {active.html ? (
+          <div className="rfq-draft-pre" dangerouslySetInnerHTML={{ __html: active.html }} />
+        ) : (
+          <pre className="rfq-draft-pre">{active.body || "(empty)"}</pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SupplierPanelList({ panel }: any) {
+  const list = panel || [];
+  if (!list.length) {
+    return <Empty icon={<Icon name="compass" size={26} />}>No suppliers were matched for this product.</Empty>;
+  }
+  return (
+    <div className="rfq-panel-list">
+      {list.map((sup: any, i: number) => (
+        <div className="rfq-sup" key={sup.supplier_id || i}>
+          <div className="rfq-sup-rank">{i + 1}</div>
+          <div className="rfq-sup-grow">
+            <div className="rfq-sup-name">{sup.name || sup.code || shortId(sup.supplier_id)}</div>
+            <div className="rfq-sup-meta">
+              <span className="taw-qbadge">
+                <Icon name={channelIcon(sup.channel)} size={12} /> {sup.channel || "—"}
+              </span>
+              {(sup.reasons || []).slice(0, 2).map((r: any, ri: number) => (
+                <span className="taw-qbadge" key={ri}>
+                  {r}
+                </span>
+              ))}
+            </div>
+          </div>
+          <div className="rfq-sup-score">
+            <div className="v">{sup.score != null ? Number(sup.score).toFixed(3) : "—"}</div>
+            <div className="l">Fit score</div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Stepper({ stage }: any) {
   const idx = STAGES.indexOf(stage);
   return (
     <div className="rfq-stepper" role="list" aria-label="RFQ progress">
       {STAGES.map((s, i) => (
         <span key={s} className={cx("rfq-step", i === idx && "is-active", i < idx && "is-done")} role="listitem">
+          <span className="rfq-step-num">
+            {i < idx ? <Icon name="check" size={11} /> : i + 1}
+          </span>
           {STAGE_LABEL[s]}
         </span>
       ))}
@@ -119,6 +216,19 @@ export function SupplierBroadcastPanel(props: any) {
   const [awarding, setAwarding] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
   const [dispatchFailures, setDispatchFailures] = useState<any>([]);
+  const [advisors, setAdvisors] = useState<any[]>([]);
+  const [selectedAdvisorId, setSelectedAdvisorId] = useState<any>(advisorId);
+
+  // Advisor picker (2026-09-30, direct spec — match legacy "Approving
+  // advisor (HITL signer)" dropdown). GET /admin/advisors is admin-role-
+  // gated server-side; a non-admin advisor gets an empty list here and
+  // the picker silently shows none — the compose flow still works using
+  // the prop advisorId as the signer either way.
+  useEffect(() => {
+    fetchAdvisors()
+      .then((rows: any) => setAdvisors(Array.isArray(rows) ? rows : []))
+      .catch(() => setAdvisors([]));
+  }, []);
 
   const rfqId = rfq ? rfq.rfq_id || rfq.id : null;
 
@@ -148,7 +258,7 @@ export function SupplierBroadcastPanel(props: any) {
     setQuotes([]);
     setRank(null);
     setAward(null);
-    rfqCompose(product, spec, advisorId ? { advisor_id: advisorId } : undefined)
+    rfqCompose(product, spec, selectedAdvisorId ? { advisor_id: selectedAdvisorId } : undefined)
       .then((res: any) => {
         setRfq(res);
         setStage("approve");
@@ -156,7 +266,7 @@ export function SupplierBroadcastPanel(props: any) {
         setBusyMsg("");
       })
       .catch((e: any) => fail("Compose failed", e));
-  }, [product, specText, advisorId]);
+  }, [product, specText, selectedAdvisorId]);
 
   const onApprove = useCallback(() => {
     setErr(null);
@@ -326,49 +436,107 @@ export function SupplierBroadcastPanel(props: any) {
       ) : null}
 
       {stage === "compose" ? (
-        <Card title="Compose a new RFQ">
+        <Card title="Compose the RFQ" icon={<Icon name="note" size={17} />} sub="Pick a product and describe the requirement.">
           <div className="taw-field">
-            <label htmlFor="rfq-product">Product</label>
-            <select id="rfq-product" className="taw-select" value={product} onChange={(e) => onProductChange(e.target.value)}>
-              <option value="flight">Flight</option>
-              <option value="hotel">Hotel</option>
-              <option value="visa">Visa</option>
-            </select>
+            <label>Product</label>
+            <div className="rfq-product-picker">
+              {(["flight", "hotel", "visa"] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  className={cx("rfq-product-opt", product === p && "is-active")}
+                  onClick={() => onProductChange(p)}
+                >
+                  <Icon name={p} size={22} />
+                  <span>{p.charAt(0).toUpperCase() + p.slice(1)}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="taw-field" style={{ marginTop: "12px" }}>
-            <label htmlFor="rfq-spec">Spec (JSON)</label>
-            <textarea
-              id="rfq-spec"
-              className="taw-input"
-              rows={8}
-              value={specText}
-              onChange={(e) => setSpecText(e.target.value)}
-              style={{ fontFamily: "monospace", fontSize: "12.5px" }}
-            />
+          <div className="rfq-compose-grid">
+            <div className="taw-field">
+              <label htmlFor="rfq-spec">Requirement spec (JSON)</label>
+              <textarea
+                id="rfq-spec"
+                className="taw-input"
+                rows={9}
+                value={specText}
+                onChange={(e) => setSpecText(e.target.value)}
+                style={{ fontFamily: "monospace", fontSize: "12.5px" }}
+              />
+            </div>
+            <div className="rfq-compose-side">
+              <div className="taw-field">
+                <label htmlFor="rfq-advisor">Approving advisor (HITL signer)</label>
+                <select
+                  id="rfq-advisor"
+                  className="taw-select"
+                  value={selectedAdvisorId || ""}
+                  onChange={(e) => setSelectedAdvisorId(e.target.value || null)}
+                >
+                  <option value="">— select advisor —</option>
+                  {advisors.map((a: any) => (
+                    <option value={a.id} key={a.id}>
+                      {a.name || a.email || shortId(a.id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="taw-muted" style={{ fontSize: "12.5px", lineHeight: 1.6, marginTop: "16px" }}>
+                The spec is the only thing suppliers see — customer identity and budget are stripped
+                server-side before any draft is written.
+              </div>
+            </div>
           </div>
           <button className="taw-btn taw-btn--primary" style={{ marginTop: "14px" }} disabled={busy} onClick={onCompose}>
             {busy ? <Spinner /> : <Icon name="sparkle" size={14} />}
-            {busy ? busyMsg || "Composing…" : "Draft RFQ"}
+            {busy ? busyMsg || "Composing…" : "Compose RFQ with AI"}
           </button>
         </Card>
       ) : null}
 
       {rfq && stage === "approve" ? (
-        <Card title="Approve &amp; broadcast" sub="Human Approval · Gate 1">
-          <p>
-            Nothing has been sent yet. On approval the RFQ is broadcast to {(rfq.panel || []).length} supplier(s).
-            This action is logged against the approving advisor.
-          </p>
-          <div style={{ display: "flex", gap: "10px" }}>
-            <button className="taw-btn taw-btn--primary" disabled={busy} onClick={onApprove}>
-              {busy ? <Spinner /> : <Icon name="check" size={14} />}
-              {busy ? busyMsg || "Broadcasting…" : "Approve & broadcast"}
-            </button>
-            <button className="taw-btn taw-btn--ghost" disabled={busy} onClick={onReset}>
-              Discard
-            </button>
+        <>
+          <div className="rfq-gate">
+            <span className="rfq-gate-pulse" />
+            <span className="taw-qbadge">
+              <Icon name="shield" size={12} /> Human Approval Required · Gate 1
+            </span>
+            <h4>Approve this AI draft before it reaches suppliers</h4>
+            <p>
+              Nothing has been sent yet. Review the drafted message and the supplier panel below. On approval the
+              RFQ is broadcast to {(rfq.panel || []).length} supplier(s). This action is logged against the
+              approving advisor.
+            </p>
+            <div className="rfq-gate-actions">
+              <button className="taw-btn taw-btn--primary" disabled={busy} onClick={onApprove}>
+                {busy ? <Spinner /> : <Icon name="check" size={14} />}
+                {busy ? busyMsg || "Broadcasting…" : "Approve & broadcast"}
+              </button>
+              <button className="taw-btn taw-btn--ghost" disabled={busy} onClick={onReset}>
+                Discard
+              </button>
+              {selectedAdvisorId ? (
+                <span className="taw-muted" style={{ fontSize: "11.5px" }}>
+                  Signing as{" "}
+                  {(advisors.find((a: any) => a.id === selectedAdvisorId) || {}).name || shortId(selectedAdvisorId)}
+                </span>
+              ) : null}
+            </div>
           </div>
-        </Card>
+          <div className="rfq-grid2">
+            <Card title="AI-drafted RFQ message" icon={<Icon name="sparkle" size={16} />} sub="One variant per dispatch channel.">
+              <DraftPreview draft={rfq.draft_message} />
+            </Card>
+            <Card
+              title="Supplier panel"
+              icon={<Icon name="compass" size={16} />}
+              sub={(rfq.panel || []).length + " suppliers"}
+            >
+              <SupplierPanelList panel={rfq.panel} />
+            </Card>
+          </div>
+        </>
       ) : null}
 
       {rfq && stage === "collect" ? (

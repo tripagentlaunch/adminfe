@@ -48,11 +48,15 @@ import dynamic from "next/dynamic";
 import { Card, Dropdown, Empty, Icon, SleekScroll, Spinner } from "../../../../components/ui";
 import { QuoteBuilder } from "../../../../components/panels/QuoteBuilder";
 import { useWorkbench } from "../../../../lib/workbenchContext";
+import type { ProposalOutcome } from "../../../../lib/workbenchContext";
 import { cartFromItinerary } from "../../../../lib/itineraryFromCart";
 import { useQuotePricing } from "../../../../lib/useQuotePricing";
-import { toast } from "../../../../lib/advisorHelpers";
+import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
+import { toast, errText } from "../../../../lib/advisorHelpers";
+import { enquiryProposalShareCreate } from "../../../../services/api";
 import { buildProposalTemplateData } from "../../../../lib/proposalTemplateData";
 import { ProposalDocument, PAGE_COUNT } from "../../../../components/proposal/ProposalDocument";
+import { ProposalPreviewPage } from "../../../../components/proposal/ProposalPreviewPage";
 import { cx } from "../../../../lib/cx";
 
 // ProposalPreview renders onto a <canvas> via pdfjs-dist — browser-only
@@ -67,6 +71,37 @@ const FIT_OPTIONS = [
   { key: "fullscreen", label: "Full screen", icon: "fullscreen" },
 ] as const;
 
+// Outcome control (2026-09-10) — the one deliberate new-UI exception in this
+// pass: there is currently NO way anywhere in the app to record what a
+// client said back about a sent proposal (the Pipeline tab's own dropdown
+// for this was removed 2026-09-09 and never replaced — see Pipeline's own
+// docblock). Placed here rather than on Pipeline itself, since Pipeline was
+// the one screen this pass was told to leave rendering-unchanged; this
+// screen's real send/compose UI was still openly unbuilt ("isn't built yet"
+// per its own history), so a small real action here is filling a
+// documented gap, not altering a finished one. Persists via
+// setProposalOutcome -> PATCH /enquiries/{id}/proposal-sends/outcome (see
+// WorkbenchDataProvider.tsx).
+const OUTCOME_OPTIONS = [
+  { key: "awaiting", label: "Awaiting client" },
+  { key: "accepted", label: "Accepted" },
+  { key: "revision_requested", label: "Revision requested" },
+  { key: "rejected", label: "Rejected" },
+] as const;
+
+function ProposalOutcomeControl({ entry, onChange }: { entry: { enquiryId: string; outcome: ProposalOutcome }; onChange: (enquiryId: string, outcome: ProposalOutcome) => void }) {
+  return (
+    <Dropdown
+      className="taw-pdf-outcome"
+      value={entry.outcome}
+      options={OUTCOME_OPTIONS}
+      onChange={(key: ProposalOutcome) => onChange(entry.enquiryId, key)}
+      ariaLabel="Record client outcome"
+      triggerClassName="taw-pdf-outcome-trigger"
+    />
+  );
+}
+
 function relativeTime(ts: number) {
   const mins = Math.max(0, Math.round((Date.now() - ts) / 60000));
   if (mins < 1) return "just now";
@@ -77,12 +112,18 @@ function relativeTime(ts: number) {
 }
 
 export default function ProposalComposerPage() {
-  const { proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, creating, createOrder } = useWorkbench();
+  const { proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, creating, createOrder, setProposalOutcome } = useWorkbench();
   const selected = proposalQueue.find((e) => e.enquiryId === selectedProposalEnqId) || proposalQueue[0] || null;
 
   // open: "queue" | "quote" (2026-09-04) — same shape as
   // QueueProfileAccordion's own `open` state; only one section is open
   // at a time, either toggle flips to the other.
+  // newPreview (2026-09-25, POC) — toggles the new on-screen tabbed
+  // preview design (ProposalPreviewPage) in place of the canvas-of-PDF
+  // preview below, for side-by-side comparison against the target design
+  // before this replaces the old preview outright. Defaults on so the new
+  // design is what's seen first.
+  const [newPreview, setNewPreview] = useState(true);
   const [open, setOpen] = useState<"queue" | "quote">("queue");
   function toggle() {
     setOpen((prev) => (prev === "queue" ? "quote" : "queue"));
@@ -97,12 +138,20 @@ export default function ProposalComposerPage() {
   // Page navigator (2026-09-08, direct request) — chevron / editable
   // current-page box / total-pages box / chevron, in the Card header.
   const [pageInput, setPageInput] = useState("1");
-  const currentPage = Math.min(PAGE_COUNT, Math.max(1, parseInt(pageInput, 10) || 1));
+  // pageCount (2026-09-13 fix, real "preview silently drops the last 2 of
+  // 6 real pages" repro) — PAGE_COUNT is only the pre-parse placeholder
+  // now (a stay's card can span more than one physical page since the
+  // hotel-card redesign, so a fixed nominal count goes stale); this state
+  // is what the nav actually clamps/displays against, kept in sync with
+  // the REAL parsed page count via ProposalPreview's onPageCountChange.
+  const [pageCount, setPageCount] = useState(PAGE_COUNT);
+  const currentPage = Math.min(pageCount, Math.max(1, parseInt(pageInput, 10) || 1));
   useEffect(() => {
     setPageInput("1"); // a different itinerary means a fresh preview — back to page 1
+    setPageCount(PAGE_COUNT); // back to the placeholder until the new PDF's real count is known
   }, [selectedProposalEnqId]);
   function goToPage(n: number) {
-    setPageInput(String(Math.min(PAGE_COUNT, Math.max(1, n))));
+    setPageInput(String(Math.min(pageCount, Math.max(1, n))));
   }
   const pageViewportRef = useRef<HTMLDivElement>(null);
 
@@ -200,9 +249,15 @@ export default function ProposalComposerPage() {
   const [inclusive, setInclusive] = useState(true);
   const { pricing, quoteId, loading: pricingLoading, err: pricingErr } = useQuotePricing(cart, selected?.member, advisorId, inclusive);
 
+  // hotelEnrichment (2026-09-11, generalized 2026-09-11) — backend-verified
+  // website/status + cached image per real hotel in this itinerary;
+  // buildProposalTemplateData's hotelUrl()/officialWebsiteUrl() gate the
+  // "official website" claim on this, never on an LLM guess.
+  const hotelEnrichment = useHotelWebsites(selected?.data);
+
   const proposalData = useMemo(
-    () => buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor),
-    [selected, pricing, currentAdvisor]
+    () => buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor, hotelEnrichment),
+    [selected, pricing, currentAdvisor, hotelEnrichment]
   );
 
   // proposalDocumentEl (2026-09-08, fix) — a real bug, not a hash-param
@@ -217,9 +272,11 @@ export default function ProposalComposerPage() {
   const proposalDocumentEl = useMemo(() => <ProposalDocument data={proposalData} />, [proposalData]);
 
   function downloadPdf() {
-    import("@react-pdf/renderer").then(async ({ pdf }) => {
-      const { ProposalDocument } = await import("../../../../components/proposal/ProposalDocument");
-      const blob = await pdf(<ProposalDocument data={proposalData} />).toBlob();
+    Promise.all([
+      import("../../../../components/proposal/ProposalDocument"),
+      import("../../../../lib/renderProposalPdf"),
+    ]).then(async ([{ ProposalDocument }, { renderProposalPdfBlob }]) => {
+      const blob = await renderProposalPdfBlob(<ProposalDocument data={proposalData} />);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -227,6 +284,31 @@ export default function ProposalComposerPage() {
       a.click();
       URL.revokeObjectURL(url);
     });
+  }
+
+  // Web link (2026-09-10) — mints a real, tokenised public share of the
+  // CURRENT proposalData (snapshot-at-share-time, confirmed with the user:
+  // the link shows what was actually sent, never silently updates if the
+  // advisor keeps editing the itinerary afterward — see backend/app/
+  // services/proposal_share_service.py's own module note). Replaces the
+  // old "isn't built yet" placeholder toast.
+  const [creatingLink, setCreatingLink] = useState(false);
+  function createWebLink() {
+    if (!selected || creatingLink) return;
+    setCreatingLink(true);
+    enquiryProposalShareCreate(selected.enquiryId, proposalData)
+      .then((res: any) => {
+        setCreatingLink(false);
+        const url = `${window.location.origin}/proposal/${res.token}`;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).catch(() => {});
+        }
+        toast("Link copied — valid for 14 days: " + url, "success");
+      })
+      .catch((e: any) => {
+        setCreatingLink(false);
+        toast("Couldn't create the link: " + errText(e), "error");
+      });
   }
 
   return (
@@ -339,48 +421,70 @@ export default function ProposalComposerPage() {
         title="Proposal Composer"
         icon={<Icon name="note" size={20} />}
         sub={selected ? (selected.member ? "for " + selected.member.name : "no member") : undefined}
+        actions={selected ? <ProposalOutcomeControl entry={selected} onChange={setProposalOutcome} /> : undefined}
         flush
       >
         {selected ? (
           <div className="taw-pdf-shell">
             <div className="taw-pdf-actions">
-              <div className="taw-pdf-pagenav">
-                <button className="taw-pdf-pagenav-btn" onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
-                  <Icon name="chevron" size={14} style={{ transform: "rotate(90deg)" }} />
-                </button>
-                <input
-                  className="taw-pdf-pagenav-box"
-                  type="text"
-                  inputMode="numeric"
-                  value={pageInput}
-                  onChange={(e) => setPageInput(e.target.value.replace(/[^0-9]/g, ""))}
-                  onBlur={() => goToPage(currentPage)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                  aria-label="Current page"
-                />
-                <span className="taw-pdf-pagenav-sep">/</span>
-                <span className="taw-pdf-pagenav-box taw-pdf-pagenav-box--static">{PAGE_COUNT}</span>
-                <button className="taw-pdf-pagenav-btn" onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= PAGE_COUNT} aria-label="Next page">
-                  <Icon name="chevron" size={14} style={{ transform: "rotate(-90deg)" }} />
-                </button>
-              </div>
+              {/* newPreview toggle (2026-09-25, POC-only — remove once the
+                  new design is approved and replaces the old preview
+                  outright) */}
+              <button className="taw-btn" onClick={() => setNewPreview((v) => !v)}>
+                {newPreview ? "Show old PDF preview" : "Show new preview (POC)"}
+              </button>
+              {!newPreview ? (
+                <div className="taw-pdf-pagenav">
+                  <button className="taw-pdf-pagenav-btn" onClick={() => goToPage(currentPage - 1)} disabled={currentPage <= 1} aria-label="Previous page">
+                    <Icon name="chevron" size={14} style={{ transform: "rotate(90deg)" }} />
+                  </button>
+                  <input
+                    className="taw-pdf-pagenav-box"
+                    type="text"
+                    inputMode="numeric"
+                    value={pageInput}
+                    onChange={(e) => setPageInput(e.target.value.replace(/[^0-9]/g, ""))}
+                    onBlur={() => goToPage(currentPage)}
+                    onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                    aria-label="Current page"
+                  />
+                  <span className="taw-pdf-pagenav-sep">/</span>
+                  <span className="taw-pdf-pagenav-box taw-pdf-pagenav-box--static">{pageCount}</span>
+                  <button className="taw-pdf-pagenav-btn" onClick={() => goToPage(currentPage + 1)} disabled={currentPage >= pageCount} aria-label="Next page">
+                    <Icon name="chevron" size={14} style={{ transform: "rotate(-90deg)" }} />
+                  </button>
+                </div>
+              ) : null}
               {pricingLoading ? (
                 <span className="taw-pdf-status">
                   <Spinner /> pricing…
                 </span>
               ) : null}
-              <button
-                className="taw-btn taw-btn--primary"
-                onClick={() => toast("Dynamic weblink isn't built yet — Export PDF is the only way to send a proposal for now.", "info")}
-              >
+              <button className="taw-btn taw-btn--primary" onClick={createWebLink} disabled={creatingLink || !cart.length}>
                 <Icon name="send" size={14} />
-                Web link
+                {creatingLink ? "Creating link…" : "Web link"}
               </button>
               <button className="taw-btn taw-btn--primary taw-btn--brown" onClick={downloadPdf} disabled={!cart.length}>
                 <Icon name="download" size={14} />
                 Export PDF
               </button>
             </div>
+            {newPreview ? (
+              // align-items:center / justify-content:center from
+              // .taw-pdf-preview (advisor-workbench.css) are meant for the
+              // OLD centered PDF-canvas viewer below — for THIS taller,
+              // scrollable content they silently crop the top (browsers
+              // can't scroll to reach overflow above a centered flex
+              // item), which is why the hero/tabs never appeared no
+              // matter how far up you scrolled. Overridden here, only for
+              // the new preview, rather than changed globally.
+              <div
+                className="taw-pdf-preview"
+                style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
+              >
+                <ProposalPreviewPage data={proposalData} />
+              </div>
+            ) : (
             <div className={cx("taw-pdf-preview", isFullscreen && "is-maximized")} ref={previewRef}>
               {isFullscreen ? (
                 <button className="taw-pdf-maximize-close" aria-label="Exit full screen" onClick={() => setIsFullscreen(false)}>
@@ -393,7 +497,8 @@ export default function ProposalComposerPage() {
                     document={proposalDocumentEl}
                     page={currentPage}
                     width={boxW}
-                    pageCount={PAGE_COUNT}
+                    pageCount={pageCount}
+                    onPageCountChange={setPageCount}
                     onPageChange={(n) => setPageInput(String(n))}
                     scrollContainerRef={pageViewportRef}
                   />
@@ -420,6 +525,7 @@ export default function ProposalComposerPage() {
                 />
               </div>
             </div>
+            )}
           </div>
         ) : (
           <Empty

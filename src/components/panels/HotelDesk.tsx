@@ -7,9 +7,10 @@
  * ===========================================================================*/
 import { useEffect, useState } from "react";
 import { cx } from "../../lib/cx";
-import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, inr } from "../../services/api";
+import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
+import { boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 
@@ -78,6 +79,31 @@ function renderCityLocationSuggestion(loc: any) {
   );
 }
 
+// resolveHotelState(loc) (2026-09-15, real Maldives search reproduction) —
+// ported from itinerary_service.py's _resolve_hotel_location, which fixed
+// the SAME bug for the itinerary-generation/recommendation path earlier
+// tonight (the Singapore fix) — this manual advisor Search panel builds
+// its own listingPayload independently and never got that fix, so a
+// country-level destination here (Maldives, Singapore, ...) still sent
+// TripSure's real /hotels/listing call `state: ""`, which TripSure rejects
+// outright: "Bad Request: locationFieldsValid When mapSearch is false,
+// city, state, country name and country code are required" (confirmed
+// live, real "Maldives" reproduction). TripSure's own top-level
+// locationSuggestions entry for a country carries no `state` field at
+// all — but its OWN nested `popular_locations[0]` entries for the SAME
+// place DO (e.g. Maldives -> "Male Fish Market" -> state: "Kaafu Atoll",
+// same pattern the Singapore fix found: "Marina Bay" -> state:
+// "Singapore") — a real TripSure value, never a guess invented here.
+// Falls back to that (then city/name) only when `state` is genuinely
+// empty; every other, already-working destination keeps its real
+// state/province unchanged.
+function resolveHotelState(loc: any): string {
+  if (loc.state) return loc.state;
+  const popular = loc.popular_locations || [];
+  const stateFromPopular = popular.map((p: any) => p.state).find((s: any) => s);
+  return stateFromPopular || loc.city || loc.name || "";
+}
+
 // Picks the cheapest priceSummary entry for a TripSure hotel (by totalPrice)
 // for the list view; HotelPdpDetail will get the full array later.
 function cheapestPrice(priceSummary: any) {
@@ -109,6 +135,16 @@ function mapTripSureHotel(hotel: any, ctx: any) {
       rooms: ctx.rooms,
       nightlyFrom: best ? Number(best.pricePerNightPerRoom) || undefined : undefined,
       refundable: !!(best && best.refundability === "Refundable"),
+      // address/lat/lng (2026-09-11) — TripSure's own real address and
+      // coordinates for this property, carried through so a hotel added
+      // from Search can get the same real Google Maps link in the
+      // Proposal PDF as one an AI-generated itinerary finds directly (see
+      // proposalTemplateData.ts's mapsUrl). TripSure has no public hotel
+      // website of its own to link to instead (confirmed against its
+      // integration guide — a pure server-to-server API).
+      address: info.address || null,
+      lat: info.latitude != null ? Number(info.latitude) : null,
+      lng: info.longitude != null ? Number(info.longitude) : null,
     },
     // Full TripSure context, namespaced so it doesn't collide with the fields
     // above — HotelPdpDetail will read this once it's wired to real data.
@@ -119,6 +155,169 @@ function mapTripSureHotel(hotel: any, ctx: any) {
       priceSummary: priceSummary,
     },
   };
+}
+
+// HotelWebsiteEditor (2026-09-11) — advisor-entered override for
+// hotel_snapshots.website: the hotel's OWN real, official site. Manual-only
+// by design — TripSure's listing()/details() carry no website field of
+// their own, and an automated Google Places lookup was ruled out as
+// unreliable for independent/regional properties (wrong chain branch, OTA
+// links, stale URLs). Filled in once per hotelKey here, then reused
+// everywhere that property's link is built: proposalTemplateData.ts's
+// hotelUrl() prefers it over our internal /hotel/{hotelKey} page, and that
+// page itself redirects straight to it once set (see PublicHotelView.tsx).
+// STATUS_BADGE (2026-09-11 hotel-enrichment fix) — the admin-facing label/
+// tone for official_website_status, straight off hotel_snapshots (never
+// inferred client-side): "verified" is the only status that makes hotelUrl()/
+// officialWebsiteUrl() in proposalTemplateData.ts actually show a real-site
+// link anywhere; the others are shown here so an advisor can tell WHY a
+// hotel has no website button yet, distinguishing "never looked" (no
+// badge at all — this table has no automated enrichment pass today, only
+// this manual entry) from a genuinely attempted-and-failed/unavailable
+// state a future enrichment integration could set.
+const WEBSITE_STATUS_BADGE: Record<string, { label: string; tone: string }> = {
+  verified: { label: "Verified", tone: "success" },
+  pending: { label: "Pending", tone: "warn" },
+  unavailable: { label: "Unavailable", tone: "info" },
+  failed: { label: "Failed verification", tone: "danger" },
+};
+
+function fmtDateTime(iso: string | null | undefined) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return String(iso);
+  }
+}
+
+// HotelWebsiteEditor doubles as this app's admin-panel hotel-detail view
+// (spec section 9): there is no separate role-gated "Admin Panel" hotel
+// screen in this architecture (AdminPanel.tsx is org/ops-scoped — agents,
+// orders, enquiry assignment — not itemized by hotel), so this is the one
+// real per-hotel admin surface, already advisor-facing where a specific
+// hotel is actually in view. Shows every hotel_snapshots enrichment field
+// the spec asks for (name/city/supplier hotel id/primary image/website/
+// status/source/verified-at) and is the manual-entry path itself — an
+// admin-entered URL is stored under source="admin" (hotel_service.
+// set_website's own default), kept distinct from a future automated
+// supplier/enrichment source, never conflated.
+function HotelWebsiteEditor({ hotelKey, hotelName }: { hotelKey: string; hotelName?: string }) {
+  const [snapshot, setSnapshot] = useState<any>(null);
+  const [website, setWebsite] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    hotelPublicGet(hotelKey)
+      .then((r: any) => {
+        if (!alive) return;
+        setSnapshot(r || null);
+        setWebsite((r && r.website) || "");
+        setLoading(false);
+      })
+      .catch(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [hotelKey]);
+
+  function save() {
+    const trimmed = website.trim();
+    setSaving(true);
+    hotelSetWebsite(hotelKey, trimmed || null)
+      .then((r: any) => {
+        setSnapshot((prev: any) => ({ ...(prev || {}), ...(r || {}) }));
+        setSaving(false);
+        setEditing(false);
+        toast("Website saved for " + (hotelName || "this hotel"), "success");
+      })
+      .catch((e: any) => {
+        setSaving(false);
+        toast(errText(e), "error");
+      });
+  }
+
+  if (loading) return null;
+
+  const saved: string | null = (snapshot && snapshot.website) || null;
+  // `official_website_status` reads undefined until supabase/migrations/
+  // 20260911190000_hotel_enrichment.sql is applied — a set website with no
+  // status yet is still shown as "Verified" (matches proposalTemplateData.
+  // ts's own pre-migration fallback: a stored website was always treated
+  // as trustworthy before this status column existed).
+  const status: string | null = snapshot ? snapshot.official_website_status ?? (saved ? "verified" : null) : null;
+  const source: string | null = (snapshot && snapshot.official_website_source) || (saved ? "admin" : null);
+  const verifiedAt: string | null = (snapshot && snapshot.official_website_verified_at) || null;
+  const badge = status ? WEBSITE_STATUS_BADGE[status] : null;
+
+  return (
+    <div className="taw-dx-rule" style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 10 }}>
+        {snapshot && snapshot.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- advisor-only admin view, not the customer-facing app
+          <img src={snapshot.image} alt="" style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
+        ) : (
+          <div style={{ width: 64, height: 64, borderRadius: 6, background: "var(--surface-2, #eee)", flexShrink: 0 }} />
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 600 }}>{(snapshot && snapshot.name) || hotelName || "—"}</div>
+          <div className="taw-muted" style={{ fontSize: 12 }}>{(snapshot && snapshot.city) || "—"}</div>
+          <div className="taw-muted" style={{ fontSize: 11 }}>Supplier hotel ID: {hotelKey}</div>
+        </div>
+      </div>
+
+      <div className="k">Official website</div>
+      {editing ? (
+        <div style={{ display: "flex", gap: 8, marginTop: 4, alignItems: "center" }}>
+          <input
+            className="taw-input"
+            style={{ flex: 1 }}
+            placeholder="https://www.thehotel.com"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            autoFocus
+          />
+          <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={saving} onClick={save}>
+            {saving ? <Spinner /> : "Save"}
+          </button>
+          <button
+            className="taw-btn taw-btn--sm"
+            disabled={saving}
+            onClick={() => {
+              setEditing(false);
+              setWebsite(saved || "");
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="v" style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {saved ? (
+            <a href={saved} target="_blank" rel="noopener noreferrer">
+              {saved}
+            </a>
+          ) : (
+            <span className="taw-muted">Not set — proposal links fall back to our internal hotel page.</span>
+          )}
+          {badge ? <span className={`taw-status taw-status--${badge.tone}`}>{badge.label}</span> : null}
+          <button className="taw-linkbtn" onClick={() => setEditing(true)}>
+            {saved ? "Edit" : "Add website"}
+          </button>
+        </div>
+      )}
+      {saved ? (
+        <div className="taw-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          Source: {source || "—"} · Verified: {fmtDateTime(verifiedAt) || "—"}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 // HotelPdpDetail — Wave-1 hotel PROPERTY-DETAIL (PDP) expander on a selected
@@ -268,12 +467,28 @@ export function HotelDesk(props: any) {
   // the selected enquiry asked for, so e.g. Priya's Goa itinerary needed
   // retyping the city by hand before Search did anything useful). Falls
   // back to "Dubai" only when there's no enquiry selected yet.
+  // checkIn/checkOut (2026-09-14 fix, real Switzerland-enquiry
+  // reproduction: searched Dec 5-15, got back a hotel dated "Mon, 05
+  // Oct" — flagged by ItineraryView's own "Outside itinerary dates"
+  // warning once added) — these had NO equivalent fix to the `city` one
+  // above: always defaulted to today+21/today+25 regardless of which
+  // enquiry was selected, so Search silently ran against whatever
+  // today+21 happened to be (here, genuinely Oct 5) unless the advisor
+  // remembered to retype both dates by hand first — the exact same class
+  // of bug `city` already had, just never carried over to these two
+  // fields. FlightDesk.tsx's own form already does this correctly
+  // (boundFromDateRange(ask.dateRange, 2026)?.startIso || todayISO(21));
+  // mirrored here rather than inventing a second approach. Handles both
+  // real enquiries (ask.dateRange = the backend's raw travel_window,
+  // e.g. "2026-12-05 to 2026-12-15") and mock ones ("12 – 16 Oct")
+  // gracefully falling back to the old today+21/25 default only when no
+  // enquiry is selected yet or its dates can't be parsed.
   // pax defaults to 1, not 2 (2026-09-03) — TripAgent's scope is solo
   // trips only (the cardholder is always the traveller).
   const [form, setForm] = useState({
     city: (ask && ask.destinations && ask.destinations[0]) || "Dubai",
-    checkIn: todayISO(21),
-    checkOut: todayISO(25),
+    checkIn: boundFromDateRange(ask && ask.dateRange, 2026)?.startIso || todayISO(21),
+    checkOut: boundFromDateRange(ask && ask.dateRange, 2026)?.endIso || todayISO(25),
     rooms: 1,
     pax: 1,
   });
@@ -333,7 +548,7 @@ export function HotelDesk(props: any) {
         })),
         city: top.city || top.name,
         locationSuggestion: { id: top.id, name: top.name, type: top.type, lat: top.coordinates.lat, lon: top.coordinates.lon },
-        state: top.state || "",
+        state: resolveHotelState(top),
         countryName: top.country || "IN",
         circularSearch: false,
         nationalityCode: "IN",
@@ -602,12 +817,40 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
                       {inr(net)}
                       <small>net cost</small>
                     </div>
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => onAdd({ ...hotelCartItem(o), checkIn })}>
+                    <button
+                      className="taw-btn taw-btn--accent taw-btn--sm"
+                      onClick={() => {
+                        const others = shown.filter((x: any) => x.id !== o.id).slice(0, 2);
+                        const alternatives = others.map((alt: any) => {
+                          const ad = alt.detail || {};
+                          return {
+                            name: ad.hotelName || "Hotel",
+                            detail: [ad.stars ? ad.stars + "★" : null, ad.board].filter(Boolean).join(" · "),
+                            price: offNet(alt),
+                            image: ad.image || null,
+                          };
+                        });
+                        onAdd({ ...hotelCartItem(o, alternatives), checkIn });
+                      }}
+                    >
                       <Icon name="plus" size={13} />
                       Add
                     </button>
                   </div>
                 </div>
+                {/* !o._isMock (2026-09-15, same fix as hotelCartItem's
+                    realHotelKey) — HotelWebsiteEditor WRITES to
+                    hotel_snapshots (hotelSetWebsite), keyed by whatever
+                    hotelKey it's given; a mock/demo offer's id is never a
+                    real TripSure hotelKey, so letting an advisor "set the
+                    website" on one here would create a garbage
+                    hotel_snapshots row for a hotel that was never
+                    actually searched. */}
+                {isOpen && !o._isMock ? (
+                  <div className="taw-dx">
+                    <HotelWebsiteEditor hotelKey={o.id} hotelName={d.hotelName} />
+                  </div>
+                ) : null}
                 {isOpen ? <HotelPdpDetail offer={o} advisorId={advisorId} checkIn={checkIn} /> : null}
               </div>
             );

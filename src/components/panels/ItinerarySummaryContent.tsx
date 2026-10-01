@@ -19,6 +19,19 @@ import { inr } from "../../services/api";
 import { Icon } from "../ui";
 import { STATUS_META, tierOf } from "../../lib/mockItinerary";
 
+// hasDraftHotel (2026-09-13) — the hard gate for Send to Proposal: a
+// "draft" hotel item is an AI-guessed placeholder (no real hotelKey/photo —
+// see itinerary_service.py's now-removed hotel-guess fallback) that must
+// never reach a customer-facing proposal. As of this date the AI
+// generation path no longer PRODUCES these for new itineraries — this
+// only still fires for an itinerary generated before that fix, or any
+// other future path that leaves a hotel item unsearched. Scoped to hotels
+// only (not the similarly-shaped flight/note "draft" items), matching the
+// direct request this addresses.
+export function hasDraftHotel(data: any): boolean {
+  return (data.days || []).some((d: any) => (d.items || []).some((it: any) => it.type === "hotel" && it.status === "draft"));
+}
+
 function dayTotalLabel(day: any) {
   if (day.subtotal != null) return inr(day.subtotal);
   const known = day.items.filter((it: any) => it.price != null);
@@ -74,7 +87,12 @@ export function ItinerarySummaryContent({ data }: { data: any }) {
         ) : null}
       </div>
 
-      {attentionDays > 0 ? (
+      {hasDraftHotel(data) ? (
+        <div className="taw-itinsum-flag taw-itinsum-flag--danger">
+          <Icon name="alert" size={13} />
+          This itinerary still has an AI-drafted placeholder hotel — Search and add a real property for every stay before sending to a customer.
+        </div>
+      ) : attentionDays > 0 ? (
         <div className="taw-itinsum-flag">
           <Icon name="alert" size={13} />
           {attentionDays} day{attentionDays === 1 ? "" : "s"} still need attention before this is really ready

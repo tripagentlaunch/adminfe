@@ -16,6 +16,8 @@
  * needed for those after all.
  * ===========================================================================*/
 
+import type { HotelEnrichment } from "./useHotelWebsites";
+
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
 // cream tile (no tone) marks a day with no active stay (departure/"Home").
@@ -36,7 +38,7 @@ function fmtDayHeader(iso: string) {
   }
 }
 
-export function buildProposalTemplateData(itinerary: any, pricing: any, member: any, advisor: any) {
+export function buildProposalTemplateData(itinerary: any, pricing: any, member: any, advisor: any, hotelEnrichment?: Record<string, HotelEnrichment>) {
   const data = itinerary || {};
   const days: any[] = data.days || [];
 
@@ -64,16 +66,188 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   // real field — fixed by sharing this one helper.
   const boardWord = (detailRest: string | undefined) => detailRest?.split("·")?.[2]?.trim().replace(/ included$/i, "").toLowerCase();
 
+  // isVerifiedWebsite (2026-09-11 hotel-enrichment fix) — the single gate
+  // BOTH hotelUrl() and the PDF's explicit "Visit official website" button
+  // (ProposalDocument.tsx) must agree on: never claim a site is official
+  // without backend verification. `status` comes back undefined until
+  // supabase/migrations/20260911190000_hotel_enrichment.sql is applied —
+  // treated as "trust a stored website" (the exact legacy behavior, from
+  // before this status column existed) rather than downgrading every
+  // already-set website to unverified the moment this code ships ahead of
+  // that migration. Once `status` starts coming back for real, only a
+  // literal "verified" counts — "pending"/"unavailable"/"failed"/null all
+  // correctly withhold the official-website claim.
+  const isVerifiedWebsite = (rec: HotelEnrichment | undefined) =>
+    !!rec && !!rec.website && (rec.status === undefined || rec.status === null ? true : rec.status === "verified");
+
+  // hotelUrl (2026-09-10, corrected 2026-09-11, real-website fallback added
+  // 2026-09-11) — the URL this hotel's name/image link to in the PDF
+  // (ProposalDocument.tsx's <Link>) and in-app preview (ProposalPreview.tsx's
+  // overlay).
+  //
+  // Prefers the hotel's own real, official website — an advisor-entered
+  // hotel_snapshots.website (see HotelDesk.tsx's HotelWebsiteEditor) passed
+  // in via `hotelEnrichment`, keyed by hotelKey. Neither TripSure nor an
+  // automated lookup (Google Places, ruled out as unreliable for
+  // independent/regional properties) can supply this reliably, so it's
+  // manual-only and not every hotel will have one yet.
+  //
+  // Falls back to our own public, unauthenticated /hotel/{hotelKey} page
+  // for any hotel an advisor hasn't gotten to — that page now lives on
+  // tripagent-site-main (the actual customer-facing site), NOT here — a
+  // customer clicking a hotel link in their proposal must land on our
+  // public site, not this internal admin tool's own origin.
+  // TRIPAGENT-FE's own /hotel/[hotelKey] page (PublicHotelView.tsx) was the
+  // wrong-place first build of this; this constant is the fix — previously
+  // used window.location.origin (this admin panel's own URL, e.g.
+  // localhost:3000), which is exactly the bug this replaces. Reads
+  // NEXT_PUBLIC_SITE_BASE_URL for local dev (tripagent-site-main/app's own
+  // Vite dev server, http://localhost:5173) and falls back to the real
+  // production domain (confirmed live: CORS-allowlisted by name in
+  // tripagent-site-main/backend/main.py) otherwise. null (no link) for any
+  // stay with no real hotelKey (an AI-drafted/mock stay never searched
+  // against TripSure) rather than linking to a page that 404s.
+  const SITE_BASE_URL = process.env.NEXT_PUBLIC_SITE_BASE_URL || "https://tripagent-site-orpin.vercel.app";
+  // FASTAPI_BASE (2026-09-15) — same fallback pattern api.ts's own private
+  // FASTAPI_BASE constant uses, duplicated here (not imported — api.ts
+  // isn't meant to be a general grab-bag of constants) so the image-proxy
+  // URL below can be built without dragging in the whole services layer.
+  const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8787";
+  const hotelUrl = (hotelKey: string | undefined) => {
+    if (!hotelKey) return null;
+    const rec = hotelEnrichment && hotelEnrichment[hotelKey];
+    if (isVerifiedWebsite(rec)) return rec!.website;
+    return `${SITE_BASE_URL}/hotel/${encodeURIComponent(hotelKey)}`;
+  };
+
+  // officialWebsiteUrl (2026-09-11) — feeds ProposalDocument.tsx's
+  // explicit, labeled "Visit official website" button (spec: a customer
+  // shouldn't have to guess that a hotel's NAME happens to be a hyperlink).
+  // Deliberately narrower than hotelUrl() above: null whenever hotelUrl()
+  // would have fallen back to our OWN internal page, since that page is
+  // real but isn't "the hotel's official website" — only a genuinely
+  // verified real site earns that specific label.
+  const officialWebsiteUrl = (hotelKey: string | undefined) => {
+    if (!hotelKey) return null;
+    const rec = hotelEnrichment && hotelEnrichment[hotelKey];
+    return isVerifiedWebsite(rec) ? rec!.website : null;
+  };
+
+  // hotelMapsUrl (2026-09-11, corrected 2026-09-15) — a SECONDARY link
+  // alongside hotelUrl above, to the actual property's real location, not
+  // just our own snapshot page. TripSure has no public hotel website of
+  // its own to link to (confirmed against its integration guide — a pure
+  // server-to-server API), but it does return a real name/address/lat/lng
+  // for a "searched" hotel (itinerary_service.py's _search_real_hotel/
+  // _real_hotel_item, and the same fields threaded through the
+  // Search-cart path — see mapTripSureHotel's own note).
+  //
+  // BUG (found 2026-09-15, real "Bombay Backpackers DXB Airport"
+  // reproduction) — the original version below led with a bare
+  // `query=<lat>,<lng>` whenever coordinates existed, on the reasoning
+  // that a coordinate points at the exact building rather than a
+  // name/city text guess. Confirmed live that's wrong: Google Maps' own
+  // search-action URL renders a bare "lat,lng" query as an ANONYMOUS pin
+  // (no name, no label — literally "25°04'44.4"N 55°08'08.0"E" and
+  // nothing else), not a real result for the property at all — worse
+  // than a text search, not better. A real hotel always has a real name
+  // by the time it reaches this function (hotelKey is required below,
+  // same as hotelUrl), so leading with name (+ address, falling back to
+  // city) as the query TEXT instead is what actually produces a proper,
+  // labeled Google Maps result for this specific place — real words,
+  // never fabricated, same as before. Coordinates now only matter as the
+  // last-resort fallback for the — practically unreachable — case where
+  // even the name is somehow missing, and that fallback is now a real
+  // Maps link too (was a plain web search before, an inconsistency
+  // fixed in passing since it's the exact same "does this link actually
+  // open a map" bug class).
+  const hotelMapsUrl = (
+    hotelKey: string | undefined,
+    name: string,
+    address: string | null | undefined,
+    city: string,
+    lat: number | null | undefined,
+    lng: number | null | undefined
+  ) => {
+    if (!hotelKey) return null;
+    const label = [name, address || city].filter(Boolean).join(", ");
+    if (label) return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(label)}`;
+    if (lat != null && lng != null) return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    return null;
+  };
+
   const stays = days
     .flatMap((day: any) => (day.items || []).filter((it: any) => it.type === "hotel").map((it: any) => ({ ...it, _dayIso: day._iso })))
-    .map((it: any) => ({
-      city: cityFromTitle(it.title),
-      name: it.title,
-      roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
-      dateRange: it.sub?.match(/In (.+?), out (.+)$/) ? it.sub.replace(/^.*In /, "").replace(", out", " – ") : "",
-      price: it.price || 0,
-      status: it.status,
-    }));
+    .map((it: any) => {
+      const city = cityFromTitle(it.title);
+      // Image preference order (spec section 3, superseded 2026-09-15 by
+      // the Pexels-priority agreement fix below): (1) the backend's own
+      // live decision for this hotelKey (enrichmentRec — the cached
+      // hotel_snapshots image, or a preferred Pexels exterior when one's
+      // available); (2) the supplier/TripSure image already on this
+      // itinerary item — set at search time by itinerary_service.py's
+      // _real_hotel_item or HotelDesk.tsx's mapTripSureHotel — used only
+      // while enrichment hasn't resolved yet or found nothing; (3) none —
+      // ProposalDocument.tsx's PhotoPlaceholder already covers that
+      // honestly, no fabricated photo.
+      const enrichmentRec = it.hotelKey && hotelEnrichment ? hotelEnrichment[it.hotelKey] : undefined;
+      // imageSource (2026-09-15, agreement fix — direct request) — trusts
+      // the BACKEND's own live decision (enrichmentRec.imageSource, from
+      // useHotelWebsites.ts -> GET .../public/{hotelKey}, i.e.
+      // hotel_router.py's get_hotel_public) as authoritative whenever it's
+      // available, rather than assuming `it.image`'s mere presence means
+      // "tripsure". get_hotel_public applies the SAME Pexels-exterior-
+      // preferred priority the image proxy below independently re-applies
+      // when actually fetching bytes (both call
+      // pexels_service.get_city_stock_photo with the same city, same
+      // 24h cache), so this is what actually keeps the Proposal PDF and
+      // the public hotel page (PublicHotelView.tsx, same hotelKey) in
+      // agreement on BOTH which photo is shown AND whether the
+      // "Representative image" label is shown — previously this branch
+      // only consulted enrichmentRec when `it.image` was falsy, so a
+      // hotel with a captured `it.image` kept showing an unlabeled
+      // "tripsure" caption here even once the backend started preferring
+      // (and the image proxy started actually serving) a Pexels exterior
+      // for that same hotelKey — a real mislabel, not just a missed
+      // upgrade, since the photo bytes and the label disagreed on the
+      // same page.
+      //
+      // Falls back to `it.image`-implies-"tripsure" only when enrichment
+      // hasn't resolved yet (useHotelWebsites.ts's fetch is async; starts
+      // as `{}`) or genuinely found nothing for this hotelKey (network
+      // hiccup, or a hotel_snapshots row that predates that key) — best-
+      // effort real-photo caption rather than a blank PhotoPlaceholder
+      // for a hotel this item already knows has a real photo. null only
+      // when there's truly no photo anywhere, the one case
+      // PhotoPlaceholder still covers honestly.
+      const imageSource: "tripsure" | "pexels" | null = (enrichmentRec && enrichmentRec.imageSource) || (it.image ? "tripsure" : null);
+      return {
+        city,
+        name: it.title,
+        roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
+        dateRange: it.sub?.match(/In (.+?), out (.+)$/) ? it.sub.replace(/^.*In /, "").replace(", out", " – ") : "",
+        price: it.price || 0,
+        status: it.status,
+        // Routed through OUR OWN backend (2026-09-15 fix, real "Bombay
+        // Backpackers DXB Airport" reproduction), not TripSure's raw CDN
+        // URL directly: the PDF embeds this image via a real fetch() for
+        // its bytes, which is subject to CORS — and not every TripSure
+        // image host sets Access-Control-Allow-Origin (confirmed live:
+        // gommts3.mmtcdn.com silently fails this way; q-xx.bstatic.com and
+        // i.travelapi.com don't). GET /hotels/public/{hotelKey}/image
+        // re-fetches hotel_snapshots.image server-side, where CORS never
+        // applies, and hands back the same real bytes regardless of which
+        // upstream host TripSure used — see hotel_router.py's own note.
+        // Still null (PhotoPlaceholder, never a broken image) when there's
+        // genuinely no photo OR stock fallback available anywhere, or no
+        // hotelKey to proxy by.
+        image: imageSource && it.hotelKey ? `${FASTAPI_BASE}/hotels/public/${encodeURIComponent(it.hotelKey)}/image` : null,
+        imageSource,
+        url: hotelUrl(it.hotelKey),
+        mapsUrl: hotelMapsUrl(it.hotelKey, it.title, it.address, city, it.lat, it.lng),
+        officialWebsiteUrl: officialWebsiteUrl(it.hotelKey),
+      };
+    });
 
   // arrivalTime — the actual landing time at the FINAL segment's
   // destination, parsed from its own route string (e.g. "DXB T3 08:15 →
