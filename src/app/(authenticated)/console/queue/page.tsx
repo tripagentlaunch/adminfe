@@ -24,6 +24,7 @@ import { WorkbenchTab } from "../../../../components/panels";
 import { useWorkbench } from "../../../../lib/workbenchContext";
 
 const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8001";
+const SITE_API_BASE = process.env.NEXT_PUBLIC_SITE_API_BASE || "http://127.0.0.1:8000";
 
 function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
   const [open, setOpen] = useState(false);
@@ -42,7 +43,7 @@ function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${FASTAPI_BASE}/admin/invite-customer-named-code`, {
+      const res = await fetch(`${SITE_API_BASE}/admin/invite-customer-named-code`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
