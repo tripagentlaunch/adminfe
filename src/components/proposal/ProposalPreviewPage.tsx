@@ -120,7 +120,7 @@ export function ProposalPreviewPage({ data }: { data: any }) {
   }, [tab]);
 
   const hasVisa = !!data.visa;
-  const visibleTabs = hasVisa ? TABS : TABS.filter((t) => t !== "Decisions");
+  const visibleTabs: Tab[] = hasVisa ? [...TABS] : TABS.filter((t) => t !== "Decisions");
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
   const heroImage = data.stays?.find((s: any) => s.image)?.image;
