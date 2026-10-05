@@ -57,11 +57,191 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
+import { useState } from "react";
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
 import { useWorkbench } from "../../lib/workbenchContext";
+
+// ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
+// request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
+// the real Itinerary Builder/Search, for an enquiry that hasn't had its
+// itinerary started yet. Its own "Generate Itinerary" button just
+// dismisses this step (per enquiry id) — the actual AI/scratch itinerary
+// generation is UNCHANGED, still the existing chooser buttons inside
+// Itinerary Builder below.
+function prefValue(field: any): string | null {
+  if (field == null) return null;
+  if (typeof field === "string") return field;
+  return field.state === "value" ? field.value : null;
+}
+
+function ConversationSummaryPanel({ enquiry, member, onGenerate }: any) {
+  const ask = enquiry && enquiry.ask;
+  const stars = ask && ask.hotel ? prefValue(ask.hotel.stars) : null;
+  const style = ask && ask.hotel ? prefValue(ask.hotel.style) : null;
+  const requirements = ask
+    ? [
+        ask.destinations && ask.destinations[0] ? "Destination: " + ask.destinations[0] : null,
+        ask.dateRange ? "Dates: " + ask.dateRange + (ask.tripLength ? " (" + ask.tripLength + ")" : "") : null,
+        ask.budgetPerPerson ? "Budget: ~" + ask.budgetPerPerson + " per person" : ask.budgetCap ? "Budget: ~" + ask.budgetCap : null,
+        ask.groupType || ask.purpose ? "Trip Type: " + [ask.groupType, ask.purpose].filter(Boolean).join(" / ") : null,
+        stars || style ? "Preferences: " + [stars ? stars + "-star" : null, style].filter(Boolean).join(", ") : null,
+      ].filter((r): r is string => !!r)
+    : [];
+
+  return (
+    <Card title="Conversation Summary" icon={<Icon name="chat" size={20} />}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {enquiry && enquiry.message ? (
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "#4A5568" }}>{enquiry.message}</p>
+        ) : null}
+
+        {requirements.length ? (
+          <div
+            style={{
+              background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
+              <Icon name="sparkle" size={14} style={{ color: "#B8945F" }} />
+              Key Requirements
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              {requirements.map((r: string) => (
+                <li key={r} style={{ fontSize: 13.5, color: "#4A5568", marginBottom: 6 }}>{r}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {member ? (
+          <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
+              <Icon name="user" size={14} style={{ color: "#4A5568" }} />
+              Traveller Profile for Itinerary
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 16px" }}>
+              <div>
+                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Traveller Name</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.name || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Email</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.email || "—"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Phone</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.phone || "—"}</div>
+              </div>
+              {ask && ask.from ? (
+                <div>
+                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Origin</div>
+                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.from}</div>
+                </div>
+              ) : null}
+              {ask && ask.destinations && ask.destinations[0] ? (
+                <div>
+                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Destination</div>
+                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.destinations[0]}</div>
+                </div>
+              ) : null}
+              {ask && ask.dateRange ? (
+                <div>
+                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Travel Dates</div>
+                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.dateRange}</div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 10 }}>Next Step</div>
+          <button className="taw-btn taw-btn--primary taw-btn--block" onClick={onGenerate}>
+            <Icon name="sparkle" size={16} />
+            Generate Itinerary
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function ChatWithCustomerPanel({ member, enquiry }: any) {
+  const digits = member && member.phone ? String(member.phone).replace(/[^0-9]/g, "") : "";
+  const waLink = digits ? "https://wa.me/" + digits : null;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Card title="Chat with Customer" icon={<Icon name="chat" size={20} />}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "20px 10px" }}>
+          <div
+            style={{
+              width: 52, height: 52, borderRadius: "50%", background: "#E3F3E8",
+              display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14,
+            }}
+          >
+            <Icon name="chat" size={24} style={{ color: "#3E7D52" }} />
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 6 }}>
+            View full conversation with the customer in WhatsApp
+          </div>
+          <div style={{ fontSize: 13, color: "#8A8070", marginBottom: 16 }}>
+            See the complete chat history between the customer and TripAgent&apos;s AI assistant.
+          </div>
+          {waLink ? (
+            <a
+              href={waLink}
+              target="_blank"
+              rel="noreferrer"
+              className="taw-btn taw-btn--block"
+              style={{ textDecoration: "none", textAlign: "center" }}
+            >
+              Open WhatsApp Chat
+            </a>
+          ) : (
+            <div style={{ fontSize: 13, color: "#9098A8" }}>No phone number on file</div>
+          )}
+        </div>
+      </Card>
+
+      <Card title="Recent Messages (Summary)" icon={<Icon name="chat" size={20} />}>
+        {enquiry && enquiry.message ? (
+          <>
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              <div
+                style={{
+                  width: 32, height: 32, borderRadius: "50%", background: "#E7ECF2",
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}
+              >
+                <Icon name="user" size={15} style={{ color: "#4A5568" }} />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1F2430", marginBottom: 2 }}>Customer</div>
+                <div style={{ fontSize: 13.5, color: "#4A5568", lineHeight: 1.5 }}>{enquiry.message}</div>
+              </div>
+            </div>
+            {waLink ? (
+              <a
+                href={waLink}
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 13, color: "#B8945F", fontWeight: 600, textDecoration: "none" }}
+              >
+                View full chat in WhatsApp →
+              </a>
+            ) : null}
+          </>
+        ) : (
+          <Empty icon="chat">No message history yet.</Empty>
+        )}
+      </Card>
+    </div>
+  );
+}
 
 export function WorkbenchTab(props: any) {
   // creating/onCreateOrder: unused now that Quote Builder isn't rendered on
@@ -95,6 +275,9 @@ export function WorkbenchTab(props: any) {
   // own in-flight state to show instead of nothing.
   const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
+  const [summaryDismissedFor, setSummaryDismissedFor] = useState<string | null>(null);
+  const showSummary = !!selectedEnquiry && !itineraryData && !generating && summaryDismissedFor !== selEnqId;
+
   return (
     <div className="taw-grid taw-cols-3">
       <QueueProfileAccordion
@@ -109,6 +292,13 @@ export function WorkbenchTab(props: any) {
         onPickMember={onPickMember}
       />
 
+      {showSummary ? (
+        <ConversationSummaryPanel
+          enquiry={selectedEnquiryWithAsk}
+          member={member || (travellerProfile && travellerProfile.member)}
+          onGenerate={() => setSummaryDismissedFor(selEnqId)}
+        />
+      ) : (
       <Card
         className="taw-itin-card"
         title="Itinerary Builder"
@@ -166,35 +356,23 @@ export function WorkbenchTab(props: any) {
           </div>
         )}
       </Card>
+      )}
 
-      {/* key={selEnqId} (2026-09-03, flow-testing hurdle) — without it,
-          SearchDesksPanel/FlightDesk/HotelDesk/VisaDesk never remount on
-          enquiry switch, so their useState(() => ...member.preferences...)
-          initializers only ever run ONCE, capturing whichever member was
-          selected first — every enquiry picked after that silently gets
-          the WRONG (or no) pax/cabin defaults, no matter how correct the
-          initializer logic is. Surfaced live: Kabir Shah's Cabin dropdown
-          showed "Economy" instead of his actual "Business" preference.
-          Keying on the enquiry also clears any leftover search results
-          from a previous traveller when switching — correct behavior,
-          not just a side effect of the fix. */}
-      {/* key also flips once askReady goes true (2026-09-10, bug fix) —
-          FlightDesk/HotelDesk/VisaDesk seed their own defaults from
-          `enquiry.ask` inside a useState(() => ...) initializer, which
-          (same class of bug the selEnqId key above already fixes) only
-          ever runs at mount, never again on a later prop change. Since
-          `ask` arrives from travellerProfile's OWN async fetch — always
-          AFTER this panel's first mount for a freshly-selected enquiry —
-          without this second key segment every desk permanently mounts
-          with `ask` still undefined and never gets another chance to pick
-          it up. See selectedEnquiryWithAsk's own comment above. */}
+      {showSummary ? (
+        <ChatWithCustomerPanel member={member || (travellerProfile && travellerProfile.member)} enquiry={selectedEnquiryWithAsk} />
+      ) : (
       <SearchDesksPanel
+        // key={selEnqId} (2026-09-03, flow-testing hurdle) — without it,
+        // SearchDesksPanel/FlightDesk/HotelDesk/VisaDesk never remount on
+        // enquiry switch; key also flips once askReady goes true
+        // (2026-09-10) — see selectedEnquiryWithAsk's own comment above.
         key={selEnqId + (askReady ? ":ask" : "")}
         member={member}
         enquiry={selectedEnquiryWithAsk}
         advisorId={advisorId}
         onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiryWithAsk)}
       />
+      )}
     </div>
   );
 }

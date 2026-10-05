@@ -54,19 +54,27 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
         <div className="area-title-row">
           <h1>Enquiries</h1>
         </div>
-        <div className="area-tabs" role="tablist" aria-label="Enquiries section">
-          {SCREENS.map((s) => (
-            <Link
-              key={s.key}
-              href={"/console/" + s.key}
-              role="tab"
-              aria-selected={activeKey === s.key ? "true" : "false"}
-              className={cx("area-tab", activeKey === s.key && "is-active")}
-            >
-              <Icon name={s.icon} size={15} />
-              <span>{s.label}</span>
-            </Link>
-          ))}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div className="area-tabs" role="tablist" aria-label="Enquiries section">
+            {SCREENS.map((s) => (
+              <Link
+                key={s.key}
+                href={"/console/" + s.key}
+                role="tab"
+                aria-selected={activeKey === s.key ? "true" : "false"}
+                className={cx("area-tab", activeKey === s.key && "is-active")}
+              >
+                <Icon name={s.icon} size={15} />
+                <span>{s.label}</span>
+              </Link>
+            ))}
+          </div>
+          {/* Portal target (2026-10-05) — lets a specific console page
+              (currently only queue/page.tsx's "+ Invite someone" button)
+              render into the SAME row as the tab strip, right-aligned,
+              instead of its own row below. Empty on pages that don't
+              portal anything into it. */}
+          <div id="console-header-actions" />
         </div>
       </div>
       <div className="taw-main">{children}</div>

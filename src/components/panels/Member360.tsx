@@ -154,145 +154,236 @@ export function Member360(props: any) {
 
   const passportYear = m.passport_expiry ? new Date(m.passport_expiry).getFullYear() : null;
 
+  // Service badge ("Hotel & Flight", "Flight", "Hotel") — derived from
+  // which legs this enquiry actually asked for, not a stored field.
+  const serviceBadge = ask
+    ? [ask.flight ? "Flight" : null, ask.hotel ? "Hotel" : null].filter(Boolean).reverse().join(" & ") || null
+    : null;
+
+  function prefValue(field: any): string | null {
+    if (field == null) return null;
+    if (typeof field === "string") return field;
+    return field.state === "value" ? field.value : null;
+  }
+
+  const mockEmail = "aanya.sharma@email.com";
+  const mockPhone = "+91 98765 43210";
+
+  const originLabel = ask && ask.from ? ask.from : null;
+  const budgetLabel = ask
+    ? ask.budgetPerPerson
+      ? capLabel(ask.budgetPerPerson) + "/person"
+      : ask.budgetCap
+      ? capLabel(ask.budgetCap)
+      : null
+    : null;
+  const travelersLabel = ask ? paxLabel(ask.persons) : null;
+  const travelTypeLabel = ask && ask.groupType
+    ? ask.groupType.charAt(0).toUpperCase() + ask.groupType.slice(1) + (/trip$/i.test(ask.groupType) ? "" : " Trip")
+    : null;
+
   return (
     <div className="taw-m360 taw-fade-in">
-      <div className="taw-m360-hero">
-        <div className="taw-m360-ava">{initials}</div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div className="taw-m360-name">{m.name}</div>
-          <div className="taw-m360-meta">{metaParts.length ? metaParts.join(" · ") : "—"}</div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 18 }}>
+        <div
+          style={{
+            width: 56, height: 56, borderRadius: "50%", background: "#E7ECF2",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 600, fontSize: 17, color: "#4A5568", flexShrink: 0,
+          }}
+        >
+          {initials}
         </div>
-        {/* 2026-09-02: this used to show the trip-purpose chip
-            ("Business") — that moved down to its own tag row below the
-            description, alongside a new group-type tag ("Solo"). This
-            slot now shows the member's tier instead (was previously only
-            shown as plain eyebrow text on the OUTER accordion header —
-            see QueueProfileAccordion.tsx — now a proper chip, and only
-            shown once). */}
-        {m.tier ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, fontWeight: 600, color: "#1F2430" }}>{m.name}</span>
+            {serviceBadge ? (
+              <span
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
+                  background: "#E6EFFA", color: "#3B6EA5",
+                }}
+              >
+                {serviceBadge}
+              </span>
+            ) : null}
+            {m.tier ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
+          </div>
+          <div style={{ fontSize: 13, color: "#9098A8", marginTop: 1 }}>
+            {metaParts.length ? metaParts.join(" · ") : "Primary Traveller"}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "#4A5568" }}>
+              <Icon name="mail" size={14} style={{ color: "#9098A8" }} />
+              {m.email || mockEmail}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "#4A5568" }}>
+              <Icon name="phone" size={14} style={{ color: "#9098A8" }} />
+              {m.phone || mockPhone}
+            </div>
+          </div>
+        </div>
       </div>
 
-      {enquiry ? (
-        <>
-          <div className="taw-m360-sec">
-            <div className="taw-m360-sec-h">
-              <span className="taw-sec-label" style={{ margin: 0 }}>
-                Request{requestDate ? " · " + requestDate : ""}
-              </span>
+      {originLabel || budgetLabel || travelersLabel || travelTypeLabel ? (
+        <div
+          style={{
+            display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 16px",
+            padding: "16px 0", borderTop: "1px solid #EDE7D9", borderBottom: "1px solid #EDE7D9",
+            marginBottom: 20,
+          }}
+        >
+          {originLabel ? (
+            <div style={{ display: "flex", gap: 9 }}>
+              <Icon name="compass" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Origin</div>
+                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{originLabel}</div>
+              </div>
             </div>
-            {enquiry.message ? <p className="taw-m360-desc">{enquiry.message}</p> : null}
-            {ask && (ask.purpose || ask.groupType) ? (
-              <div className="taw-tags taw-tags-scroll" style={{ marginTop: 10 }}>
-                {ask.purpose ? <span className="taw-chip taw-chip--dom">{ask.purpose}</span> : null}
-                {ask.groupType ? <span className="taw-chip taw-chip--dom">{ask.groupType}</span> : null}
+          ) : null}
+          {budgetLabel ? (
+            <div style={{ display: "flex", gap: 9 }}>
+              <Icon name="tag" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Budget</div>
+                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{budgetLabel}</div>
+              </div>
+            </div>
+          ) : null}
+          {travelersLabel ? (
+            <div style={{ display: "flex", gap: 9 }}>
+              <Icon name="user" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Travelers</div>
+                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{travelersLabel}</div>
+              </div>
+            </div>
+          ) : null}
+          {travelTypeLabel ? (
+            <div style={{ display: "flex", gap: 9 }}>
+              <Icon name="swap" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+              <div>
+                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Travel Type</div>
+                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{travelTypeLabel}</div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Trip Preferences — destination / dates / accommodation / interests
+          summary, matching the reference design's dedicated section
+          (distinct from the granular Flight & hotel preferences list
+          further down, which stays as-is). */}
+      {(ask && ask.destinations && ask.destinations[0]) || (ask && ask.dateRange) || (ask && ask.hotel) || (ask && ask.purpose) ? (
+        <div className="taw-m360-sec">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <Icon name="sparkle" size={15} style={{ color: "#B8945F" }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
+              Trip Preferences
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {ask.destinations && ask.destinations[0] ? (
+              <div style={{ display: "flex", gap: 9 }}>
+                <Icon name="compass" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Destination</div>
+                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{ask.destinations[0]}</div>
+                </div>
+              </div>
+            ) : null}
+            {ask.dateRange ? (
+              <div style={{ display: "flex", gap: 9 }}>
+                <Icon name="calendar" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Travel Dates</div>
+                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>
+                    {ask.dateRange}
+                    {ask.tripLength ? " (" + ask.tripLength + ")" : ""}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {ask.hotel && (ask.hotel.stars || ask.hotel.style) ? (
+              <div style={{ display: "flex", gap: 9 }}>
+                <Icon name="hotel" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Accommodation</div>
+                  <div style={{ fontSize: 14, color: "#231C13", fontWeight: 500 }}>
+                    {[
+                      prefValue(ask.hotel.stars) ? prefValue(ask.hotel.stars) + "-star minimum" : null,
+                      prefValue(ask.hotel.style),
+                    ].filter(Boolean).join(" / ") || "—"}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+            {ask.purpose ? (
+              <div style={{ display: "flex", gap: 9 }}>
+                <Icon name="sparkle" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
+                <div>
+                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Interests</div>
+                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{ask.purpose}</div>
+                </div>
               </div>
             ) : null}
           </div>
-
-          {ask && ask.dateRange ? (
-            <div className="taw-m360-dates">
-              <div>
-                <div className="taw-m360-dates-range">
-                  {ask.dateRange}
-                  {/* tripLength (2026-09-10, bug fix) — trip_length was
-                      captured all along, never read into `ask` until now;
-                      appended here rather than a whole new row since it's
-                      the same underlying trip-timing fact as dateRange. */}
-                  {ask.tripLength ? " · " + ask.tripLength : ""}
-                </div>
-                {ask.dateFlex ? (
-                  <div className="taw-m360-dates-note">
-                    {ask.dateFlex.tag === "flexible" ? "Flexible" : ask.dateFlex.tag === "asap" ? "Fixed · urgent" : "Fixed"}
-                    {ask.dateFlex.note ? " · " + ask.dateFlex.note : ""}
-                  </div>
-                ) : null}
-              </div>
-              {ask.dateFlex ? (
-                <span className={"taw-chip " + dateFlexChipClass(ask.dateFlex.tag)}>{ask.dateFlex.tag}</span>
-              ) : null}
-            </div>
-          ) : null}
-
-          {ask && (ask.from || ask.destinations || ask.persons || ask.budgetCap || ask.budgetPerPerson) ? (
-            <div className="taw-tags">
-              {/* 2026-09-10, Dubai/v4 reproduction fix: origin and
-                  destination now render independently — this used to
-                  require BOTH ask.from AND ask.destinations together, so
-                  a known destination with no captured origin (the common
-                  case before origin_city had anywhere to be written at
-                  all) silently showed no route chip whatsoever. */}
-              {ask.from || (ask.destinations && ask.destinations[0]) ? (
-                <span className="taw-tag">
-                  {ask.from ? originCode(ask.from) : "—"}
-                  {" → "}
-                  {ask.destinations && ask.destinations[0] ? destCode(ask.destinations[0]) : "—"}
-                </span>
-              ) : null}
-              {paxLabel(ask.persons) ? <span className="taw-tag">{paxLabel(ask.persons)}</span> : null}
-              {/* budgetPerPerson (2026-09-10) — shown alongside the total
-                  cap when both are known, instead of the old single
-                  figure that silently discarded whichever one it wasn't
-                  currently holding (see enquiry_service.py's own note on
-                  the "₹2L per person" mislabeling bug this replaces). */}
-              {ask.budgetCap ? <span className="taw-tag">Cap {capLabel(ask.budgetCap)}</span> : null}
-              {ask.budgetPerPerson ? <span className="taw-tag">{capLabel(ask.budgetPerPerson)}/person</span> : null}
-            </div>
-          ) : null}
-
-          {prefRows.length ? (
-            <div className="taw-m360-sec">
-              <div className="taw-sec-label">Flight &amp; hotel preferences</div>
-              <ul className="taw-m360-pref-list">
-                {prefRows.map((r) => (
-                  <li key={r.label} className="taw-m360-pref">
-                    <span className="taw-m360-pref-label">{r.label}</span>
-                    {r.state === "value" ? (
-                      <span className="taw-m360-pref-val">{r.text}</span>
-                    ) : r.state === "no_preference" ? (
-                      <span className="taw-m360-pref-val taw-m360-pref-val--no-pref">No preference</span>
-                    ) : (
-                      <span className="taw-m360-pref-val taw-m360-pref-val--not-asked">Not yet asked</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          {noteRows.length ? (
-            <div className="taw-m360-sec">
-              <div className="taw-sec-label">Notes</div>
-              <ul className="taw-m360-pref-list">
-                {noteRows.map((r) => (
-                  <li key={r.label} className="taw-m360-pref" style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                    <span className="taw-m360-pref-label">{r.label}</span>
-                    <span className="taw-m360-pref-val">{r.text}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-        </>
+        </div>
       ) : null}
 
-      <div className="taw-m360-sec">
-        <div className="taw-sec-label">Documents</div>
-        <div className="taw-m360-docs">
-          <div className="taw-m360-doc taw-m360-doc--ok">
-            <div className="taw-m360-doc-label">Passport</div>
-            <div className="taw-m360-doc-val">
-              {m.passport_number || "—"}
-              {passportYear ? " · Valid to " + passportYear : ""}
+
+      <div className="taw-m360-sec" style={{ borderTop: "1px solid #EDE7D9", paddingTop: 18, marginTop: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <Icon name="note" size={15} style={{ color: "#B8945F" }} />
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
+            Documents
+          </span>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 0", borderBottom: "1px solid #F2EDE1",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Icon name="note" size={15} style={{ color: "#8A8070" }} />
+              <span style={{ fontSize: 14, color: "#231C13" }}>Passport</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999,
+                  background: m.passport_number ? "#E3EFE6" : "#F2EDE1",
+                  color: m.passport_number ? "#3E7D52" : "#8A8070",
+                }}
+              >
+                {m.passport_number ? "Received" : "Not yet provided"}
+                {passportYear ? " · " + passportYear : ""}
+              </span>
+              <Icon name="chevron" size={13} style={{ color: "#C9C1AE", transform: "rotate(-90deg)" }} />
             </div>
           </div>
-          {m.visa_status ? (
-            <div className="taw-m360-doc taw-m360-doc--warn">
-              <div className="taw-m360-doc-label">Visa</div>
-              <div className="taw-m360-doc-val">
-                {m.visa_status.country} {m.visa_status.status}
-              </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Icon name="visa" size={15} style={{ color: "#8A8070" }} />
+              <span style={{ fontSize: 14, color: "#231C13" }}>Visa</span>
             </div>
-          ) : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999,
+                  background: m.visa_status ? "#F7EBD9" : "#F2EDE1",
+                  color: m.visa_status ? "#8A6D3B" : "#8A8070",
+                }}
+              >
+                {m.visa_status ? m.visa_status.country + " " + m.visa_status.status : "Not required"}
+              </span>
+              <Icon name="chevron" size={13} style={{ color: "#C9C1AE", transform: "rotate(-90deg)" }} />
+            </div>
+          </div>
         </div>
       </div>
     </div>

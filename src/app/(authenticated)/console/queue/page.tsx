@@ -19,7 +19,8 @@
  * code shape). No sign-in required on the recipient's end: the code is
  * entered directly on Customerfe's ClaimPage.
  * ===========================================================================*/
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { WorkbenchTab } from "../../../../components/panels";
 import { useWorkbench } from "../../../../lib/workbenchContext";
 
@@ -410,11 +411,19 @@ function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
 export default function ConsoleQueuePage() {
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, currentAdvisor } = useWorkbench();
 
+  const [headerActionsEl, setHeaderActionsEl] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setHeaderActionsEl(document.getElementById("console-header-actions"));
+  }, []);
+
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px" }}>
-        <InviteSomeoneButton advisorName={currentAdvisor ? currentAdvisor.name : ""} />
-      </div>
+      {headerActionsEl
+        ? createPortal(
+            <InviteSomeoneButton advisorName={currentAdvisor ? currentAdvisor.name : ""} />,
+            headerActionsEl
+          )
+        : null}
       <WorkbenchTab
         enquiries={enquiries}
         members={members}

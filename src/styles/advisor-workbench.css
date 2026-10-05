@@ -81,7 +81,7 @@ background:var(--champagne);border:1px solid var(--line2);}
    margin:auto correctly centers the capped box. This was a real,
    pre-existing bug in every .taw-main screen, not something introduced
    by Console's own column-width changes. */
-.taw-main{width:100%;max-width:1480px;margin:0 auto;padding:8px 8px 8px 16px;flex:1;min-height:0;display:flex;flex-direction:column;background:#FAF6EB;overflow-y:auto;}
+.taw-main{width:100%;max-width:1480px;margin:0 auto;padding:4px 8px 8px 16px;flex:1;min-height:0;display:flex;flex-direction:column;background:#FAF6EB;overflow-y:auto;}
 .taw-grid{display:grid;gap:8px;}
 /* flex:1;min-height:0 (2026-09-04, direct request) — same fix as
    .taw-cols-3 below: without it, this row (and everything inside,
@@ -1634,7 +1634,7 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
    (8px -> 16px) per direct request, so the header's total height is
    unchanged — just redistributed between "space above the title" and
    "space between title and tabs". */
-.area-header{display:flex;flex-direction:column;gap:16px;padding:16px 8px 0 16px;background:#FDFBF7;}
+.area-header{display:flex;flex-direction:column;gap:10px;padding:12px 8px 0 16px;background:#FDFBF7;}
 .area-title-row{display:flex;align-items:center;gap:8px;}
 .area-title-row h1{font-family:var(--serif);font-weight:600;font-size:18px;color:var(--ink);margin:0;}
 .area-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
