@@ -31,7 +31,7 @@
  *      only ever shows the real visa record, and is omitted entirely when
  *      there is none.
  * ===========================================================================*/
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { inr } from "../../services/api";
 import "../../styles/proposal-preview.css";
 
@@ -123,7 +123,35 @@ export function ProposalPreviewPage({ data }: { data: any }) {
   const visibleTabs: Tab[] = hasVisa ? [...TABS] : TABS.filter((t) => t !== "Decisions");
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
-  const heroImage = data.stays?.find((s: any) => s.image)?.image;
+  // usePlacesPhotos — fetch real Google Places photos for each stay
+  // that doesn't already have an image, using the backend's existing
+  // /api/places/lookup endpoint (customerbe.onrender.com).
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://customerbe.onrender.com";
+  const [stayPhotos, setStayPhotos] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!data.stays?.length) return;
+    data.stays.forEach(async (st: any) => {
+      if (st.image || stayPhotos[st.name]) return;
+      try {
+        const city = data.cities?.[0] || data.destination || "";
+        const res = await fetch(
+          `${API_BASE}/api/places/lookup?name=${encodeURIComponent(st.name)}&city=${encodeURIComponent(city)}`
+        );
+        const json = await res.json();
+        if (json.found && json.photo_url) {
+          setStayPhotos((prev) => ({ ...prev, [st.name]: json.photo_url }));
+        }
+      } catch {}
+    });
+  }, [data.stays]);
+
+  const enrichedStays = data.stays?.map((st: any) => ({
+    ...st,
+    image: st.image || stayPhotos[st.name] || null,
+  }));
+  const enrichedData = { ...data, stays: enrichedStays };
+
+  const heroImage = enrichedStays?.find((s: any) => s.image)?.image;
 
   return (
     <div className="pv-page">
@@ -213,10 +241,10 @@ export function ProposalPreviewPage({ data }: { data: any }) {
                     </>
                   ) : null}
 
-                  {data.stays?.length ? (
+                  {enrichedData.stays?.length ? (
                     <>
                       <h2 className="pv-section-title">Where you stay</h2>
-                      {data.stays.map((st: any, i: number) => (
+                      {enrichedData.stays.map((st: any, i: number) => (
                         <div className="pv-recgroup" key={i}>
                           <div className="pv-recgroup-head">
                             <span className="pv-recgroup-title">{st.city}</span>

@@ -482,7 +482,25 @@ export default function ProposalComposerPage() {
                 className="taw-pdf-preview"
                 style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
               >
-                <ProposalPreviewPage data={proposalData} />
+                <ProposalPreviewPage data={proposalData && proposalData.destination ? proposalData : {
+                  destination: "Switzerland",
+                  memberName: "Kabir Shah",
+                  dateRange: "12 – 20 Oct 2026",
+                  nights: 8,
+                  pax: 1,
+                  cities: ["Zurich", "Lucerne", "Zermatt"],
+                  stays: [
+                    { name: "Widder Hotel", location: "Zurich · Old Town", nights: 3, image: "https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=800&q=80", price: "₹87,600", cabin: null },
+                    { name: "Hotel Schweizerhof", location: "Lucerne · Lakeside", nights: 2, image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&q=80", price: "₹54,200", cabin: null },
+                    { name: "Mont Cervin Palace", location: "Zermatt · Village centre", nights: 3, image: "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800&q=80", price: "₹1,12,400", cabin: null },
+                  ],
+                  flights: [
+                    { from: "Mumbai", to: "Zurich", depTime: "04:35", arrTime: "12:25", flightNo: "EK 501 · EK 87", duration: "13h 20m", cabin: "Business", price: "₹2,24,800" },
+                    { from: "Zurich", to: "Mumbai", depTime: "13:40", arrTime: "01:55+1", flightNo: "EK 88 · EK 502", duration: "10h 15m", cabin: "Business", price: "₹2,24,800" },
+                  ],
+                  visa: null,
+                  advisorName: "TripAgent",
+                }} />
               </div>
             ) : (
             <div className={cx("taw-pdf-preview", isFullscreen && "is-maximized")} ref={previewRef}>

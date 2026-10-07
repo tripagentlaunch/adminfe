@@ -57,7 +57,16 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
-import { useState } from "react";
+import { useRef, useState } from "react";
+
+async function parseWhatsAppChat(text: string): Promise<Record<string, any>> {
+  const res = await fetch("/api/parse-chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  try { return await res.json(); } catch { return {}; }
+}
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
@@ -77,7 +86,9 @@ function prefValue(field: any): string | null {
   return field.state === "value" ? field.value : null;
 }
 
-function ConversationSummaryPanel({ enquiry, member, onGenerate }: any) {
+function ConversationSummaryPanel({ enquiry, member, onGenerate, onParsed }: any) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [parsing, setParsing] = useState(false);
   const ask = enquiry && enquiry.ask;
   const stars = ask && ask.hotel ? prefValue(ask.hotel.stars) : null;
   const style = ask && ask.hotel ? prefValue(ask.hotel.style) : null;
@@ -116,7 +127,7 @@ function ConversationSummaryPanel({ enquiry, member, onGenerate }: any) {
           </div>
         ) : null}
 
-        {member ? (
+        {(member || (ask && ask.traveller_name)) ? (
           <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
               <Icon name="user" size={14} style={{ color: "#4A5568" }} />
@@ -125,15 +136,15 @@ function ConversationSummaryPanel({ enquiry, member, onGenerate }: any) {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 16px" }}>
               <div>
                 <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Traveller Name</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.name || "—"}</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.name) || (ask && ask.traveller_name) || "—"}</div>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Email</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.email || "—"}</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.email) || "—"}</div>
               </div>
               <div>
                 <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Phone</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{member.phone || "—"}</div>
+                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.phone) || "—"}</div>
               </div>
               {ask && ask.from ? (
                 <div>
@@ -158,6 +169,28 @@ function ConversationSummaryPanel({ enquiry, member, onGenerate }: any) {
         ) : null}
 
         <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 10 }}>Parse WhatsApp Chat (test)</div>
+          <input ref={fileRef} type="file" accept=".txt" style={{ display: "none" }} onChange={async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setParsing(true);
+            try {
+              const text = await file.text();
+              console.log("[parse] file read, length:", text.length);
+              const parsed = await parseWhatsAppChat(text);
+              console.log("[parse] parsed result:", parsed);
+              onParsed(parsed);
+            } catch (err) {
+              console.error("[parse] ERROR:", err);
+            } finally {
+              setParsing(false);
+              if (fileRef.current) fileRef.current.value = "";
+            }
+          }} />
+          <button className="taw-btn taw-btn--block" disabled={parsing} onClick={() => fileRef.current?.click()} style={{ marginBottom: 10 }}>
+            {parsing ? <Spinner /> : <Icon name="inbox" size={15} />}
+            {parsing ? "Parsing with Haiku…" : "Upload WhatsApp .txt export"}
+          </button>
           <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 10 }}>Next Step</div>
           <button className="taw-btn taw-btn--primary taw-btn--block" onClick={onGenerate}>
             <Icon name="sparkle" size={16} />
@@ -266,8 +299,16 @@ export function WorkbenchTab(props: any) {
   // traveller-profile's own real, backend-shaped output — is the correct
   // source; merged in here (once loaded) rather than fixed at each
   // individual consumer, so every one of them benefits from a single fix.
+  const [parsedAsk, setParsedAskRaw] = useState<Record<string, any>>(() => {
+    try { return JSON.parse(sessionStorage.getItem("parsedAsk") || "{}"); } catch { return {}; }
+  });
+  const setParsedAsk = (v: Record<string, any>) => {
+    try { sessionStorage.setItem("parsedAsk", JSON.stringify(v)); } catch {}
+    setParsedAskRaw(v);
+  };
   const askReady = !!(travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selEnqId);
-  const selectedEnquiryWithAsk = askReady ? { ...selectedEnquiry, ask: travellerProfile.enquiry.ask } : selectedEnquiry;
+  const baseAsk = askReady ? travellerProfile.enquiry.ask : (selectedEnquiry?.ask || {});
+  const selectedEnquiryWithAsk = { ...selectedEnquiry, ask: { ...baseAsk, ...parsedAsk } };
   const itineraryData = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
   // generating (2026-09-06) — "Generate AI Itinerary" now waits on a real
   // backend call (POST /enquiries/{id}/generate-itinerary — real Claude
@@ -297,6 +338,7 @@ export function WorkbenchTab(props: any) {
           enquiry={selectedEnquiryWithAsk}
           member={member || (travellerProfile && travellerProfile.member)}
           onGenerate={() => setSummaryDismissedFor(selEnqId)}
+          onParsed={(parsed: Record<string, any>) => { console.log("[WorkbenchTab] onParsed called with:", parsed); setParsedAsk(parsed); }}
         />
       ) : (
       <Card
