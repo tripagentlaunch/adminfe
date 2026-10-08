@@ -1434,9 +1434,9 @@ function siteAccessRequestsPending() {
 }
 
 // siteApproveAccessRequest(id) -> { ok, code, expires_at, expires_on,
-// link, email_sent: false } — a real invite code, generated for real, but
-// (per direct request — Phase 5 email wiring isn't finished) never
-// auto-emailed; show it in the UI for manual sending.
+// link, email_sent } — a real invite code, emailed to the applicant.
+// email_sent=false means the send failed; the code is still valid and the
+// UI shows it for manual sharing.
 function siteApproveAccessRequest(id) {
   return siteApiCall("/access-requests/" + encodeURIComponent(id) + "/approve", { method: "POST", body: {} });
 }
