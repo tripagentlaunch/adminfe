@@ -157,99 +157,6 @@ function updatePassword(newPassword: string) {
   return _client.auth.updateUser({ password: newPassword });
 }
 
-// -----------------------------------------------------------------------
-// Passwordless member login (Gate 0, Stage 1/2). These talk to the
-// `auth-otp` edge function with the SAME anon-key headers api.ts uses, then
-// exchange the returned one-time token_hash for a real Supabase session via
-// verifyOtp — at which point onAuthStateChange (above) updates _token and
-// api.ts starts sending the user JWT as the bearer. Safe no-ops if the
-// supabase-js client failed to load (CDN blocked).
-// -----------------------------------------------------------------------
-
-// requestCode(identifier[, channel]) -> Promise<parsed JSON>
-// identifier = phone (any format) or email; channel optional ('sms' etc).
-function requestCode(identifier: string, channel?: string) {
-  var payload: any = { action: "request_code", identifier: identifier };
-  if (channel) payload.channel = channel;
-  return fetch(URL + "/functions/v1/auth-otp", {
-    method: "POST",
-    headers: {
-      apikey: KEY,
-      Authorization: "Bearer " + KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  }).then(function (res) {
-    return res.json().catch(function () {
-      return { ok: false, reason: "BAD_RESPONSE" };
-    });
-  });
-}
-
-// verifyCode(identifier, code) -> Promise<{ ok, member_id? }>
-// On a verified response carrying session_bridge, exchanges the one-time
-// token_hash for a real session. The existing onAuthStateChange then caches
-// the access token, so api.ts immediately authenticates as this member.
-function verifyCode(identifier: string, code: string) {
-  return fetch(URL + "/functions/v1/auth-otp", {
-    method: "POST",
-    headers: {
-      apikey: KEY,
-      Authorization: "Bearer " + KEY,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      action: "verify_code",
-      identifier: identifier,
-      code: code,
-    }),
-  })
-    .then(function (res) {
-      return res.json().catch(function () {
-        return { ok: false, reason: "BAD_RESPONSE" };
-      });
-    })
-    .then(function (data: any) {
-      if (!data || !data.ok || !data.session_bridge) {
-        return {
-          ok: false,
-          reason: (data && data.reason) || "VERIFY_FAILED",
-        };
-      }
-      if (!_client) {
-        // No supabase-js to exchange the bridge — surface the gap honestly.
-        return { ok: false, reason: "AUTH_UNAVAILABLE" };
-      }
-      var sb = data.session_bridge;
-      return _client.auth
-        .verifyOtp({
-          token_hash: sb.token_hash,
-          type: sb.type || "magiclink",
-        })
-        .then(function (res: any) {
-          if (res && res.error) {
-            return {
-              ok: false,
-              reason: res.error.message || "EXCHANGE_FAILED",
-            };
-          }
-          // onAuthStateChange has now (or will imminently) set _token.
-          var s = res && res.data ? res.data.session : null;
-          if (s && s.access_token) {
-            _token = s.access_token;
-            notify();
-          }
-          return { ok: true, member_id: data.member_id || null };
-        })
-        .catch(function (e: any) {
-          return {
-            ok: false,
-            reason: (e && e.message) || "EXCHANGE_FAILED",
-          };
-        });
-    });
-}
-
 // Subscribe to token changes (fn receives the new token or null).
 function onChange(fn: (t: string | null) => void) {
   if (typeof fn === "function") _listeners.push(fn);
@@ -268,7 +175,5 @@ export {
   signOut,
   resetPasswordForEmail,
   updatePassword,
-  requestCode,
-  verifyCode,
   onChange,
 };
