@@ -31,8 +31,6 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { MOCK_ENQUIRIES, MOCK_MEMBERS_BY_ID } from "../lib/mockEnquiries";
-import { MOCK_ITINERARY } from "../lib/mockItinerary";
 import { blankItinerary, addCartItemToItinerary, boundFromDateRange } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
@@ -98,15 +96,17 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       setAdvisors(adv || []);
       if (!advisorId && adv && adv.length) setAdvisorId(adv[0].id);
       setMembers(mem || []);
-      const byId: Record<string, any> = { ...MOCK_MEMBERS_BY_ID };
+      const byId: Record<string, any> = {};
       (mem || []).forEach((m: any) => {
         byId[m.id] = m;
       });
       setMembersById(byId);
-      // Mock enquiries (see lib/mockEnquiries.ts) are merged in ahead of
-      // real ones so they're immediately visible for the demo — real
-      // Supabase data still loads and appears alongside them.
-      setEnquiries(MOCK_ENQUIRIES.concat(enq || []));
+      // Real enquiries only (2026-10-08, direct request — make dev real):
+      // the demo MOCK_ENQUIRIES/MOCK_MEMBERS_BY_ID are no longer merged in.
+      // Approving an access request now creates the member + an open
+      // enquiry (Customerbe access_request_service.approve()), so real
+      // applicants appear here.
+      setEnquiries(enq || []);
       setInboxLoading(false);
 
       const statusByEnquiry: Record<string, any> = {};
@@ -114,34 +114,6 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         statusByEnquiry[s.enquiry_id] = s;
       });
       setPipelineStatusByEnquiry(statusByEnquiry);
-
-      // Pipeline demo seed (2026-09-08, direct request) — "populate
-      // pipeline with mock data" so its "Building" stage is visible
-      // without driving the app by hand. Real seeded state (same
-      // itinerariesByEnquiry every other flow reads/writes), not a
-      // display-only overlay. Resets on reload, same as every other
-      // piece of local state here.
-      //
-      // REMOVED 2026-09-14 (direct request, real "Widder Hotel, Zurich"
-      // export bug) — this used to also seed mock-enq-3..6 here AND push
-      // all four straight into proposalQueue (below), all four sharing
-      // the SAME generic MOCK_ITINERARY (a hand-authored demo itinerary,
-      // "Widder Hotel, Zurich" among its stays — see mockItinerary.ts) —
-      // completely disconnected from each enquiry's own real ask/
-      // ai_draft. An advisor could reach and even export/share a
-      // Proposal PDF built entirely from that fake content. mock-enq-4/5/6
-      // (and their backing mock-mem-4/5/6) existed ONLY for this, so
-      // they're deleted outright from mockEnquiries.ts, not just unseeded
-      // here. mock-enq-3 keeps its OWN, unrelated ai_draft mismatch-demo
-      // purpose in MOCK_ENQUIRIES (Console/Itinerary Builder's "AI draft
-      // vs. what was actually asked" testing) — only its proposalQueue/
-      // itinerariesByEnquiry presence here is gone. mock-enq-2's own seed
-      // below is untouched (a different, still-wanted demo: Pipeline's
-      // "Building Itinerary" stage).
-      setItinerariesByEnquiry((prev) => ({
-        ...prev,
-        "mock-enq-2": MOCK_ITINERARY, // Building Itinerary
-      }));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
