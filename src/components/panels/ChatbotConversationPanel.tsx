@@ -30,6 +30,12 @@ interface ConvoMessage {
   parts?: string[] | null;
 }
 
+interface Usage {
+  spentUsd: number;
+  capUsd: number | null;
+  remainingUsd: number | null;
+}
+
 function memberCode(member: any): string {
   if (!member) return "";
   return String(member.invitation_code || member.customer_code || member.code || "").trim();
@@ -74,6 +80,7 @@ export function ChatbotConversationPanel({ member }: any) {
   const waLink = digits ? "https://wa.me/" + digits : null;
 
   const [messages, setMessages] = useState<ConvoMessage[]>([]);
+  const [usage, setUsage] = useState<Usage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -90,6 +97,7 @@ export function ChatbotConversationPanel({ member }: any) {
         .then((data: any) => {
           if (cancelled) return;
           setMessages(Array.isArray(data && data.messages) ? data.messages : []);
+          setUsage(data && data.usage ? data.usage : null);
           setError(null);
         })
         .catch((err: any) => {
@@ -143,6 +151,29 @@ export function ChatbotConversationPanel({ member }: any) {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", height: 480 }}>
+          {usage && usage.capUsd ? (
+            (() => {
+              const pct = Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100));
+              const danger = pct >= 90;
+              return (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#6B6558", marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600 }}>Claude usage</span>
+                    <span>
+                      ${usage.spentUsd.toFixed(2)} of ${usage.capUsd!.toFixed(2)} used · ${(usage.remainingUsd ?? 0).toFixed(2)} left
+                    </span>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: "#ECE7DC", overflow: "hidden" }}>
+                    <div style={{ width: pct + "%", height: "100%", background: danger ? "#B03434" : "#B8945F" }} />
+                  </div>
+                </div>
+              );
+            })()
+          ) : usage ? (
+            <div style={{ fontSize: 11.5, color: "#6B6558", marginBottom: 12 }}>
+              Claude usage: ${usage.spentUsd.toFixed(2)} (no cap set)
+            </div>
+          ) : null}
           <div
             style={{
               flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10,
