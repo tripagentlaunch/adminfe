@@ -17,7 +17,11 @@ import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
 const URL = SUPABASE_URL;
 const KEY = SUPABASE_KEY;
 
-const FUNCTIONS_BASE = URL + "/functions/v1/";
+// Server functions live in adminbe (FastAPI) under /fn/<name> — they
+// replaced the Supabase edge functions previously called at
+// <supabase>/functions/v1/<name>. Same request/response bodies; auth is the
+// advisor's Supabase session JWT as the bearer (adminbe verifies it).
+const FUNCTIONS_BASE = (process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8787") + "/fn/";
 const REST_BASE = URL + "/rest/v1/";
 
 // ---------------------------------------------------------------------------
@@ -59,10 +63,11 @@ function authBearer() {
   return null;
 }
 
+// No `apikey` header: these go to adminbe, not Supabase, and adminbe's CORS
+// only allows Authorization + Content-Type.
 function fnHeaders() {
   var jwt = authBearer();
   return {
-    apikey: KEY,
     Authorization: "Bearer " + (jwt || KEY),
     "Content-Type": "application/json",
   };
@@ -212,7 +217,6 @@ function callAuthed(fn, body) {
   return fetch(url, {
     method: "POST",
     headers: {
-      apikey: KEY,
       Authorization: "Bearer " + jwt,
       "Content-Type": "application/json",
     },
@@ -255,7 +259,7 @@ function db(path, opts?) {
   if (!path || typeof path !== "string") {
     return Promise.reject(new ApiError("db() requires a PostgREST path."));
   }
-  // SECURITY: reads route through the service-role `data-read` function with a
+  // SECURITY: reads route through adminbe's service-role /fn/data-read with a
   // strict table+column allowlist. Once RLS is enabled the public key cannot
   // read tables directly, so member PII (passports) is never browser-exposed.
   var clean = path.charAt(0) === "/" ? path.slice(1) : path;
