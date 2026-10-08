@@ -45,8 +45,13 @@
  * mechanics. Per direct confirmation: the collapsed state and the
  * "nothing selected" empty state share the exact same placeholder for
  * now ("we'll work on making it better but for now it's this").
+ *
+ * 2026-10-09: Traveller Profile now lists every traveller (members) when
+ * nothing is selected, with a search box. Picking one with an open
+ * enquiry selects that enquiry (full backend profile); one without just
+ * shows their member record. "All travellers" goes back to the list.
  * ===========================================================================*/
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cx } from "../../lib/cx";
 import { Empty, Icon } from "../ui";
 import { EnquiryInbox } from "./EnquiryInbox";
@@ -54,11 +59,14 @@ import { Member360 } from "./Member360";
 
 export function QueueProfileAccordion(props: any) {
   const {
-    enquiries, members, membersById, inboxLoading, selEnqId,
+    enquiries, members, membersById, inboxLoading, selEnqId, member,
     onSelectEnquiry, onPickMember, travellerProfile, travellerProfileLoading,
   } = props;
 
   const [open, setOpen] = useState<"queue" | "profile">("queue");
+  // showList — true after "All travellers", until the next pick. With
+  // nothing selected the list shows regardless.
+  const [showList, setShowList] = useState(false);
 
   // Only two mutually-exclusive sections, so a real toggle (open <-> the
   // other one) is the same function regardless of WHICH toggle was
@@ -73,7 +81,19 @@ export function QueueProfileAccordion(props: any) {
 
   function selectEnquiry(e: any, m: any) {
     onSelectEnquiry(e, m);
+    setShowList(false);
     setOpen("profile"); // auto-collapse Queue / open Profile — the "B" half of Mode H
+  }
+
+  function selectTraveller(m: any) {
+    const latestOpen = enquiries
+      .filter((e: any) => e.member_id === m.id && (e.status || "open") !== "closed")
+      .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+    if (latestOpen) selectEnquiry(latestOpen, m);
+    else {
+      onPickMember(m);
+      setShowList(false);
+    }
   }
 
   const openEnquiries = enquiries.filter((e: any) => (e.status || "open") !== "closed");
@@ -86,7 +106,8 @@ export function QueueProfileAccordion(props: any) {
   // for exactly the enquiries this real profile endpoint exists for —
   // gating on `selEnqId` instead is what actually reflects "is there an
   // enquiry selected for this endpoint to load."
-  const showProfilePlaceholder = !profileOpen || !selEnqId;
+  const showProfilePlaceholder = !profileOpen;
+  const showTravellerList = showList || (!selEnqId && !member);
 
   return (
     <div className="taw-acc-stack">
@@ -123,6 +144,7 @@ export function QueueProfileAccordion(props: any) {
         <div className={"taw-acc-h" + (profileOpen ? " is-open" : "")}>
           <Icon name="compass" size={20} />
           <h3>Traveller Profile</h3>
+          {members.length ? <span className="sub">{members.length} travellers</span> : null}
           <button
             className="taw-acc-toggle"
             onClick={toggle}
@@ -132,22 +154,79 @@ export function QueueProfileAccordion(props: any) {
             <Icon name="chevron" size={15} />
           </button>
         </div>
-        <div className="taw-acc-body">
+        <div className={cx("taw-acc-body", profileOpen && showTravellerList && "flush")}>
           {showProfilePlaceholder ? (
             <Empty icon={<Icon name="user" size={26} />}>
-              Select an enquiry, or expand this section, to see their traveller profile here.
+              Select an enquiry, or expand this section to browse all travellers.
             </Empty>
-          ) : travellerProfileLoading ? (
-            <Empty icon={<Icon name="user" size={26} />}>Loading traveller profile…</Empty>
-          ) : travellerProfile ? (
-            <Member360 member={travellerProfile.member} enquiry={travellerProfile.enquiry} />
+          ) : showTravellerList ? (
+            <TravellerList members={members} loading={inboxLoading} selectedId={member && member.id} onSelect={selectTraveller} />
           ) : (
-            <Empty icon={<Icon name="user" size={26} />}>
-              Couldn't load this traveller's profile — try selecting the enquiry again.
-            </Empty>
+            <>
+              <button type="button" className="taw-trav-back" onClick={() => setShowList(true)}>
+                ← All travellers
+              </button>
+              {!selEnqId ? (
+                <Member360 member={member} />
+              ) : travellerProfileLoading ? (
+                <Empty icon={<Icon name="user" size={26} />}>Loading traveller profile…</Empty>
+              ) : travellerProfile ? (
+                <Member360 member={travellerProfile.member} enquiry={travellerProfile.enquiry} />
+              ) : (
+                <Empty icon={<Icon name="user" size={26} />}>
+                  Couldn&apos;t load this traveller&apos;s profile — try selecting the enquiry again.
+                </Empty>
+              )}
+            </>
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function TravellerList({ members, loading, selectedId, onSelect }: { members: any[]; loading: boolean; selectedId?: string; onSelect: (m: any) => void }) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return members;
+    return members.filter((m: any) =>
+      [m.name, m.email, m.phone].some((v) => v && String(v).toLowerCase().includes(needle))
+    );
+  }, [members, q]);
+
+  return (
+    <div className="taw-trav">
+      <div className="taw-trav-search">
+        <input
+          className="taw-input"
+          type="search"
+          placeholder="Search by name, email or phone"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
+      </div>
+      {loading && !members.length ? (
+        <Empty icon={<Icon name="user" size={26} />}>Loading travellers…</Empty>
+      ) : !filtered.length ? (
+        <Empty icon={<Icon name="user" size={26} />}>{q ? "No travellers match that search." : "No travellers yet."}</Empty>
+      ) : (
+        <div className="taw-enq">
+          {filtered.map((m: any) => (
+            <button
+              key={m.id}
+              type="button"
+              className={cx("taw-enq-item", selectedId === m.id && "is-active")}
+              onClick={() => onSelect(m)}
+            >
+              <div className="taw-enq-top">
+                <div className="taw-enq-name">{m.name || "Unnamed traveller"}</div>
+              </div>
+              <div className="taw-enq-meta">{[m.email, m.phone].filter(Boolean).join(" · ") || "No contact details"}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ export interface WorkbenchContextValue {
   membersById: Record<string, any>;
   enquiries: any[];
   inboxLoading: boolean;
+  reloadInbox: () => Promise<void>;
   creating: boolean;
   justCreated: string | null;
   focusOrderId: string | null;

@@ -436,6 +436,7 @@ export function WorkbenchTab(props: any) {
         travellerProfile={travellerProfile}
         travellerProfileLoading={travellerProfileLoading}
         selEnqId={selEnqId}
+        member={member}
         onSelectEnquiry={onSelectEnquiry}
         onPickMember={onPickMember}
       />

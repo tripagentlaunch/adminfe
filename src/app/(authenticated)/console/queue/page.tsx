@@ -13,27 +13,26 @@
  * someone" button + modal, visible on this page. Generates a named
  * invite code (first 2 letters of customer name + HHMM generation time,
  * 12-hour no am/pm + first 2 letters of advisor name, e.g. BH0325AN) via
- * the backend's /admin/invite-customer-named-code endpoint (added
- * alongside invite_service.py's existing create_invitation_code()
- * pipeline — same email + site_invitation_codes row, just a different
- * code shape). No sign-in required on the recipient's end: the code is
- * entered directly on Customerfe's ClaimPage.
+ * adminbe's /admin/invite-customer-named-code (2026-10-09: moved from
+ * Customerbe so the call carries the advisor's session — the email is
+ * signed by, and replies go to, the signed-in advisor). No sign-in
+ * required on the recipient's end: the code is entered directly on
+ * Customerfe's ClaimPage.
  * ===========================================================================*/
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { WorkbenchTab } from "../../../../components/panels";
 import { useWorkbench } from "../../../../lib/workbenchContext";
+import { inviteCustomerNamedCode } from "../../../../services/api";
+import { errText } from "../../../../lib/advisorHelpers";
 
-const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8001";
-const SITE_API_BASE = process.env.NEXT_PUBLIC_SITE_API_BASE || "http://127.0.0.1:8000";
-
-function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
+function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ code: string } | null>(null);
+  const [result, setResult] = useState<{ code: string; emailSent: boolean; emailError: string } | null>(null);
   const [err, setErr] = useState("");
 
   async function submit() {
@@ -44,24 +43,15 @@ function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
     }
     setSubmitting(true);
     try {
-      const res = await fetch(`${SITE_API_BASE}/admin/invite-customer-named-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          customer_name: name.trim(),
-          customer_email: email.trim(),
-          customer_phone: phone.trim(),
-          advisor_name: advisorName,
-        }),
+      const data: any = await inviteCustomerNamedCode({
+        customer_name: name.trim(),
+        customer_email: email.trim(),
+        customer_phone: phone.trim(),
       });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `Request failed (${res.status})`);
-      }
-      const data = await res.json();
-      setResult({ code: data.code });
+      setResult({ code: data.code, emailSent: data.email_sent !== false, emailError: data.email_error || "" });
+      onInvited();
     } catch (e: any) {
-      setErr(e.message || "Something went wrong — please try again.");
+      setErr(errText(e) || "Something went wrong — please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -174,9 +164,16 @@ function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
                 </>
               ) : (
                 <>
-                  <p className="invite-description">
-                    Invitation sent to <strong>{email}</strong>. Their code:
-                  </p>
+                  {result.emailSent ? (
+                    <p className="invite-description">
+                      Invitation sent to <strong>{email}</strong>. Their code:
+                    </p>
+                  ) : (
+                    <p className="invite-description" style={{ color: "#b03434" }}>
+                      The code was issued but the email to <strong>{email}</strong> didn&apos;t send
+                      {result.emailError ? ` (${result.emailError})` : ""}. Share this code with them directly:
+                    </p>
+                  )}
                   <div
                     style={{
                       textAlign: "center",
@@ -409,7 +406,7 @@ function InviteSomeoneButton({ advisorName }: { advisorName: string }) {
 }
 
 export default function ConsoleQueuePage() {
-  const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, currentAdvisor } = useWorkbench();
+  const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, reloadInbox } = useWorkbench();
 
   const [headerActionsEl, setHeaderActionsEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -420,7 +417,7 @@ export default function ConsoleQueuePage() {
     <div>
       {headerActionsEl
         ? createPortal(
-            <InviteSomeoneButton advisorName={currentAdvisor ? currentAdvisor.name : ""} />,
+            <InviteSomeoneButton onInvited={reloadInbox} />,
             headerActionsEl
           )
         : null}

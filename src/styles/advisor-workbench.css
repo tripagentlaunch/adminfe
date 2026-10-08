@@ -1661,3 +1661,10 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
 .area-tabs-toggle:hover{background:var(--bone);color:var(--ink);}
 .area-tabs-toggle svg{transition:transform var(--dur) var(--ease);}
 .area-tabs-toggle[aria-expanded="true"] svg{transform:rotate(180deg);}
+
+/* Traveller Profile's travellers list (2026-10-09, QueueProfileAccordion.tsx). */
+.taw-trav{display:flex;flex-direction:column;min-height:0;}
+.taw-trav-search{padding:12px 12px 8px;position:sticky;top:0;background:var(--card);z-index:1;}
+.taw-trav-search .taw-input{width:100%;}
+.taw-trav-back{border:0;background:transparent;padding:0 0 10px;font-family:var(--sans);font-size:12px;font-weight:600;color:var(--taupe);cursor:pointer;}
+.taw-trav-back:hover{color:var(--ink);}

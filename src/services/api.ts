@@ -1497,6 +1497,36 @@ function inviteCustomer(payload) {
     });
 }
 
+// inviteCustomerNamedCode({ customer_name, customer_email, customer_phone })
+// — the console's "Invite someone". adminbe issues the BH0325AN-style code,
+// emails it signed by the signed-in advisor (taken from the session, not
+// sent from here) and queues the invitee as a member + open enquiry.
+// Resolves { code, link, email_sent, email_error, member_id, enquiry_id }.
+function inviteCustomerNamedCode(payload) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/admin/invite-customer-named-code", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + jwt,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      customer_name: payload.customer_name,
+      customer_email: payload.customer_email,
+      customer_phone: payload.customer_phone,
+    }),
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError(body.detail || "Invite failed.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
 // TripSure hotel search (real preprod data, via the FastAPI /hotels/* routes —
 // see backend/app/routers/hotel_router.py). "V2" names distinguish these from
 // the existing synthetic searchHotels()/hotelProperty() while both are live.
@@ -2352,6 +2382,7 @@ export {
 
   // FastAPI backend (separate service)
   inviteCustomer,
+  inviteCustomerNamedCode,
   acceptAdvisorInvite,
   hotelAutosuggestV2,
   hotelListingV2,

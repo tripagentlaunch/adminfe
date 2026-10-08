@@ -85,11 +85,14 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // proposal: { sent_at, outcome, decided_at } | null }.
   const [pipelineStatusByEnquiry, setPipelineStatusByEnquiry] = useState<Record<string, any>>({});
 
-  useEffect(() => {
+  // reloadInbox (2026-10-09) — also called after "Invite someone", which
+  // creates a member + open enquiry server-side, so the invitee shows up
+  // in Queue and the Traveller Profile list without a page refresh.
+  function reloadInbox() {
     setInboxLoading(true);
-    Promise.all([
+    return Promise.all([
       fetchAdvisors("select=*&order=name.asc").catch(() => []),
-      fetchMembers("select=*&order=name.asc&limit=100").catch(() => []),
+      fetchMembers("select=*&order=name.asc&limit=500").catch(() => []),
       fetchEnquiries("select=*&order=created_at.desc&limit=60").catch(() => []),
       enquiryPipelineStatus().catch(() => null),
     ]).then(([adv, mem, enq, pipeline]: any) => {
@@ -115,6 +118,10 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       });
       setPipelineStatusByEnquiry(statusByEnquiry);
     });
+  }
+
+  useEffect(() => {
+    reloadInbox();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -363,6 +370,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         membersById,
         enquiries,
         inboxLoading,
+        reloadInbox,
         creating,
         justCreated,
         focusOrderId,
