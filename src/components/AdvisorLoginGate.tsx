@@ -114,32 +114,45 @@ export function roleLabel(role: any) {
 // already-deployed advisor-console function to resolve who this caller is.
 // lib/api.js already attaches the session JWT as the bearer whenever one
 // exists, so this call is server-verified, not client-asserted.
+// FASTAPI_BASE lets each environment (local/staging/prod) point at its own
+// backend — same env var every other FASTAPI_BASE call in this codebase
+// uses (see services/api.ts).
+const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8787";
+
+// resolveAdvisorSession() — after a Supabase Auth session exists, ask the
+// REAL FastAPI backend (GET /advisor/profile, backend/app/routers/
+// advisor_router.py) to resolve who this caller is — server-verified via
+// get_current_advisor, not client-asserted. Replaces the old call to the
+// now-deleted Supabase edge function `advisor-console` (migrated off
+// Supabase edge functions onto this FastAPI backend).
 function resolveAdvisorSession(): Promise<any> {
   const jwt = accessToken();
   console.log(DEBUG_TAG, "1. accessToken() ->", maskJwt(jwt));
   if (!jwt) {
-    // No verified session JWT yet — never let this call go out under the
-    // anon key (server would read that as "not provisioned" for a reason
-    // that has nothing to do with provisioning). Caller must await
-    // auth.js's ready() before invoking resolve().
-    console.warn(DEBUG_TAG, "no_session_jwt — refusing to call advisor-console under the anon key");
+    // No verified session JWT yet — never let this call go out unauthenticated.
+    // Caller must await auth.js's ready() before invoking resolve().
+    console.warn(DEBUG_TAG, "no_session_jwt — refusing to call /advisor/profile without a session");
     return Promise.reject(new Error("no_session_jwt"));
   }
-  console.log(DEBUG_TAG, "2. calling callAuthed('advisor-console', {action:'desk'}) with Authorization: Bearer", maskJwt(jwt));
-  return callAuthed("advisor-console", { action: "desk" })
-    .then((res: any) => {
-      console.log(DEBUG_TAG, "3. advisor-console raw response ->", JSON.stringify(res));
-      if (!res || !res.ok || !res.advisor_id) {
-        console.warn(
-          DEBUG_TAG,
-          "6. advisor_not_provisioned thrown because:",
-          !res ? "res is falsy (no body parsed)" : !res.ok ? "res.ok is false, server error = " + JSON.stringify(res.error || res) : "res.ok is true but res.advisor_id is missing/empty:",
-          res
-        );
-        throw new Error("advisor_not_provisioned");
-      }
-      console.log(DEBUG_TAG, "4/5. resolved advisor_id =", res.advisor_id, " caller_role =", res.caller_role);
-      return { advisorId: String(res.advisor_id), role: res.caller_role || "advisor" };
+  console.log(DEBUG_TAG, "2. calling GET /advisor/profile with Authorization: Bearer", maskJwt(jwt));
+  return fetch(FASTAPI_BASE + "/advisor/profile", {
+    headers: { Authorization: "Bearer " + jwt },
+  })
+    .then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (body) {
+        console.log(DEBUG_TAG, "3. /advisor/profile raw response ->", res.status, JSON.stringify(body));
+        if (!res.ok || !body || !body.id) {
+          console.warn(
+            DEBUG_TAG,
+            "6. advisor_not_provisioned thrown because:",
+            !res.ok ? "HTTP " + res.status + " = " + JSON.stringify(body) : "response missing id:",
+            body
+          );
+          throw new Error("advisor_not_provisioned");
+        }
+        console.log(DEBUG_TAG, "4/5. resolved advisor_id =", body.id, " role =", body.role);
+        return { advisorId: String(body.id), role: body.role || "advisor" };
+      });
     })
     .catch((e: any) => {
       console.error(DEBUG_TAG, "resolveAdvisorSession() rejected ->", e && e.message, e);
