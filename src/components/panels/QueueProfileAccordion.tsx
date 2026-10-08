@@ -66,7 +66,9 @@ export function QueueProfileAccordion(props: any) {
   const {
     enquiries, members, membersById, inboxLoading, selEnqId, member,
     onSelectEnquiry, onPickMember, travellerProfile, travellerProfileLoading,
+    onConvoTarget,
   } = props;
+  const setConvo = (t: any) => { if (onConvoTarget) onConvoTarget(t); };
   const { travellers } = useWorkbench();
 
   const [open, setOpen] = useState<"queue" | "profile">("queue");
@@ -92,10 +94,14 @@ export function QueueProfileAccordion(props: any) {
     onSelectEnquiry(e, m);
     setShowList(false);
     setPicked(null);
+    setConvo(null); // enquiry flow owns the centre column
     setOpen("profile"); // auto-collapse Queue / open Profile — the "B" half of Mode H
   }
 
   function selectTraveller(t: any) {
+    // Either way, this traveller becomes the Conversation panel's target — it
+    // carries their invitation code + phone, which is all the panel needs.
+    setConvo(t);
     if (!t.member) {
       setPicked(t);
       setShowList(false);
@@ -186,7 +192,7 @@ export function QueueProfileAccordion(props: any) {
             />
           ) : (
             <>
-              <button type="button" className="taw-trav-back" onClick={() => setShowList(true)}>
+              <button type="button" className="taw-trav-back" onClick={() => { setShowList(true); setPicked(null); setConvo(null); }}>
                 ← All travellers
               </button>
               {picked ? (

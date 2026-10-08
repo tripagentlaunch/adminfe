@@ -2295,6 +2295,7 @@ export {
   getMessagesByPhone,
   sendMessageByPhone,
   getChatbotConversation,
+  sendChatbotReply,
 
   // RAG / AI
   kbSearch,
@@ -2449,6 +2450,28 @@ function getChatbotConversation(code) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to load conversation.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// sendChatbotReply(code, text) — send an advisor reply into a customer's Tara
+// conversation, via adminbe's POST /admin/conversation/{code}/reply. It's
+// stored in the member's chatbot history, so it shows in this panel and in the
+// customer's own chatbot.
+function sendChatbotReply(code, text) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/reply", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: JSON.stringify({ text: text }),
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to send reply.", { status: res.status, body: body });
       }
       return body;
     });

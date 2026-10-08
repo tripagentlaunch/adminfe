@@ -428,10 +428,13 @@ export function WorkbenchTab(props: any) {
   const showSummary = !!selectedEnquiry && !itineraryData && !generating && summaryDismissedFor !== selEnqId;
 
   // Conversation panel (2026-10-09, direct request): whenever a customer is
-  // selected without an enquiry, the centre column shows their live Tara
-  // (chatbot) conversation instead of the empty "Not yet built" itinerary.
-  // convoMember resolves the picked member or the enquiry-loaded profile member.
-  const convoMember = member || (travellerProfile && travellerProfile.member);
+  // selected (from the Traveller Profile list) without an active enquiry, the
+  // centre column shows their live Tara (chatbot) conversation instead of the
+  // empty "Not yet built" itinerary. convoTarget is the traveller picked in
+  // QueueProfileAccordion (carries code + phone); it's lifted here because the
+  // panel renders in a sibling column. Falls back to the enquiry-loaded member.
+  const [convoTarget, setConvoTarget] = useState<any>(null);
+  const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
   const showConversation = !!convoMember && !selectedEnquiry;
 
   return (
@@ -447,6 +450,7 @@ export function WorkbenchTab(props: any) {
         member={member}
         onSelectEnquiry={onSelectEnquiry}
         onPickMember={onPickMember}
+        onConvoTarget={setConvoTarget}
       />
 
       {showSummary ? (

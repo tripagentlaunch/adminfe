@@ -20,7 +20,7 @@
  * column when a member is picked without an enquiry.
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
-import { getChatbotConversation } from "../../services/api";
+import { getChatbotConversation, sendChatbotReply } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 
 interface ConvoMessage {
@@ -83,6 +83,8 @@ export function ChatbotConversationPanel({ member }: any) {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -137,6 +139,23 @@ export function ChatbotConversationPanel({ member }: any) {
   function exportToWhatsApp() {
     downloadTxt();
     if (waLink) window.open(waLink, "_blank", "noopener,noreferrer");
+  }
+
+  function handleSend() {
+    const text = draft.trim();
+    if (!text || !code || sending) return;
+    setSending(true);
+    sendChatbotReply(code, text)
+      .then(() => {
+        setDraft("");
+        // Optimistic: show it immediately as a desk reply; the next poll
+        // confirms it from the database.
+        setMessages((prev) => [...prev, { role: "assistant", content: text, at: Date.now() }]);
+      })
+      .catch((err: any) => {
+        alert((err && err.message) || "Could not send reply.");
+      })
+      .finally(() => setSending(false));
   }
 
   return (
@@ -222,6 +241,29 @@ export function ChatbotConversationPanel({ member }: any) {
               })
             )}
             <div ref={bottomRef} />
+          </div>
+
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              placeholder="Reply as the desk — appears in the customer's chatbot…"
+              style={{ flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, outline: "none" }}
+            />
+            <button
+              className="taw-btn taw-btn--primary"
+              disabled={!draft.trim() || sending}
+              onClick={handleSend}
+              style={{ padding: "9px 16px" }}
+            >
+              {sending ? <Spinner /> : "Send"}
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 8 }}>
