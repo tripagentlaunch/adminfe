@@ -559,7 +559,11 @@ export function FlightDesk(props: any) {
           const mock = buildMockFlightOffers({ originCode: fromCode, destCode: toCode, date: dt, pax: Number(form.pax) || 1, cabin: form.cabin });
           mock.offers.forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
         });
-        return { offers: merged, usedMock: true };
+        // Keep why the live call failed so the toast can say so instead of
+        // silently presenting demo data as if it were real.
+        const first: any = results.find((x: any) => x.status === "rejected");
+        const reason = first && first.reason ? (first.reason.status ? first.reason.status + ": " : "") + (first.reason.message || String(first.reason)) : "";
+        return { offers: merged, usedMock: true, reason };
       }
       const merged: any[] = [];
       ok.forEach(({ dt, r }: any) => {
@@ -604,7 +608,14 @@ export function FlightDesk(props: any) {
         setLoading(false);
         const anyMock = outboundResult.usedMock || returnResult.usedMock;
         const total = outboundResult.offers.length + returnResult.offers.length;
-        toast((anyMock ? "Live API unreachable — showing demo flight data — " : "") + total + " flight offers loaded", anyMock ? "error" : "success");
+        const reason = (outboundResult as any).reason || (returnResult as any).reason || "";
+        if (anyMock) console.error("[FlightDesk] live flight search failed:", reason);
+        toast(
+          (anyMock ? "Live flight search failed" + (reason ? " (" + reason + ")" : "") + " — showing DEMO flights, not bookable — " : "") +
+            total +
+            " flight offers loaded",
+          anyMock ? "error" : "success"
+        );
       }
     );
   }
