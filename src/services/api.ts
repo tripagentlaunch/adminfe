@@ -2255,6 +2255,9 @@ export {
   setConsent,
   commsConsent,
   commsRead,
+  getConversationMessages,
+  getMessagesByPhone,
+  sendMessageByPhone,
 
   // RAG / AI
   kbSearch,
@@ -2371,3 +2374,68 @@ export {
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 };
+
+// getConversationMessages(conversationId) — live chat messages for the
+// admin console's 3rd column. Calls the new FastAPI endpoint directly
+// (backend/app/routers/comms_router.py's GET /comms/conversations/{id}/messages),
+// not the old comms-read edge function.
+function getConversationMessages(conversationId) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/comms/conversations/" + encodeURIComponent(conversationId) + "/messages", {
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return []; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to fetch conversation messages.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// getMessagesByPhone(phone) — live chat messages for the admin console's
+// 3rd column, resolved by the traveller's raw phone number (no member_id
+// needed). Calls backend/app/routers/comms_router.py's GET
+// /comms/by-phone/{phone}/messages.
+function getMessagesByPhone(phone) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/comms/by-phone/" + encodeURIComponent(phone) + "/messages", {
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return []; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to fetch messages.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// sendMessageByPhone(phone, text) — send a WhatsApp reply from the admin
+// console's live chat column, resolved by the traveller's raw phone
+// number. Calls backend/app/routers/comms_router.py's POST
+// /comms/by-phone/{phone}/send.
+function sendMessageByPhone(phone, text) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/comms/by-phone/" + encodeURIComponent(phone) + "/send", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + jwt,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ text: text }),
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to send message.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}

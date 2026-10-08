@@ -57,7 +57,8 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
 
 async function parseWhatsAppChat(text: string): Promise<Record<string, any>> {
   const res = await fetch("/api/parse-chat", {
@@ -206,72 +207,151 @@ function ChatWithCustomerPanel({ member, enquiry }: any) {
   const digits = member && member.phone ? String(member.phone).replace(/[^0-9]/g, "") : "";
   const waLink = digits ? "https://wa.me/" + digits : null;
 
+  const [messages, setMessages] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!digits) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    function load() {
+      setLoading(true);
+      getMessagesByPhone(digits)
+        .then(function (data: any) {
+          if (!cancelled) setMessages(Array.isArray(data) ? data : []);
+        })
+        .catch(function () {
+          if (!cancelled) setMessages([]);
+        })
+        .finally(function () {
+          if (!cancelled) setLoading(false);
+        });
+    }
+    load();
+    const interval = setInterval(load, 5000); // poll every 5s for live feel
+    return function () {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [digits]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  function handleSend() {
+    const text = draft.trim();
+    if (!text || !digits || sending) return;
+    setSending(true);
+    sendMessageByPhone(digits, text)
+      .then(function () {
+        setDraft("");
+        setMessages(function (prev) {
+          return [...prev, { role: "advisor", content: text, created_at: new Date().toISOString() }];
+        });
+      })
+      .catch(function (err: any) {
+        alert((err && err.message) || "Could not send message.");
+      })
+      .finally(function () {
+        setSending(false);
+      });
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <Card title="Chat with Customer" icon={<Icon name="chat" size={20} />}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "20px 10px" }}>
-          <div
-            style={{
-              width: 52, height: 52, borderRadius: "50%", background: "#E3F3E8",
-              display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 14,
-            }}
-          >
-            <Icon name="chat" size={24} style={{ color: "#3E7D52" }} />
+      <Card title="Live WhatsApp Chat" icon={<Icon name="chat" size={20} />}>
+        {!digits ? (
+          <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: "20px 10px" }}>
+            No phone number on file
           </div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 6 }}>
-            View full conversation with the customer in WhatsApp
-          </div>
-          <div style={{ fontSize: 13, color: "#8A8070", marginBottom: 16 }}>
-            See the complete chat history between the customer and TripAgent&apos;s AI assistant.
-          </div>
-          {waLink ? (
-            <a
-              href={waLink}
-              target="_blank"
-              rel="noreferrer"
-              className="taw-btn taw-btn--block"
-              style={{ textDecoration: "none", textAlign: "center" }}
-            >
-              Open WhatsApp Chat
-            </a>
-          ) : (
-            <div style={{ fontSize: 13, color: "#9098A8" }}>No phone number on file</div>
-          )}
-        </div>
-      </Card>
-
-      <Card title="Recent Messages (Summary)" icon={<Icon name="chat" size={20} />}>
-        {enquiry && enquiry.message ? (
-          <>
-            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
-              <div
-                style={{
-                  width: 32, height: 32, borderRadius: "50%", background: "#E7ECF2",
-                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-                }}
-              >
-                <Icon name="user" size={15} style={{ color: "#4A5568" }} />
-              </div>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "#1F2430", marginBottom: 2 }}>Customer</div>
-                <div style={{ fontSize: 13.5, color: "#4A5568", lineHeight: 1.5 }}>{enquiry.message}</div>
-              </div>
-            </div>
-            {waLink ? (
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: 13, color: "#B8945F", fontWeight: 600, textDecoration: "none" }}
-              >
-                View full chat in WhatsApp →
-              </a>
-            ) : null}
-          </>
         ) : (
-          <Empty icon="chat">No message history yet.</Empty>
+          <div style={{ display: "flex", flexDirection: "column", height: 420 }}>
+            <div
+              style={{
+                flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10,
+                padding: "6px 2px", marginBottom: 10,
+              }}
+            >
+              {loading && messages.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>Loading chat…</div>
+              ) : messages.length === 0 ? (
+                <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>No messages yet.</div>
+              ) : (
+                messages.map(function (m: any, i: number) {
+                  const isCustomer = m.role === "user" || m.role === "customer";
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        alignSelf: isCustomer ? "flex-start" : "flex-end",
+                        maxWidth: "80%",
+                        background: isCustomer ? "#F1F3F5" : "#DCF8C6",
+                        borderRadius: 10,
+                        padding: "8px 12px",
+                        fontSize: 13.5,
+                        color: "#1F2430",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      {m.content}
+                      {m.created_at ? (
+                        <div style={{ fontSize: 10.5, color: "#8A8070", marginTop: 4, textAlign: "right" }}>
+                          {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+              <div ref={bottomRef} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                value={draft}
+                onChange={function (e) {
+                  setDraft(e.target.value);
+                }}
+                onKeyDown={function (e) {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Type a message…"
+                style={{
+                  flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px",
+                  fontSize: 13.5, outline: "none",
+                }}
+              />
+              <button
+                className="taw-btn taw-btn--primary"
+                disabled={!draft.trim() || sending}
+                onClick={handleSend}
+                style={{ padding: "9px 16px" }}
+              >
+                {sending ? <Spinner /> : "Send"}
+              </button>
+            </div>
+          </div>
         )}
       </Card>
+
+      {waLink ? (
+        <a
+          href={waLink}
+          target="_blank"
+          rel="noreferrer"
+          style={{ fontSize: 12.5, color: "#B8945F", fontWeight: 600, textDecoration: "none", textAlign: "center" }}
+        >
+          Open in WhatsApp app →
+        </a>
+      ) : null}
     </div>
   );
 }
