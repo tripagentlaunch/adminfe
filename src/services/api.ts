@@ -2294,6 +2294,7 @@ export {
   getConversationMessages,
   getMessagesByPhone,
   sendMessageByPhone,
+  getChatbotConversation,
 
   // RAG / AI
   kbSearch,
@@ -2428,6 +2429,26 @@ function getConversationMessages(conversationId) {
     return res.json().catch(function () { return []; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to fetch conversation messages.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// getChatbotConversation(code) — a customer's Tara (chatbot) conversation,
+// proxied through adminbe's GET /admin/conversation/{code} (which calls
+// chatbot-be server-side). `code` is the member's invitation/access code.
+// Returns { code, messages: [{ role, content, at, parts }] }, oldest first.
+function getChatbotConversation(code) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code), {
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to load conversation.", { status: res.status, body: body });
       }
       return body;
     });

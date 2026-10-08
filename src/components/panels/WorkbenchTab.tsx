@@ -69,6 +69,7 @@ async function parseWhatsAppChat(text: string): Promise<Record<string, any>> {
   try { return await res.json(); } catch { return {}; }
 }
 import { Card, Empty, Icon, Spinner } from "../ui";
+import { ChatbotConversationPanel } from "./ChatbotConversationPanel";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
@@ -426,6 +427,13 @@ export function WorkbenchTab(props: any) {
   const [summaryDismissedFor, setSummaryDismissedFor] = useState<string | null>(null);
   const showSummary = !!selectedEnquiry && !itineraryData && !generating && summaryDismissedFor !== selEnqId;
 
+  // Conversation panel (2026-10-09, direct request): whenever a customer is
+  // selected without an enquiry, the centre column shows their live Tara
+  // (chatbot) conversation instead of the empty "Not yet built" itinerary.
+  // convoMember resolves the picked member or the enquiry-loaded profile member.
+  const convoMember = member || (travellerProfile && travellerProfile.member);
+  const showConversation = !!convoMember && !selectedEnquiry;
+
   return (
     <div className="taw-grid taw-cols-3">
       <QueueProfileAccordion
@@ -448,6 +456,8 @@ export function WorkbenchTab(props: any) {
           onGenerate={() => setSummaryDismissedFor(selEnqId)}
           onParsed={(parsed: Record<string, any>) => { console.log("[WorkbenchTab] onParsed called with:", parsed); setParsedAsk(parsed); }}
         />
+      ) : showConversation ? (
+        <ChatbotConversationPanel member={convoMember} />
       ) : (
       <Card
         className="taw-itin-card"
