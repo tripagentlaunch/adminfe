@@ -23,6 +23,9 @@ export interface WorkbenchContextValue {
   setAdvisorId: (id: string) => void;
   members: any[];
   membersById: Record<string, any>;
+  // travellers (2026-10-09) — merged site_members + unclaimed invites +
+  // members, for Traveller Profile's list. See WorkbenchDataProvider.
+  travellers: any[];
   enquiries: any[];
   inboxLoading: boolean;
   reloadInbox: () => Promise<void>;

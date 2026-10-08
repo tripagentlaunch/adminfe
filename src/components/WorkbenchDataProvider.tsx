@@ -19,6 +19,8 @@ import { useRouter } from "next/navigation";
 import {
   advisors as fetchAdvisors,
   members as fetchMembers,
+  siteMembers as fetchSiteMembers,
+  siteInvitationCodes as fetchSiteInvitationCodes,
   enquiries as fetchEnquiries,
   createOrder as apiCreateOrder,
   enquiryTravellerProfile,
@@ -40,6 +42,12 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   const [advisorId, setAdvisorId] = useState<string | null>(sessionAdvisorId || null);
   const [members, setMembers] = useState<any[]>([]);
   const [membersById, setMembersById] = useState<Record<string, any>>({});
+  // travellers (2026-10-09) — Traveller Profile's list. Real customers are
+  // in site_members (claimed an invite) and site_invitation_codes
+  // (invited, not claimed yet), not the CRM `members` table, which only
+  // gets a row once an enquiry/booking flow creates one. See
+  // buildTravellers() below for the merge.
+  const [travellers, setTravellers] = useState<any[]>([]);
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [inboxLoading, setInboxLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -95,7 +103,10 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       fetchMembers("select=*&order=name.asc&limit=500").catch(() => []),
       fetchEnquiries("select=*&order=created_at.desc&limit=60").catch(() => []),
       enquiryPipelineStatus().catch(() => null),
-    ]).then(([adv, mem, enq, pipeline]: any) => {
+      fetchSiteMembers("select=*&order=created_at.desc&limit=1000").catch(() => []),
+      fetchSiteInvitationCodes("select=*&order=created_at.desc&limit=1000").catch(() => []),
+    ]).then(([adv, mem, enq, pipeline, siteMem, invites]: any) => {
+      setTravellers(buildTravellers(mem || [], siteMem || [], invites || []));
       setAdvisors(adv || []);
       if (!advisorId && adv && adv.length) setAdvisorId(adv[0].id);
       setMembers(mem || []);
@@ -368,6 +379,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         setAdvisorId,
         members,
         membersById,
+        travellers,
         enquiries,
         inboxLoading,
         reloadInbox,
@@ -400,4 +412,64 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       {children}
     </WorkbenchContext.Provider>
   );
+}
+
+// One row per person (keyed by lower-cased email, else by id): claimed
+// site_members first, then CRM members rows, then the newest unclaimed
+// invitation for anyone not already listed. `member` is the matching CRM
+// members row when there is one — that's what the enquiry/profile flow
+// keys on.
+function buildTravellers(members: any[], siteMembers: any[], invites: any[]) {
+  const byKey = new Map<string, any>();
+  const keyOf = (email: any, id: string) => (email ? String(email).trim().toLowerCase() : "id:" + id);
+  const memberByEmail = new Map<string, any>();
+  members.forEach((m) => {
+    if (m.email) memberByEmail.set(String(m.email).trim().toLowerCase(), m);
+  });
+
+  siteMembers.forEach((sm) => {
+    const key = keyOf(sm.email, sm.id);
+    if (byKey.has(key)) return;
+    byKey.set(key, {
+      key,
+      kind: "member",
+      name: sm.name,
+      email: sm.email,
+      phone: sm.phone,
+      city: sm.city,
+      plan: sm.plan,
+      status: sm.status,
+      memberUntil: sm.member_until,
+      code: sm.invitation_code,
+      since: sm.created_at,
+      member: sm.email ? memberByEmail.get(String(sm.email).trim().toLowerCase()) || null : null,
+    });
+  });
+
+  members.forEach((m) => {
+    const key = keyOf(m.email, m.id);
+    if (byKey.has(key)) return;
+    byKey.set(key, { key, kind: "member", name: m.name, email: m.email, phone: m.phone, since: m.created_at, member: m });
+  });
+
+  // invites arrive newest-first, so the first one seen per email wins.
+  invites.forEach((inv) => {
+    if (inv.status === "redeemed") return;
+    const key = keyOf(inv.recipient_email, inv.code);
+    if (byKey.has(key)) return;
+    const expired = inv.expires_at && new Date(inv.expires_at).getTime() < Date.now();
+    byKey.set(key, {
+      key,
+      kind: expired ? "expired" : "invited",
+      name: inv.label,
+      email: inv.recipient_email,
+      phone: inv.friend_phone,
+      code: inv.code,
+      since: inv.created_at,
+      expiresAt: inv.expires_at,
+      member: null,
+    });
+  });
+
+  return Array.from(byKey.values()).sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
 }

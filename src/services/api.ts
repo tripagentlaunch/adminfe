@@ -1354,6 +1354,8 @@ function _tableReader(table) {
 }
 
 const members = _tableReader("members");
+const siteMembers = _tableReader("site_members");
+const siteInvitationCodes = _tableReader("site_invitation_codes");
 const advisors = _tableReader("advisors");
 const enquiries = _tableReader("enquiries");
 const suppliers = _tableReader("suppliers");
@@ -2369,6 +2371,8 @@ export {
 
   // table readers
   members,
+  siteMembers,
+  siteInvitationCodes,
   advisors,
   enquiries,
   suppliers,
