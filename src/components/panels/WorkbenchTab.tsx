@@ -211,6 +211,7 @@ function ChatWithCustomerPanel({ member, enquiry }: any) {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [takenOver, setTakenOver] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -311,33 +312,59 @@ function ChatWithCustomerPanel({ member, enquiry }: any) {
               )}
               <div ref={bottomRef} />
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={draft}
-                onChange={function (e) {
-                  setDraft(e.target.value);
-                }}
-                onKeyDown={function (e) {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                }}
-                placeholder="Type a message…"
-                style={{
-                  flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px",
-                  fontSize: 13.5, outline: "none",
-                }}
-              />
+            {takenOver ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={draft}
+                  onChange={function (e) {
+                    setDraft(e.target.value);
+                  }}
+                  onKeyDown={function (e) {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Type a message…"
+                  autoFocus
+                  style={{
+                    flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px",
+                    fontSize: 13.5, outline: "none",
+                  }}
+                />
+                <button
+                  className="taw-btn taw-btn--primary"
+                  disabled={!draft.trim() || sending}
+                  onClick={handleSend}
+                  style={{ padding: "9px 16px" }}
+                >
+                  {sending ? <Spinner /> : "Send"}
+                </button>
+              </div>
+            ) : (
               <button
-                className="taw-btn taw-btn--primary"
-                disabled={!draft.trim() || sending}
-                onClick={handleSend}
-                style={{ padding: "9px 16px" }}
+                className="taw-btn taw-btn--block"
+                onClick={function () {
+                  setTakenOver(true);
+                }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  border: "1px solid #B8945F", color: "#8A5A2B", background: "#FDF6EC",
+                }}
               >
-                {sending ? <Spinner /> : "Send"}
+                <Icon name="user" size={15} />
+                Chat with Customer
               </button>
-            </div>
+            )}
+            {takenOver ? (
+              <div style={{ fontSize: 11.5, color: "#8A8070", marginTop: 6, textAlign: "center" }}>
+                You're replying as an advisor — the AI assistant has paused for this conversation.
+              </div>
+            ) : (
+              <div style={{ fontSize: 11.5, color: "#8A8070", marginTop: 6, textAlign: "center" }}>
+                Click to reply as an advisor. The AI assistant is currently handling this chat.
+              </div>
+            )}
           </div>
         )}
       </Card>
