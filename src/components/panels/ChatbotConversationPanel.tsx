@@ -85,6 +85,7 @@ export function ChatbotConversationPanel({ member }: any) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [takenOver, setTakenOver] = useState(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -243,28 +244,47 @@ export function ChatbotConversationPanel({ member }: any) {
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Reply as the desk — appears in the customer's chatbot…"
-              style={{ flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, outline: "none" }}
-            />
+          {takenOver ? (
+            <div style={{ display: "flex", gap: 8, marginBottom: 6 }}>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Reply as the desk — appears in the customer's chatbot…"
+                style={{ flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, outline: "none" }}
+              />
+              <button
+                className="taw-btn taw-btn--primary"
+                disabled={!draft.trim() || sending}
+                onClick={handleSend}
+                style={{ padding: "9px 16px" }}
+              >
+                {sending ? <Spinner /> : "Send"}
+              </button>
+            </div>
+          ) : (
             <button
-              className="taw-btn taw-btn--primary"
-              disabled={!draft.trim() || sending}
-              onClick={handleSend}
-              style={{ padding: "9px 16px" }}
+              className="taw-btn taw-btn--block"
+              onClick={() => setTakenOver(true)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                border: "1px solid #B8945F", color: "#8A5A2B", background: "#FDF6EC", marginBottom: 6,
+              }}
             >
-              {sending ? <Spinner /> : "Send"}
+              <Icon name="user" size={15} />
+              Chat with Customer
             </button>
-          </div>
+          )}
+          {takenOver ? (
+            <div style={{ fontSize: 11.5, color: "#8A8070", marginBottom: 10, textAlign: "center" }}>
+              You're replying as an advisor — the AI assistant has paused for this conversation.
+            </div>
+          ) : null}
 
           <div style={{ display: "flex", gap: 8 }}>
             <button

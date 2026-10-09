@@ -523,7 +523,7 @@ export function WorkbenchTab(props: any) {
       )}
 
       {showSummary ? (
-        <ChatWithCustomerPanel member={member || (travellerProfile && travellerProfile.member)} enquiry={selectedEnquiryWithAsk} />
+        <ChatbotConversationPanel member={(travellerProfile && travellerProfile.member) || member} />
       ) : (
       <SearchDesksPanel
         // key={selEnqId} (2026-09-03, flow-testing hurdle) — without it,
