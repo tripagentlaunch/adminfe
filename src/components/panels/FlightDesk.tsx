@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
+import { searchAirports } from "../../lib/airports";
 import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { Dropdown, Empty, Field, Spinner, SkeletonRows, Icon, SleekScroll } from "../ui";
@@ -119,9 +120,35 @@ const DEFAULT_AIRPORT_SUGGESTIONS = [
 // otherwise still uses for search itself. Empty query (showDefaultsOnFocus's
 // on-focus/on-clear call) never reaches the network — see
 // DEFAULT_AIRPORT_SUGGESTIONS above for why.
+//
+// 2026-10-09: falls back to the built-in directory (lib/airports.ts) so
+// suggestions always appear while typing — TripSure's flight host is
+// IP-restricted and was unreachable, which left the dropdown empty. Live
+// results win when TripSure answers within LIVE_WAIT_MS; after a failure
+// or timeout it isn't retried for LIVE_RETRY_MS, so typing never stalls.
+const LIVE_WAIT_MS = 2500;
+const LIVE_RETRY_MS = 60_000;
+let liveAutosuggestDownUntil = 0;
+
+function liveAirports(query: string, limit: number): Promise<any[] | null> {
+  if (Date.now() < liveAutosuggestDownUntil) return Promise.resolve(null);
+  const markDown = () => {
+    liveAutosuggestDownUntil = Date.now() + LIVE_RETRY_MS;
+    return null;
+  };
+  const live = fastapiFlightAutosuggest(query, limit)
+    .then((r: any) => {
+      const rows = Array.isArray(r) ? r : (r && r.data) || [];
+      return rows.length ? rows : null;
+    })
+    .catch(markDown);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(markDown()), LIVE_WAIT_MS));
+  return Promise.race([live, timeout]);
+}
+
 function airportSuggestions(query: string) {
   if (!query) return Promise.resolve(DEFAULT_AIRPORT_SUGGESTIONS);
-  return fastapiFlightAutosuggest(query, 8);
+  return liveAirports(query, 8).then((rows) => rows || searchAirports(query, 8));
 }
 
 function renderAirportSuggestion(a: any) {
@@ -490,7 +517,8 @@ export function FlightDesk(props: any) {
     const destName = ask && ask.destinations && ask.destinations[0];
     if (!destName || codeFromAsk(destName)) return;
     let cancelled = false;
-    fastapiFlightAutosuggest(destName, 5)
+    liveAirports(destName, 5)
+      .then((live) => live || searchAirports(destName, 5))
       .then((rows: any[]) => {
         if (cancelled || !rows || !rows.length) return;
         const best = rows.reduce((a: any, b: any) => ((b.popularity_score || 0) > (a.popularity_score || 0) ? b : a));
