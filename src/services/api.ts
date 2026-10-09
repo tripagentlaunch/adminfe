@@ -1419,9 +1419,13 @@ const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8
 // bundle). The browser never sees the key. SITE_API_BASE itself is now
 // only read server-side, by that route handler.
 function siteApiCall(path, options) {
+  // The proxy only forwards for a signed-in admin (it re-checks the role
+  // with adminbe), so the advisor session goes with every call.
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
   return fetch("/api/site-admin" + path, {
     method: options.method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
     body: options.body ? JSON.stringify(options.body) : undefined,
   }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
