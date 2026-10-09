@@ -523,7 +523,12 @@ export function WorkbenchTab(props: any) {
       )}
 
       {showSummary ? (
-        <ChatbotConversationPanel member={(travellerProfile && travellerProfile.member) || member} />
+        // convoTarget first: it's the traveller object from the Traveller
+        // Profile list, which carries invitation_code directly. Without
+        // this, selecting an enquiry falls back to a CRM/profile member
+        // object that often has no code, showing "no access code on file"
+        // even when we already had the right code in hand.
+        <ChatbotConversationPanel member={convoTarget || (travellerProfile && travellerProfile.member) || member} />
       ) : (
       <SearchDesksPanel
         // key={selEnqId} (2026-09-03, flow-testing hurdle) — without it,

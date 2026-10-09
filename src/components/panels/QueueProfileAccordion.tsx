@@ -90,11 +90,17 @@ export function QueueProfileAccordion(props: any) {
     setOpen((prev) => (prev === "queue" ? "profile" : "queue"));
   }
 
-  function selectEnquiry(e: any, m: any) {
+  function selectEnquiry(e: any, m: any, keepConvo?: any) {
     onSelectEnquiry(e, m);
     setShowList(false);
     setPicked(null);
-    setConvo(null); // enquiry flow owns the centre column
+    // enquiry flow owns the centre column, but if the caller had a
+    // traveller object with a real invitation code (keepConvo), keep it
+    // as the Conversation panel's target instead of nulling it out —
+    // otherwise the panel falls back to a codeless CRM member object and
+    // shows "no access code on file" / "New lead" even when we already
+    // had the right code in hand.
+    setConvo(keepConvo || null);
     setOpen("profile"); // auto-collapse Queue / open Profile — the "B" half of Mode H
   }
 
@@ -112,7 +118,7 @@ export function QueueProfileAccordion(props: any) {
     const latestOpen = enquiries
       .filter((e: any) => e.member_id === m.id && (e.status || "open") !== "closed")
       .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
-    if (latestOpen) selectEnquiry(latestOpen, m);
+    if (latestOpen) selectEnquiry(latestOpen, m, t);
     else {
       onPickMember(m);
       setShowList(false);
