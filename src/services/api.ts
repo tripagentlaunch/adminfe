@@ -1396,67 +1396,45 @@ function journeyApprove(payload) {
 // anyone without that env var set yet.
 const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8787";
 
-// SITE_API_BASE (2026-09-16, Phase C access-request admin review) —
-// tripagent-site-main's OWN backend, a SEPARATE codebase/deployment from
-// this one, NOT the same thing as FASTAPI_BASE above (that's tripagent-
-// full — this app's own backend). site_access_requests/create_invitation_
-// code() only exist there — confirmed both point at the same Supabase
-// project (gnifmusartvwngcuquou) during investigation, but that backend's
-// own RLS denies anon/authenticated access to that table outright (deny-
-// all, service-role only — see supabase/migrations/0008_site_access_
-// requests.sql over there), so this app can't read/write it directly via
-// its own Supabase client; it has to go through THAT backend's API, same
-// as any other cross-service call.
-//
-// UPDATED 2026-09-16 (direct request): that backend's 3 review endpoints
-// now require a shared-secret X-Admin-Key header (app/dependencies/
-// admin_auth.py over there). AdminPanel.tsx is a "use client" component —
-// its code runs in the browser — so siteApiCall() below no longer calls
-// SITE_API_BASE directly; it goes through this app's OWN same-origin proxy
-// (src/app/api/site-admin/[...path]/route.ts), a real Next.js Route
-// Handler that runs server-side and attaches the key from a server-only
-// ADMIN_API_KEY env var (never NEXT_PUBLIC_-prefixed, never in the client
-// bundle). The browser never sees the key. SITE_API_BASE itself is now
-// only read server-side, by that route handler.
-function siteApiCall(path, options) {
-  // The proxy only forwards for a signed-in admin (it re-checks the role
-  // with adminbe), so the advisor session goes with every call.
+// Access requests (2026-10-09): read and decided through adminbe's own
+// admin-only /admin/access-requests endpoints (get_current_admin re-checks
+// the role on every call), using the advisor's session like every other
+// admin call. These used to go through /api/site-admin -> Customerbe with a
+// shared ADMIN_API_KEY; that route depended on a separate per-deployment
+// URL (prod was still reading the dev backend) and has been removed.
+function adminbeAccessRequestCall(path, method, body?) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
-  return fetch("/api/site-admin" + path, {
-    method: options.method,
-    headers: { "Content-Type": "application/json", Authorization: "Bearer " + jwt },
-    body: options.body ? JSON.stringify(options.body) : undefined,
+  return fetch(FASTAPI_BASE + "/admin/access-requests" + path, {
+    method: method,
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
   }).then(function (res) {
-    return res.json().catch(function () { return {}; }).then(function (body) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
       if (!res.ok) {
-        throw new ApiError(typeof body.detail === "string" ? body.detail : "Request failed.", { status: res.status, body: body });
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
       }
-      return body;
+      return data;
     });
   });
 }
 
-// siteAccessRequestsPending() -> real site_access_requests rows,
-// status='pending', newest first (backend's own order-by).
+// siteAccessRequestsPending() -> site_access_requests rows, status='pending',
+// newest first.
 function siteAccessRequestsPending() {
-  return siteApiCall("/access-requests/pending", { method: "GET" });
+  return adminbeAccessRequestCall("?status=pending", "GET");
 }
 
-// siteApproveAccessRequest(id) -> { ok, code, expires_at, expires_on,
-// link, email_sent } — a real invite code, emailed to the applicant.
-// email_sent=false means the send failed; the code is still valid and the
-// UI shows it for manual sharing.
+// siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
+// real invite code, emailed to the applicant. email_sent=false means the
+// send failed; the code is still valid and the UI shows it for sharing.
 function siteApproveAccessRequest(id) {
-  return siteApiCall("/access-requests/" + encodeURIComponent(id) + "/approve", { method: "POST", body: {} });
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", {});
 }
 
 // siteDenyAccessRequest(id, declineReason?) -> { ok: true }
 function siteDenyAccessRequest(id, declineReason) {
-  return siteApiCall("/access-requests/" + encodeURIComponent(id) + "/deny", {
-    method: "POST",
-    body: { decline_reason: declineReason || null },
-  });
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/deny", "POST", { reason: declineReason || "" });
 }
 
 // acceptAdvisorInvite(token, password) — /join's only call. Public endpoint
@@ -2409,12 +2387,8 @@ export {
   adminListOrders,
   adminAssignEnquiry,
 
-  // Phase C access-request admin review (tripagent-site-main's backend —
-  // see siteApiCall's own note: gated by a shared-secret ADMIN_API_KEY,
-  // attached server-side by this app's own /api/site-admin proxy route,
-  // never sent from browser-visible code. Real gate, but a shared secret,
-  // not per-admin identity — unlike the role re-check the admin calls
-  // above get from their own backend.)
+  // Access-request admin review — adminbe's /admin/access-requests,
+  // admin-only, role re-checked server-side (see adminbeAccessRequestCall).
   siteAccessRequestsPending,
   siteApproveAccessRequest,
   siteDenyAccessRequest,

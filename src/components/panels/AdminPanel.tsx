@@ -321,26 +321,12 @@ function EnquiryAssignSection(props: any) {
   );
 }
 
-// AccessRequestsSection (Phase C, 2026-09-16, direct request) — reviews
-// site_access_requests (a stranger applying via request-access.html on
-// tripagent-site-main) — a SEPARATE backend/database table from anything
-// else in this panel, reached via services/api.ts's siteAccessRequests*
-// calls. See that module's own note: those calls go through this app's
-// own /api/site-admin proxy route now (2026-09-16, direct request), which
-// attaches a shared-secret ADMIN_API_KEY server-side — that backend's 3
-// review endpoints reject any request without it. This screen's own
-// isAdmin() gate (see AdminPage's mount-level check) is still just a UI
-// convenience, not the real authority; the real authority is now the key
-// check on the other backend, not this panel. Still not per-admin
-// identity, though — a shared secret, not a staff-login system. Revisit
-// once a real staff-identity system exists (see the 0008 migration's own
-// note, over there, on why site_access_requests.reviewed_by isn't a
-// foreign key yet).
-//
-// Only ever lists status='pending' rows (the backend's own filter) — a
-// row disappears from this list the moment it's reviewed (approve/deny),
-// simply because load() re-fetches "pending only" and it no longer
-// qualifies; no separate client-side removal logic needed.
+// AccessRequestsSection (Phase C, 2026-09-16) — reviews site_access_requests
+// (strangers applying via the site's Request Access form). Reads and decides
+// through adminbe's admin-only /admin/access-requests endpoints (services/
+// api.ts's siteAccessRequests* calls, 2026-10-09), which re-check the
+// advisor's admin role server-side on every call — this panel's own
+// isAdmin() gate is only a UI convenience.
 function AccessRequestsSection() {
   const [rows, setRows] = useState<any>(null);
   const [loading, setLoading] = useState(true);
