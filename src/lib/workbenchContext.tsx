@@ -44,7 +44,9 @@ export interface WorkbenchContextValue {
   travellerProfile: any;
   travellerProfileLoading: boolean;
   pickEnquiry: (e: any, m?: any) => void;
+  analyzeConversation: (enquiryId: string) => Promise<void>;
   pickMember: (m: any) => void;
+  ensureEnquiryForMember: (m: any) => Promise<any>;
   openOrderFromQueue: (orderId: string) => void;
   createOrder: (quoteId: string) => void;
   consumeCreated: () => void;

@@ -53,8 +53,15 @@
  * with a CRM members row runs the existing enquiry/member flow; anyone
  * else gets a TravellerCard with what's known about them. "All
  * travellers" goes back to the list.
+ *
+ * 2026-10-11: Queue is no longer a section here — it is a "Queue (N open)"
+ * dropdown (QueueMenu below) portalled into the Enquiries tab row, and
+ * Traveller Profile is the column's only section, always open. The
+ * accordion/mutual-exclusion notes above describe the older two-section
+ * layout.
  * ===========================================================================*/
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "../../lib/cx";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { fmtDate } from "../../lib/advisorHelpers";
@@ -71,24 +78,12 @@ export function QueueProfileAccordion(props: any) {
   const setConvo = (t: any) => { if (onConvoTarget) onConvoTarget(t); };
   const { travellers } = useWorkbench();
 
-  const [open, setOpen] = useState<"queue" | "profile">("queue");
   // showList — true after "All travellers", until the next pick. With
   // nothing selected the list shows regardless.
   const [showList, setShowList] = useState(false);
   // picked — a traveller with no CRM members row (claimed or invited only),
   // shown as a TravellerCard instead of Member360.
   const [picked, setPicked] = useState<any>(null);
-
-  // Only two mutually-exclusive sections, so a real toggle (open <-> the
-  // other one) is the same function regardless of WHICH toggle was
-  // clicked — flip away from whatever's currently open. Previously each
-  // toggle unconditionally called setOpen("queue")/setOpen("profile"),
-  // which was a no-op when clicking a section's own toggle while it was
-  // already open — that's the bug: couldn't collapse Queue from Queue's
-  // own toggle (or Profile from Profile's).
-  function toggle() {
-    setOpen((prev) => (prev === "queue" ? "profile" : "queue"));
-  }
 
   function selectEnquiry(e: any, m: any, keepConvo?: any) {
     onSelectEnquiry(e, m);
@@ -101,7 +96,6 @@ export function QueueProfileAccordion(props: any) {
     // shows "no access code on file" / "New lead" even when we already
     // had the right code in hand.
     setConvo(keepConvo || null);
-    setOpen("profile"); // auto-collapse Queue / open Profile — the "B" half of Mode H
   }
 
   function selectTraveller(t: any) {
@@ -126,69 +120,44 @@ export function QueueProfileAccordion(props: any) {
   }
 
   const openEnquiries = enquiries.filter((e: any) => (e.status || "open") !== "closed");
-  const qOpen = open === "queue";
-  const profileOpen = !qOpen;
-  // Placeholder whenever there's nothing real to show in that space —
-  // either because the section is collapsed, or because nothing's
-  // selected yet. NOT keyed off `member` anymore (Phase 2): a
-  // concierge_chat lead has member_id null, so `member` is always null
-  // for exactly the enquiries this real profile endpoint exists for —
-  // gating on `selEnqId` instead is what actually reflects "is there an
-  // enquiry selected for this endpoint to load."
-  const showProfilePlaceholder = !profileOpen;
+
   const showTravellerList = showList || (!selEnqId && !member && !picked);
 
   return (
     <div className="taw-acc-stack">
-      <div className={cx("taw-acc", qOpen && "is-open")}>
-        <div className={"taw-acc-h" + (qOpen ? " is-open" : "")}>
-          <Icon name="inbox" size={20} />
-          <h3>Queue</h3>
-          {openEnquiries.length ? <span className="sub">{openEnquiries.length} open</span> : null}
-          <button
-            className="taw-acc-toggle"
-            onClick={toggle}
-            aria-label={qOpen ? "Collapse Queue" : "Expand Queue"}
-            title={qOpen ? "Collapse Queue" : "Expand Queue"}
-          >
-            <Icon name="chevron" size={15} />
-          </button>
-        </div>
-        {qOpen ? (
-          <div className="taw-acc-body flush">
-            <EnquiryInbox
-              enquiries={openEnquiries}
-              members={members}
-              membersById={membersById}
-              loading={inboxLoading}
-              selectedId={selEnqId}
-              onSelect={selectEnquiry}
-              onPickMember={onPickMember}
-            />
-          </div>
-        ) : null}
-      </div>
+      {/* Queue now lives in the Enquiries tab row (portalled into
+          #console-header-queue, see console/layout.tsx) as a dropdown, not
+          as a section here — picking an enquiry runs the same selectEnquiry. */}
+      <QueueMenu
+        enquiries={openEnquiries}
+        members={members}
+        membersById={membersById}
+        loading={inboxLoading}
+        selectedId={selEnqId}
+        onSelect={selectEnquiry}
+        onPickMember={onPickMember}
+      />
 
-      <div className={cx("taw-acc", "taw-acc--profile", profileOpen && "is-open")}>
-        <div className={"taw-acc-h" + (profileOpen ? " is-open" : "")}>
+      <div className="taw-acc taw-acc--profile is-open">
+        <div className="taw-acc-h is-open">
           <Icon name="compass" size={20} />
           <h3>Traveller Profile</h3>
+          {/* Back to the list — in the header row (not its own line) while a
+              single traveller is showing. */}
+          {!showTravellerList ? (
+            <button
+              type="button"
+              className="taw-trav-back"
+              style={{ padding: 0 }}
+              onClick={() => { setShowList(true); setPicked(null); setConvo(null); }}
+            >
+              ← All travellers
+            </button>
+          ) : null}
           {travellers.length ? <span className="sub">{travellers.length} travellers</span> : null}
-          <button
-            className="taw-acc-toggle"
-            onClick={toggle}
-            aria-label={profileOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
-            title={profileOpen ? "Collapse Traveller Profile" : "Expand Traveller Profile"}
-          >
-            <Icon name="chevron" size={15} />
-          </button>
         </div>
-        <div className={cx("taw-acc-body", profileOpen && showTravellerList && "flush")}>
-          {showProfilePlaceholder ? (
-            <Empty icon={<Icon name="user" size={26} />}>
-              Select an enquiry, or expand this section to browse all travellers.
-            </Empty>
-          ) : showTravellerList ? (
+        <div className={cx("taw-acc-body", showTravellerList && "flush")}>
+          {showTravellerList ? (
             <TravellerList
               travellers={travellers}
               loading={inboxLoading}
@@ -198,9 +167,6 @@ export function QueueProfileAccordion(props: any) {
             />
           ) : (
             <>
-              <button type="button" className="taw-trav-back" onClick={() => { setShowList(true); setPicked(null); setConvo(null); }}>
-                ← All travellers
-              </button>
               {picked ? (
                 <TravellerCard t={picked} />
               ) : !selEnqId ? (
@@ -219,6 +185,74 @@ export function QueueProfileAccordion(props: any) {
         </div>
       </div>
     </div>
+  );
+}
+
+// QueueMenu — "Queue (N open)" pill + popover, rendered into the Enquiries tab
+// row via a portal. Renders nothing until that row's target element exists
+// (i.e. on any page without it).
+function QueueMenu(props: any) {
+  const { enquiries, selectedId } = props;
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setTarget(document.getElementById("console-header-queue"));
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  if (!target) return null;
+  return createPortal(
+    <div ref={wrapRef} style={{ position: "relative" }}>
+      <button
+        type="button"
+        className="taw-btn taw-btn--sm"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 12px", borderRadius: 999 }}
+      >
+        <Icon name="inbox" size={14} />
+        Queue{enquiries.length ? " (" + enquiries.length + " open)" : ""}
+        <Icon name="chevron" size={13} style={{ transform: open ? "rotate(180deg)" : undefined }} />
+      </button>
+      {open ? (
+        <div
+          style={{
+            position: "absolute", right: 0, top: "calc(100% + 6px)", width: 360, maxWidth: "90vw", zIndex: 60,
+            background: "var(--card)", border: "1px solid var(--line)", borderRadius: "var(--radius-sm)",
+            boxShadow: "0 12px 32px rgba(40,28,22,0.18)", maxHeight: "min(65vh, 520px)", overflowY: "auto",
+          }}
+        >
+          <EnquiryInbox
+            enquiries={enquiries}
+            members={props.members}
+            membersById={props.membersById}
+            loading={props.loading}
+            selectedId={selectedId}
+            onSelect={(e: any, m: any) => { setOpen(false); props.onSelect(e, m); }}
+            onPickMember={(m: any) => { setOpen(false); props.onPickMember(m); }}
+          />
+        </div>
+      ) : null}
+    </div>,
+    target
   );
 }
 

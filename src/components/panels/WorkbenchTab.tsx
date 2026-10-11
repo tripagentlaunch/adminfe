@@ -60,20 +60,13 @@
 import { useEffect, useRef, useState } from "react";
 import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
 
-async function parseWhatsAppChat(text: string): Promise<Record<string, any>> {
-  const res = await fetch("/api/parse-chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  });
-  try { return await res.json(); } catch { return {}; }
-}
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { ChatbotConversationPanel } from "./ChatbotConversationPanel";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
 import { useWorkbench } from "../../lib/workbenchContext";
+import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
 
 // ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
 // request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
@@ -82,123 +75,131 @@ import { useWorkbench } from "../../lib/workbenchContext";
 // dismisses this step (per enquiry id) — the actual AI/scratch itinerary
 // generation is UNCHANGED, still the existing chooser buttons inside
 // Itinerary Builder below.
-function prefValue(field: any): string | null {
-  if (field == null) return null;
-  if (typeof field === "string") return field;
-  return field.state === "value" ? field.value : null;
-}
-
-function ConversationSummaryPanel({ enquiry, member, onGenerate, onParsed }: any) {
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [parsing, setParsing] = useState(false);
+function ConversationSummaryPanel({ enquiry, member, hasEnquiry, onGenerate, onAnalyze }: any) {
+  const [analyzing, setAnalyzing] = useState(false);
+  // Local tab state only — no routes (the panel is keyed by enquiry, so it
+  // resets when the selection changes).
+  const [tab, setTab] = useState<"requirements" | "summary">("requirements");
   const ask = enquiry && enquiry.ask;
-  const stars = ask && ask.hotel ? prefValue(ask.hotel.stars) : null;
-  const style = ask && ask.hotel ? prefValue(ask.hotel.style) : null;
-  const requirements = ask
-    ? [
-        ask.destinations && ask.destinations[0] ? "Destination: " + ask.destinations[0] : null,
-        ask.dateRange ? "Dates: " + ask.dateRange + (ask.tripLength ? " (" + ask.tripLength + ")" : "") : null,
-        ask.budgetPerPerson ? "Budget: ~" + ask.budgetPerPerson + " per person" : ask.budgetCap ? "Budget: ~" + ask.budgetCap : null,
-        ask.groupType || ask.purpose ? "Trip Type: " + [ask.groupType, ask.purpose].filter(Boolean).join(" / ") : null,
-        stars || style ? "Preferences: " + [stars ? stars + "-star" : null, style].filter(Boolean).join(", ") : null,
-      ].filter((r): r is string => !!r)
-    : [];
+  // Same ask → same builder as Traveller Profile (column 1) — see
+  // src/lib/tripFields.ts.
+  const rows = buildRequirementRows(ask);
+
+  // Conversation Summary text: enquiries.message is the AI-written summary
+  // (summarize_conversation's `summary`). Without it, one plain sentence
+  // from whichever ask fields exist — never invented detail.
+  const fields = buildTripFields(ask);
+  const fv = (k: string) => (fields.find((f) => f.key === k) || { value: null }).value;
+  const askSentence = [
+    fv("tripType") ? fv("tripType") + (fv("destination") ? " to " + fv("destination") : "") : fv("destination") ? "Trip to " + fv("destination") : null,
+    fv("origin") ? "from " + fv("origin") : null,
+    fv("dates") ? "on " + fv("dates") : null,
+    fv("travellers") ? "for " + fv("travellers") : null,
+    fv("budget") ? "with a budget of " + fv("budget") : null,
+  ].filter(Boolean).join(", ");
+  const summaryText = (enquiry && enquiry.message) || (askSentence ? askSentence + "." : null);
+
+  const tabs: { id: "requirements" | "summary"; label: string }[] = [
+    { id: "requirements", label: "Key Requirements" },
+    { id: "summary", label: "Conversation Summary" },
+  ];
+  const cardStyle = { background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 };
 
   return (
-    <Card title="Conversation Summary" icon={<Icon name="chat" size={20} />}>
+    <Card
+      title="Conversation Summary"
+      icon={<Icon name="chat" size={20} />}
+    >
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {enquiry && enquiry.message ? (
-          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "#4A5568" }}>{enquiry.message}</p>
-        ) : null}
-
-        {requirements.length ? (
-          <div
-            style={{
-              background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16,
+        <div className="taw-tabs" style={{ padding: 0, borderBottom: "1px solid var(--line)", alignItems: "center" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={"taw-tab" + (tab === t.id ? " is-active" : "")}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+          {/* Calls POST /enquiries/{id}/extract-trip-details (Claude, a few
+              seconds) and refreshes the profile, so Key Requirements and
+              Trip Preferences fill from the real WhatsApp conversation. */}
+          <button
+            type="button"
+            className="taw-btn taw-btn--sm"
+            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}
+            disabled={analyzing || !hasEnquiry}
+            title={hasEnquiry ? "Read the WhatsApp conversation and fill in trip details" : "Select an enquiry first"}
+            onClick={() => {
+              setAnalyzing(true);
+              Promise.resolve(onAnalyze()).finally(() => setAnalyzing(false));
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
+            {analyzing ? <Spinner /> : <Icon name="sparkle" size={13} />}
+            {analyzing ? "Analyzing…" : "Analyze Conversation"}
+          </button>
+        </div>
+
+        {tab === "requirements" ? (
+          <div style={cardStyle}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
               <Icon name="sparkle" size={14} style={{ color: "#B8945F" }} />
-              Key Requirements
+              Requirements to Build Itinerary
             </div>
-            <ul style={{ margin: 0, paddingLeft: 18 }}>
-              {requirements.map((r: string) => (
-                <li key={r} style={{ fontSize: 13.5, color: "#4A5568", marginBottom: 6 }}>{r}</li>
+            <ul style={{ margin: 0, padding: 0, listStyle: "none" }}>
+              {rows.map((r, i) => (
+                <li
+                  key={r.key}
+                  style={{
+                    display: "flex", gap: 10, padding: "10px 0",
+                    borderTop: i === 0 ? "none" : "1px solid #EDE7D9",
+                  }}
+                >
+                  <Icon name={r.icon} size={16} style={{ color: "#B8945F", marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>{r.label}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 14, color: "#1F2430", fontWeight: 600 }}>
+                      {r.value || (r.key === "special" ? "None" : "—")}
+                      {r.tag ? <span className="taw-chip taw-chip--dom">{r.tag}</span> : null}
+                    </div>
+                    {r.sub ? <div style={{ fontSize: 12.5, color: "#6B6558", marginTop: 3, lineHeight: 1.45 }}>{r.sub}</div> : null}
+                  </div>
+                </li>
               ))}
             </ul>
           </div>
         ) : null}
 
-        {(member || (ask && ask.traveller_name)) ? (
-          <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
-              <Icon name="user" size={14} style={{ color: "#4A5568" }} />
-              Traveller Profile for Itinerary
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "12px 16px" }}>
-              <div>
-                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Traveller Name</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.name) || (ask && ask.traveller_name) || "—"}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Email</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.email) || "—"}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Phone</div>
-                <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{(member && member.phone) || "—"}</div>
-              </div>
-              {ask && ask.from ? (
-                <div>
-                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Origin</div>
-                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.from}</div>
-                </div>
-              ) : null}
-              {ask && ask.destinations && ask.destinations[0] ? (
-                <div>
-                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Destination</div>
-                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.destinations[0]}</div>
-                </div>
-              ) : null}
-              {ask && ask.dateRange ? (
-                <div>
-                  <div style={{ fontSize: 11, color: "#9098A8", marginBottom: 2 }}>Travel Dates</div>
-                  <div style={{ fontSize: 13.5, color: "#1F2430", fontWeight: 500 }}>{ask.dateRange}</div>
-                </div>
-              ) : null}
-            </div>
-          </div>
+        {tab === "summary" ? (
+          summaryText ? (
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.6, color: "#4A5568" }}>{summaryText}</p>
+          ) : (
+            <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>No conversation summary yet.</div>
+          )
         ) : null}
 
-        <div style={{ background: "#F7F4EC", border: "1px solid #EDE7D9", borderRadius: 10, padding: 16 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 10 }}>Parse WhatsApp Chat (test)</div>
-          <input ref={fileRef} type="file" accept=".txt" style={{ display: "none" }} onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setParsing(true);
-            try {
-              const text = await file.text();
-              console.log("[parse] file read, length:", text.length);
-              const parsed = await parseWhatsAppChat(text);
-              console.log("[parse] parsed result:", parsed);
-              onParsed(parsed);
-            } catch (err) {
-              console.error("[parse] ERROR:", err);
-            } finally {
-              setParsing(false);
-              if (fileRef.current) fileRef.current.value = "";
-            }
-          }} />
-          <button className="taw-btn taw-btn--block" disabled={parsing} onClick={() => fileRef.current?.click()} style={{ marginBottom: 10 }}>
-            {parsing ? <Spinner /> : <Icon name="inbox" size={15} />}
-            {parsing ? "Parsing with Haiku…" : "Upload WhatsApp .txt export"}
-          </button>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#1F2430", marginBottom: 10 }}>Next Step</div>
-          <button className="taw-btn taw-btn--primary taw-btn--block" onClick={onGenerate}>
-            <Icon name="sparkle" size={16} />
-            Generate Itinerary
-          </button>
-        </div>
+        {(
+          <div style={cardStyle}>
+            <button className="taw-btn taw-btn--primary taw-btn--block" onClick={onGenerate}>
+              <Icon name="sparkle" size={16} />
+              Generate Itinerary
+            </button>
+            {/* Static marketing copy, not data-driven. */}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 14 }}>
+              {[
+                { icon: "tag", label: "Best Prices" },
+                { icon: "hotel", label: "Handpicked Hotels" },
+                { icon: "compass", label: "Curated Experiences" },
+              ].map((b) => (
+                <div key={b.label} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, textAlign: "center" }}>
+                  <Icon name={b.icon} size={16} style={{ color: "#B8945F" }} />
+                  <span style={{ fontSize: 11.5, color: "#6B6558", fontWeight: 500 }}>{b.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Card>
   );
@@ -388,8 +389,8 @@ export function WorkbenchTab(props: any) {
   // creating/onCreateOrder: unused now that Quote Builder isn't rendered on
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
-  const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading } = useWorkbench();
+  const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -407,16 +408,9 @@ export function WorkbenchTab(props: any) {
   // traveller-profile's own real, backend-shaped output — is the correct
   // source; merged in here (once loaded) rather than fixed at each
   // individual consumer, so every one of them benefits from a single fix.
-  const [parsedAsk, setParsedAskRaw] = useState<Record<string, any>>(() => {
-    try { return JSON.parse(sessionStorage.getItem("parsedAsk") || "{}"); } catch { return {}; }
-  });
-  const setParsedAsk = (v: Record<string, any>) => {
-    try { sessionStorage.setItem("parsedAsk", JSON.stringify(v)); } catch {}
-    setParsedAskRaw(v);
-  };
   const askReady = !!(travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selEnqId);
   const baseAsk = askReady ? travellerProfile.enquiry.ask : (selectedEnquiry?.ask || {});
-  const selectedEnquiryWithAsk = { ...selectedEnquiry, ask: { ...baseAsk, ...parsedAsk } };
+  const selectedEnquiryWithAsk = { ...selectedEnquiry, ask: { ...baseAsk } };
   const itineraryData = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
   // generating (2026-09-06) — "Generate AI Itinerary" now waits on a real
   // backend call (POST /enquiries/{id}/generate-itinerary — real Claude
@@ -436,54 +430,16 @@ export function WorkbenchTab(props: any) {
   const [convoTarget, setConvoTarget] = useState<any>(null);
   const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
   const showConversation = !!convoMember && !selectedEnquiry;
-
-  return (
-    <div className="taw-grid taw-cols-3">
-      <QueueProfileAccordion
-        enquiries={enquiries}
-        members={members}
-        membersById={membersById}
-        inboxLoading={inboxLoading}
-        travellerProfile={travellerProfile}
-        travellerProfileLoading={travellerProfileLoading}
-        selEnqId={selEnqId}
-        member={member}
-        onSelectEnquiry={onSelectEnquiry}
-        onPickMember={onPickMember}
-        onConvoTarget={setConvoTarget}
-      />
-
-      {showSummary ? (
-        <ConversationSummaryPanel
-          enquiry={selectedEnquiryWithAsk}
-          member={member || (travellerProfile && travellerProfile.member)}
-          onGenerate={() => setSummaryDismissedFor(selEnqId)}
-          onParsed={(parsed: Record<string, any>) => { console.log("[WorkbenchTab] onParsed called with:", parsed); setParsedAsk(parsed); }}
-        />
-      ) : showConversation ? (
-        <ChatbotConversationPanel member={convoMember} />
-      ) : (
-      <Card
-        className="taw-itin-card"
-        title="Itinerary Builder"
-        icon={<Icon name="sliders" size={20} />}
-        sub={member ? "for " + member.name : "no member selected"}
-      >
-        {!selectedEnquiry ? (
-          <Empty
-            icon="sparkle"
-            title="Not yet built"
-            message="Select an enquiry from the Queue to start an itinerary — generated by AI from what was asked, or from scratch — for you to build out and check before confirming."
-          />
-        ) : itineraryData ? (
-          // Real content (2026-09-03) — exists once EITHER the chooser
-          // below was used OR something was added from Search first;
-          // either path lands here, on the same real (editable, not a
-          // static mock) itinerary. No "Back" control — once an
-          // itinerary exists, it IS the working view; switching
-          // enquiries in the Queue is what shows a different one.
-          <ItineraryView enquiryId={selEnqId} member={member} />
-        ) : generating ? (
+  // ONE flag for both columns: the tabbed summary panel (column 2) and the
+  // chat (column 3) show together. Otherwise column 2 is the Itinerary Builder
+  // card (chooser / Drafting… / ItineraryView) and column 3 is the search panel.
+  // showSummary is already false once an itinerary exists or is generating, and
+  // after Generate Itinerary dismisses the summary for this enquiry.
+  const showTabs = showSummary || showConversation;
+  // The "start this itinerary" content — the Drafting… spinner while
+  // generating, else the Generate AI / Start from scratch chooser. Rendered
+  // by the Itinerary Builder card below.
+  const itineraryStartNode = generating ? (
           // Real loading state (2026-09-06) — "Generate AI Itinerary" now
           // waits on a real Claude call (POST /enquiries/{id}/generate-
           // itinerary), not instant mock cloning, so there's real time to
@@ -499,7 +455,7 @@ export function WorkbenchTab(props: any) {
                 retry mid-request. Copy now sets real expectations instead. */}
             <div className="message">Aanya&apos;s AI is searching real flights and hotels city by city for this trip — a multi-city itinerary can take a minute or two. No need to refresh or click again.</div>
           </div>
-        ) : (
+  ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,
           // editable itinerary via WorkbenchContext's initItinerary; this
           // only decides whether it starts pre-filled (mock AI draft) or
@@ -518,17 +474,110 @@ export function WorkbenchTab(props: any) {
               Start from scratch
             </button>
           </div>
+  );
+
+  return (
+    <div className="taw-grid taw-cols-3">
+      <QueueProfileAccordion
+        enquiries={enquiries}
+        members={members}
+        membersById={membersById}
+        inboxLoading={inboxLoading}
+        travellerProfile={travellerProfile}
+        travellerProfileLoading={travellerProfileLoading}
+        selEnqId={selEnqId}
+        member={member}
+        onSelectEnquiry={onSelectEnquiry}
+        onPickMember={onPickMember}
+        onConvoTarget={setConvoTarget}
+      />
+
+      {showTabs ? (
+        // showConversation added (2026-10-10, direct request): centre
+        // column now shows the key-requirements/Generate-Itinerary
+        // summary view whenever a traveller is picked (even with no
+        // enquiry selected yet), not just once an enquiry exists — chat
+        // lives in column 3 regardless (see below).
+        <ConversationSummaryPanel
+          key={selEnqId || "none"}
+          enquiry={selectedEnquiryWithAsk}
+          hasEnquiry={!!selectedEnquiry}
+          onAnalyze={() => analyzeConversation(selEnqId)}
+          member={convoMember || member || (travellerProfile && travellerProfile.member)}
+          onGenerate={() => {
+            if (selEnqId) {
+              // Already have a real enquiry (picked from Queue, or one
+              // created by an earlier Generate click below) — same as
+              // before, just reveal the itinerary-builder chooser.
+              setSummaryDismissedFor(selEnqId);
+              return;
+            }
+            // No enquiry yet (traveller picked directly, no Queue entry)
+            // — create/reuse one first (ensureEnquiryForMember), THEN
+            // reveal the chooser for it. Without this, clicking Generate
+            // here did nothing: the chooser below is gated on a real
+            // selectedEnquiry existing.
+            if (onEnsureEnquiry && convoMember) {
+              onEnsureEnquiry(convoMember)
+                .then((e: any) => setSummaryDismissedFor(e.id))
+                .catch(() => {});
+            }
+          }}
+        />
+      ) : (
+      <Card
+        className="taw-itin-card"
+        title="Itinerary Builder"
+        icon={<Icon name="sliders" size={20} />}
+        sub={member ? "for " + member.name : "no member selected"}
+        actions={
+          selectedEnquiry && !itineraryData && !generating ? (
+            // Back (2026-10-10, direct request) — short, in the header
+            // row next to the title, not inline in the chooser content.
+            // Returns to the key-requirements/summary view for this
+            // enquiry; safe since there's no itinerary yet to lose.
+            <button
+              type="button"
+              className="taw-btn taw-btn--sm"
+              onClick={() => setSummaryDismissedFor(null)}
+            >
+              ← Back
+            </button>
+          ) : null
+        }
+      >
+        {!selectedEnquiry ? (
+          <Empty
+            icon="sparkle"
+            title="Not yet built"
+            message="Select an enquiry from the Queue to start an itinerary — generated by AI from what was asked, or from scratch — for you to build out and check before confirming."
+          />
+        ) : itineraryData ? (
+          // Real content (2026-09-03) — exists once EITHER the chooser
+          // below was used OR something was added from Search first;
+          // either path lands here, on the same real (editable, not a
+          // static mock) itinerary. No "Back" control — once an
+          // itinerary exists, it IS the working view; switching
+          // enquiries in the Queue is what shows a different one.
+          <ItineraryView enquiryId={selEnqId} member={member} />
+        ) : (
+          itineraryStartNode
         )}
       </Card>
       )}
 
-      {showSummary ? (
+      {showTabs ? (
         // convoTarget first: it's the traveller object from the Traveller
         // Profile list, which carries invitation_code directly. Without
         // this, selecting an enquiry falls back to a CRM/profile member
         // object that often has no code, showing "no access code on file"
         // even when we already had the right code in hand.
-        <ChatbotConversationPanel member={convoTarget || (travellerProfile && travellerProfile.member) || member} />
+        // Moved here (2026-10-10, direct request): the traveller's live
+        // chat now always renders in column 3, whether an enquiry/summary
+        // is active (showSummary) or just a traveller was picked with no
+        // enquiry yet (showConversation) — column 2 is freed up for the
+        // itinerary builder / key-requirements view in both cases.
+        <ChatbotConversationPanel member={convoTarget || convoMember || (travellerProfile && travellerProfile.member) || member} />
       ) : (
       <SearchDesksPanel
         // key={selEnqId} (2026-09-03, flow-testing hurdle) — without it,

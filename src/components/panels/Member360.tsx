@@ -29,8 +29,12 @@
  * degrades gracefully (shorter card, not broken/blank fields) for real
  * rows instead of assuming the mock shape.
  * ===========================================================================*/
+import { useEffect, useState } from "react";
 import { Empty, Icon } from "../ui";
-import { fmtDate, capLabel } from "../../lib/advisorHelpers";
+import { getDestinationPhoto } from "../../services/api";
+import { useWorkbench } from "../../lib/workbenchContext";
+import { fmtDate } from "../../lib/advisorHelpers";
+import { buildTripFields, emptyLabel } from "../../lib/tripFields";
 
 // 2026-09-02: was "Mr"/"Ms" — changed to a bare gender letter per direct
 // feedback. Keeping the lookup (rather than printing m.gender directly)
@@ -54,15 +58,6 @@ function destCode(dest: string) {
   return DEST_IATA[dest] || dest;
 }
 
-function paxLabel(persons: any[]) {
-  if (!persons || !persons.length) return null;
-  const adults = persons.filter((p: any) => p.age == null || p.age >= 12).length;
-  const children = persons.length - adults;
-  let label = adults + " adult" + (adults === 1 ? "" : "s");
-  if (children) label += ", " + children + " child" + (children === 1 ? "" : "ren");
-  return label;
-}
-
 function dateFlexChipClass(tag: string) {
   if (tag === "flexible") return "taw-chip--flight"; // info-tinted
   if (tag === "asap") return "taw-chip--noref"; // danger-tinted — urgent, no give
@@ -72,6 +67,23 @@ function dateFlexChipClass(tag: string) {
 export function Member360(props: any) {
   const m = props.member;
   const enquiry = props.enquiry;
+  const { itinerariesByEnquiry, generatingItinerary } = useWorkbench();
+
+  // Hero photo — one Pexels stock photo for the destination, via adminbe's
+  // GET /enquiries/destination-photo. Any failure / no key / no result leaves
+  // heroUrl null, and the hero draws its gradient instead (never a broken img).
+  const heroDestination = enquiry && enquiry.ask && enquiry.ask.destinations ? enquiry.ask.destinations[0] : null;
+  const [hero, setHero] = useState<{ dest: string; url: string; credit: string | null } | null>(null);
+  const heroUrl = hero && hero.dest === heroDestination ? hero.url : null;
+  const heroCredit = hero && hero.dest === heroDestination ? hero.credit : null;
+  useEffect(() => {
+    if (!heroDestination) return;
+    let cancelled = false;
+    getDestinationPhoto(heroDestination)
+      .then((r: any) => { if (!cancelled && r && r.url) setHero({ dest: heroDestination, url: r.url, credit: r.photographer || null }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [heroDestination]);
 
   if (!m) {
     return <Empty icon={<Icon name="user" size={28} />}>Select an enquiry to load the traveller's profile.</Empty>;
@@ -153,6 +165,26 @@ export function Member360(props: any) {
     : [];
 
   const passportYear = m.passport_expiry ? new Date(m.passport_expiry).getFullYear() : null;
+  // adminbe sets passport_number to "Not yet provided — pending advisor
+  // follow-up" on purpose (Aanya never collects one), so a truthy value alone
+  // doesn't mean a passport is on file.
+  const passportProvided = !!m.passport_number && !/^not yet provided/i.test(String(m.passport_number));
+  // members.nationality is an ISO code ("IN") on CRM members; the traveller-
+  // profile endpoint doesn't send it, so this row only appears when present.
+  let nationalityLabel: string | null = m.nationality ? String(m.nationality) : null;
+  if (nationalityLabel && /^[A-Za-z]{2}$/.test(nationalityLabel)) {
+    try {
+      nationalityLabel = new (Intl as any).DisplayNames(["en"], { type: "region" }).of(nationalityLabel.toUpperCase()) || nationalityLabel;
+    } catch (e) { /* keep the raw code */ }
+  }
+  const itineraryStarted = !!(enquiry && itinerariesByEnquiry[enquiry.id]);
+  const itineraryGenerating = !!(enquiry && generatingItinerary[enquiry.id]);
+  const enquiryClosed = !!(enquiry && enquiry.status === "closed");
+  // Quick Note: the AI-written conversation summary (enquiries.message, set
+  // from summarize_conversation's `summary`) — first two sentences, as-is.
+  const quickNote = enquiry && enquiry.message
+    ? (String(enquiry.message).match(/[^.!?]+[.!?]+(\s|$)/g) || [String(enquiry.message)]).slice(0, 2).join("").trim()
+    : null;
 
   // Service badge ("Hotel & Flight", "Flight", "Hotel") — derived from
   // which legs this enquiry actually asked for, not a stored field.
@@ -166,207 +198,250 @@ export function Member360(props: any) {
     return field.state === "value" ? field.value : null;
   }
 
-  const mockEmail = "aanya.sharma@email.com";
-  const mockPhone = "+91 98765 43210";
+  const tripFields = buildTripFields(ask);
 
-  const originLabel = ask && ask.from ? ask.from : null;
-  const budgetLabel = ask
-    ? ask.budgetPerPerson
-      ? capLabel(ask.budgetPerPerson) + "/person"
-      : ask.budgetCap
-      ? capLabel(ask.budgetCap)
-      : null
-    : null;
-  const travelersLabel = ask ? paxLabel(ask.persons) : null;
-  const travelTypeLabel = ask && ask.groupType
-    ? ask.groupType.charAt(0).toUpperCase() + ask.groupType.slice(1) + (/trip$/i.test(ask.groupType) ? "" : " Trip")
-    : null;
+  const heroPill: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
+    background: "rgba(255,255,255,0.92)", color: "var(--ink)",
+  };
+  const sectionTitle: React.CSSProperties = {
+    fontSize: 15, fontWeight: 600, color: "var(--ink)", textTransform: "none", letterSpacing: 0,
+  };
+  const field = (key: string) => tripFields.find((f) => f.key === key)!;
+  const detailRows: { label: string; value: React.ReactNode }[] = [
+    { label: "Email", value: m.email || "—" },
+    { label: "Phone", value: m.phone || "—" },
+    // Residence is deliberately absent: no `residence`/home-city field exists
+    // on `member`, `ask` or enquiries.detail (DETAIL_FIELDS), so there is
+    // nothing real to show. Nationality only renders when m.nationality is set.
+    ...(nationalityLabel ? [{ label: "Nationality", value: nationalityLabel }] : []),
+    {
+      label: "Passport",
+      value: passportProvided ? (
+        "Received" + (passportYear ? " · " + passportYear : "")
+      ) : (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          Not provided
+          <button type="button" className="taw-btn taw-btn--sm" onClick={props.onAddPassport}>Add</button>
+        </span>
+      ),
+    },
+  ];
+
+  // Avatar + name + badges + subtitle. Overlaid on the hero's gradient when the
+  // hero exists (white text), otherwise a compact standalone row. Email and
+  // phone live only in Traveller Details.
+  const identity = (onDark: boolean) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+      <div
+        style={{
+          width: 36, height: 36, borderRadius: "50%", background: onDark ? "rgba(255,255,255,0.92)" : "#E7ECF2",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontWeight: 600, fontSize: 13, color: onDark ? "var(--ink)" : "#4A5568", flexShrink: 0,
+        }}
+      >
+        {initials}
+      </div>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14.5, fontWeight: 600, color: onDark ? "#fff" : "var(--ink)" }}>{m.name}</span>
+          {serviceBadge ? (
+            <span
+              style={{
+                fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 999,
+                background: "#E6EFFA", color: "#3B6EA5",
+              }}
+            >
+              {serviceBadge}
+            </span>
+          ) : null}
+          {ask ? <span className="taw-chip taw-chip--star">AI Collected</span> : null}
+          {m.tier ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
+        </div>
+        <div style={{ fontSize: 12, color: onDark ? "rgba(255,255,255,0.85)" : "var(--muted)", marginTop: 1 }}>
+          {metaParts.length ? metaParts.join(" · ") : "Primary Traveller"}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="taw-m360 taw-fade-in">
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 18 }}>
+    <div className="taw-m360 taw-fade-in" style={{ gap: 12 }}>
+      {heroDestination ? (
         <div
           style={{
-            width: 56, height: 56, borderRadius: "50%", background: "#E7ECF2",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontWeight: 600, fontSize: 17, color: "#4A5568", flexShrink: 0,
+            position: "relative", minHeight: 142, borderRadius: 14, overflow: "hidden",
+            background: "linear-gradient(135deg, var(--gold-ink), var(--ink))",
           }}
         >
-          {initials}
+          {heroUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- arbitrary Pexels host, not in next/image's allowlist
+            <img
+              src={heroUrl}
+              alt=""
+              onError={() => setHero(null)}
+              style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : null}
+          <div
+            style={{
+              position: "absolute", inset: 0,
+              background: "linear-gradient(to top, rgba(0,0,0,0.78), rgba(0,0,0,0) 85%)",
+            }}
+          />
+          {/* Google Places requires showing the photo author; kept for Pexels too. */}
+          {heroUrl && heroCredit ? (
+            <span style={{ position: "absolute", right: 10, bottom: 2, fontSize: 9.5, color: "rgba(255,255,255,0.8)" }}>
+              Photo: {heroCredit}
+            </span>
+          ) : null}
+          <div
+            style={{
+              position: "relative", minHeight: 142, boxSizing: "border-box", padding: "10px 12px 16px",
+              display: "flex", flexDirection: "column", justifyContent: "space-between", color: "#fff",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", minHeight: 22 }}>
+              {enquiry ? (
+                <>
+                  <span style={heroPill}>{enquiryClosed ? "Closed" : "Active"}</span>
+                  <span style={heroPill}>
+                    {itineraryGenerating ? "Generating" : itineraryStarted ? "In Progress" : "Not Started"}
+                  </span>
+                </>
+              ) : null}
+            </div>
+            <div>
+              <div style={{ fontSize: 17, fontWeight: 600, lineHeight: 1.25, textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>{heroDestination} Trip</div>
+              {field("dates").value ? <div style={{ fontSize: 12, marginBottom: 8, textShadow: "0 1px 3px rgba(0,0,0,0.6)" }}>{field("dates").value}</div> : <div style={{ marginBottom: 8 }} />}
+              {/* Dark rounded plate behind just the identity row, so it stays
+                  readable on any photo. */}
+              <div style={{ background: "rgba(0,0,0,0.45)", borderRadius: 10, padding: "6px 8px", backdropFilter: "blur(2px)" }}>
+                {identity(true)}
+              </div>
+            </div>
+          </div>
         </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16, fontWeight: 600, color: "#1F2430" }}>{m.name}</span>
-            {serviceBadge ? (
-              <span
+      ) : (
+        identity(false)
+      )}
+
+      {/* Four stat chips — Trip Type / Travellers / Origin / Destination,
+          from buildTripFields (src/lib/tripFields.ts, shared with column 2). */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+        {["tripType", "travellers", "origin", "destination"].map((k) => {
+          const f = field(k);
+          return (
+            <div
+              key={k}
+              style={{
+                border: "1px solid var(--line)", borderRadius: 10, padding: "8px 6px",
+                display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 4, minWidth: 0,
+              }}
+            >
+              <Icon name={f.icon} size={16} style={{ color: "var(--gold)" }} />
+              <div style={{ fontSize: 12.5, fontWeight: 600, color: "var(--ink)", overflowWrap: "anywhere", lineHeight: 1.25 }}>
+                {f.value || emptyLabel(f)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--muted)" }}>{f.label}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="taw-m360-sec">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Icon name="user" size={15} style={{ color: "var(--gold)" }} />
+          <span style={sectionTitle}>Traveller Details</span>
+        </div>
+        <ul className="taw-m360-pref-list" style={{ gap: 0 }}>
+          {detailRows.map((r, i) => (
+            <li
+              key={r.label}
+              className="taw-m360-pref"
+              style={{ padding: "6px 0", borderBottom: i < detailRows.length - 1 ? "1px solid var(--line)" : "none" }}
+            >
+              <span className="taw-m360-pref-label">{r.label}</span>
+              <span className="taw-m360-pref-val">{r.value}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="taw-m360-sec">
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Icon name="sparkle" size={15} style={{ color: "var(--gold)" }} />
+          <span style={sectionTitle}>Trip Preferences</span>
+        </div>
+        {/* Two cells per row; each cell stacks icon + label over the value, with
+            the tag chip inline at the end of the value text (plain inline flow,
+            not flex, so the chip wraps WITH the text instead of dropping to its
+            own line). Equal min-height keeps the grid even. Special Requests is
+            the lone fifth cell, so it takes the full last row and is clamped to
+            two lines. */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", columnGap: 16 }}>
+          {["accommodation", "budget", "flight", "interests", "special"].map((k) => {
+            const f = field(k);
+            const wide = k === "special";
+            return (
+              <div
+                key={k}
                 style={{
-                  fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
-                  background: "#E6EFFA", color: "#3B6EA5",
+                  padding: "7px 0", minHeight: wide ? undefined : 52, boxSizing: "border-box", minWidth: 0,
+                  borderBottom: wide ? "none" : "1px solid var(--line)",
+                  gridColumn: wide ? "1 / -1" : undefined,
                 }}
               >
-                {serviceBadge}
-              </span>
-            ) : null}
-            {m.tier ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
-          </div>
-          <div style={{ fontSize: 13, color: "#9098A8", marginTop: 1 }}>
-            {metaParts.length ? metaParts.join(" · ") : "Primary Traveller"}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 8 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "#4A5568" }}>
-              <Icon name="mail" size={14} style={{ color: "#9098A8" }} />
-              {m.email || mockEmail}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13.5, color: "#4A5568" }}>
-              <Icon name="phone" size={14} style={{ color: "#9098A8" }} />
-              {m.phone || mockPhone}
-            </div>
-          </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--taupe)", marginBottom: 3 }}>
+                  <Icon name={f.icon} size={13} style={{ color: "var(--muted)", flexShrink: 0 }} />
+                  {f.label}
+                </div>
+                <div
+                  title={wide && f.value ? f.value : undefined}
+                  style={{
+                    fontSize: 13.5, fontWeight: 500, color: "var(--ink)", lineHeight: 1.35, overflowWrap: "anywhere",
+                    ...(wide ? { display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, overflow: "hidden" } : {}),
+                  }}
+                >
+                  {f.value || emptyLabel(f)}
+                  {f.tag ? (
+                    <span className="taw-chip taw-chip--dom" style={{ display: "inline-block", marginLeft: 6, verticalAlign: "middle" }}>
+                      {f.tag}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {originLabel || budgetLabel || travelersLabel || travelTypeLabel ? (
-        <div
-          style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 16px",
-            padding: "16px 0", borderTop: "1px solid #EDE7D9", borderBottom: "1px solid #EDE7D9",
-            marginBottom: 20,
-          }}
-        >
-          {originLabel ? (
-            <div style={{ display: "flex", gap: 9 }}>
-              <Icon name="compass" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-              <div>
-                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Origin</div>
-                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{originLabel}</div>
-              </div>
-            </div>
-          ) : null}
-          {budgetLabel ? (
-            <div style={{ display: "flex", gap: 9 }}>
-              <Icon name="tag" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-              <div>
-                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Budget</div>
-                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{budgetLabel}</div>
-              </div>
-            </div>
-          ) : null}
-          {travelersLabel ? (
-            <div style={{ display: "flex", gap: 9 }}>
-              <Icon name="user" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-              <div>
-                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Travelers</div>
-                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{travelersLabel}</div>
-              </div>
-            </div>
-          ) : null}
-          {travelTypeLabel ? (
-            <div style={{ display: "flex", gap: 9 }}>
-              <Icon name="swap" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-              <div>
-                <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 3 }}>Travel Type</div>
-                <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{travelTypeLabel}</div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* Trip Preferences — destination / dates / accommodation / interests
-          summary, matching the reference design's dedicated section
-          (distinct from the granular Flight & hotel preferences list
-          further down, which stays as-is). */}
-      {(ask && ask.destinations && ask.destinations[0]) || (ask && ask.dateRange) || (ask && ask.hotel) || (ask && ask.purpose) ? (
+      {quickNote ? (
         <div className="taw-m360-sec">
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <Icon name="sparkle" size={15} style={{ color: "#B8945F" }} />
-            <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
-              Trip Preferences
-            </span>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {ask.destinations && ask.destinations[0] ? (
-              <div style={{ display: "flex", gap: 9 }}>
-                <Icon name="compass" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-                <div>
-                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Destination</div>
-                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{ask.destinations[0]}</div>
-                </div>
-              </div>
-            ) : null}
-            {ask.dateRange ? (
-              <div style={{ display: "flex", gap: 9 }}>
-                <Icon name="calendar" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-                <div>
-                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Travel Dates</div>
-                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>
-                    {ask.dateRange}
-                    {ask.tripLength ? " (" + ask.tripLength + ")" : ""}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {ask.hotel && (ask.hotel.stars || ask.hotel.style) ? (
-              <div style={{ display: "flex", gap: 9 }}>
-                <Icon name="hotel" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-                <div>
-                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Accommodation</div>
-                  <div style={{ fontSize: 14, color: "#231C13", fontWeight: 500 }}>
-                    {[
-                      prefValue(ask.hotel.stars) ? prefValue(ask.hotel.stars) + "-star minimum" : null,
-                      prefValue(ask.hotel.style),
-                    ].filter(Boolean).join(" / ") || "—"}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-            {ask.purpose ? (
-              <div style={{ display: "flex", gap: 9 }}>
-                <Icon name="sparkle" size={15} style={{ color: "#9098A8", marginTop: 2 }} />
-                <div>
-                  <div style={{ fontSize: 12, color: "#9098A8", marginBottom: 2 }}>Interests</div>
-                  <div style={{ fontSize: 14, color: "#1F2430", fontWeight: 500 }}>{ask.purpose}</div>
-                </div>
-              </div>
-            ) : null}
+          <div style={{ background: "var(--bone)", border: "1px solid var(--line)", borderRadius: 10, padding: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, fontSize: 14, fontWeight: 600, color: "var(--ink)" }}>
+              <Icon name="note" size={14} style={{ color: "var(--gold)" }} />
+              Quick Note
+            </div>
+            <div
+              title={quickNote}
+              style={{ fontSize: 13.5, color: "var(--taupe)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+            >
+              {quickNote}
+            </div>
           </div>
         </div>
       ) : null}
 
-
-      <div className="taw-m360-sec" style={{ borderTop: "1px solid #EDE7D9", paddingTop: 18, marginTop: 4 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+      <div className="taw-m360-sec" style={{ borderTop: "1px solid #EDE7D9", paddingTop: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
           <Icon name="note" size={15} style={{ color: "#B8945F" }} />
           <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
             Documents
           </span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          <div
-            style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              padding: "10px 0", borderBottom: "1px solid #F2EDE1",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-              <Icon name="note" size={15} style={{ color: "#8A8070" }} />
-              <span style={{ fontSize: 14, color: "#231C13" }}>Passport</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span
-                style={{
-                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999,
-                  background: m.passport_number ? "#E3EFE6" : "#F2EDE1",
-                  color: m.passport_number ? "#3E7D52" : "#8A8070",
-                }}
-              >
-                {m.passport_number ? "Received" : "Not yet provided"}
-                {passportYear ? " · " + passportYear : ""}
-              </span>
-              <Icon name="chevron" size={13} style={{ color: "#C9C1AE", transform: "rotate(-90deg)" }} />
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 0" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
               <Icon name="visa" size={15} style={{ color: "#8A8070" }} />
               <span style={{ fontSize: 14, color: "#231C13" }}>Visa</span>

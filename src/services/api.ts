@@ -1997,6 +1997,21 @@ function enquiryTravellerProfile(enquiryId) {
   return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/traveller-profile", { method: "GET" });
 }
 
+// enquiryExtractTripDetails(enquiryId) — POST /enquiries/{id}/extract-trip-details.
+// No body. adbe reads the member's WhatsApp history, asks Claude for only the
+// trip fields actually stated, merges them into enquiries.detail, and returns
+// the same {member, enquiry} shape as enquiryTravellerProfile — so the caller
+// can replace its whole profile with the response. One Claude call (~400
+// tokens), so a few seconds; 60s timeout covers a slow one.
+const EXTRACT_TRIP_DETAILS_TIMEOUT_MS = 60000;
+
+function enquiryExtractTripDetails(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/extract-trip-details", {
+    method: "POST",
+    timeoutMs: EXTRACT_TRIP_DETAILS_TIMEOUT_MS,
+  });
+}
+
 // enquiryGenerateItinerary(enquiryId) — POST /enquiries/{id}/generate-itinerary.
 // Itinerary Builder's "Generate AI Itinerary" button — replaces the old
 // MOCK_ITINERARY clone (lib/mockItinerary.ts) with a real, destination-
@@ -2278,6 +2293,7 @@ export {
   sendMessageByPhone,
   getChatbotConversation,
   sendChatbotReply,
+  getDestinationPhoto,
 
   // RAG / AI
   kbSearch,
@@ -2307,6 +2323,7 @@ export {
   // Enquiries (advisor-initiated only — see enquiry_service.py)
   enquiryCreate,
   enquiryTravellerProfile,
+  enquiryExtractTripDetails,
   enquiryGenerateItinerary,
   enquiryRefreshItinerary,
   enquiryItineraryStarted,
@@ -2408,6 +2425,26 @@ function getConversationMessages(conversationId) {
     return res.json().catch(function () { return []; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to fetch conversation messages.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// getDestinationPhoto(destination) — one stock photo URL for a destination
+// name, via adminbe's GET /enquiries/destination-photo (Pexels). Resolves to
+// { url: string | null, photographer?, photographerUrl? }; url is null when
+// no key is configured / nothing found, so callers can draw a gradient.
+function getDestinationPhoto(destination) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/enquiries/destination-photo?destination=" + encodeURIComponent(destination), {
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to load destination photo.", { status: res.status, body: body });
       }
       return body;
     });

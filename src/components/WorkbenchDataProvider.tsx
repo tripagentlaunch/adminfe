@@ -23,7 +23,9 @@ import {
   siteInvitationCodes as fetchSiteInvitationCodes,
   enquiries as fetchEnquiries,
   createOrder as apiCreateOrder,
+  enquiryCreate,
   enquiryTravellerProfile,
+  enquiryExtractTripDetails,
   enquiryGenerateItinerary,
   enquiryRefreshItinerary,
   enquiryItineraryStarted,
@@ -167,6 +169,34 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         setTravellerProfileLoading(false);
       });
   }
+  // analyzeConversation — "Analyze Conversation" button: asks adbe to extract
+  // trip details from the member's WhatsApp history, then replaces
+  // travellerProfile with the {member, enquiry} it returns (same shape
+  // pickEnquiry loads), so Key Requirements / Trip Preferences re-populate.
+  // Always resolves (errors become a toast) so the caller only has to toggle
+  // its spinner. The request-id ref also guards against the advisor switching
+  // enquiries mid-call.
+  function analyzeConversation(enquiryId: string): Promise<void> {
+    const before = travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === enquiryId
+      ? JSON.stringify(travellerProfile.enquiry.ask || {})
+      : null;
+    travellerProfileReqId.current = enquiryId;
+    return enquiryExtractTripDetails(enquiryId)
+      .then((profile: any) => {
+        if (travellerProfileReqId.current !== enquiryId) return;
+        setTravellerProfile(profile);
+        const after = JSON.stringify((profile && profile.enquiry && profile.enquiry.ask) || {});
+        toast(
+          before !== null && before === after
+            ? "No new trip details found in the conversation."
+            : "Trip details updated from the conversation.",
+          "info"
+        );
+      })
+      .catch((e: any) => {
+        toast("Couldn't analyze the conversation: " + errText(e), "error");
+      });
+  }
   function pickMember(m: any) {
     setSelEnqId(null);
     setMember(m);
@@ -174,6 +204,45 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     setTravellerProfile(null);
     setTravellerProfileLoading(false);
     toast("Working with " + m.name, "info");
+  }
+
+  // ensureEnquiryForMember (2026-10-10, direct request) — lets "Generate
+  // Itinerary" work the moment a traveller is picked directly from the
+  // Traveller Profile list, with no enquiry selected yet. Reuses an
+  // already-loaded OPEN enquiry for this member if one exists (matching
+  // create_or_reuse's own 1-hour reuse window server-side, so we don't
+  // create duplicates just because the list hasn't refetched yet);
+  // otherwise calls POST /enquiries (enquiryCreate) to make a real one,
+  // channel "advisor" — same channel Call Copilot's Share action already
+  // uses for an advisor-initiated enquiry. Either way, ends by calling
+  // pickEnquiry so selEnqId/member/travellerProfile all load exactly like
+  // picking from the Queue would. `m` here is the traveller-list object
+  // (t) OR a plain CRM member row — crmMemberId handles both shapes.
+  function ensureEnquiryForMember(m: any): Promise<any> {
+    const crmMemberId = (m && m.member && m.member.id) || (m && m.id);
+    if (!crmMemberId) {
+      toast("Can't build an itinerary — this traveller has no linked account yet.", "error");
+      return Promise.reject(new Error("no_crm_member"));
+    }
+    const crmMember = (m && m.member) || m;
+    const existing = enquiries.find(
+      (e: any) => e.member_id === crmMemberId && (e.status || "open") !== "closed"
+    );
+    if (existing) {
+      pickEnquiry(existing, crmMember);
+      return Promise.resolve(existing);
+    }
+    return enquiryCreate({ member_id: crmMemberId, channel: "advisor" })
+      .then((r: any) => {
+        const e = r.enquiry;
+        setEnquiries((prev) => [e, ...prev]);
+        pickEnquiry(e, crmMember);
+        return e;
+      })
+      .catch((e: any) => {
+        toast("Couldn't start an itinerary: " + errText(e), "error");
+        throw e;
+      });
   }
 
   function openOrderFromQueue(orderId: string) {
@@ -391,7 +460,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         travellerProfile,
         travellerProfileLoading,
         pickEnquiry,
+        analyzeConversation,
         pickMember,
+        ensureEnquiryForMember,
         openOrderFromQueue,
         createOrder,
         consumeCreated,

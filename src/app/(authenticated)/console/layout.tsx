@@ -74,7 +74,12 @@ export default function ConsoleLayout({ children }: { children: React.ReactNode 
               render into the SAME row as the tab strip, right-aligned,
               instead of its own row below. Empty on pages that don't
               portal anything into it. */}
-          <div id="console-header-actions" />
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Queue dropdown portal target (2026-10-11) — QueueProfileAccordion's
+                QueueMenu renders here, in the tab row, instead of a column-1 section. */}
+            <div id="console-header-queue" />
+            <div id="console-header-actions" />
+          </div>
         </div>
       </div>
       <div className="taw-main">{children}</div>

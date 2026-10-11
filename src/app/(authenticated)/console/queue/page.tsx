@@ -406,7 +406,7 @@ function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
 }
 
 export default function ConsoleQueuePage() {
-  const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, reloadInbox } = useWorkbench();
+  const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, ensureEnquiryForMember, reloadInbox } = useWorkbench();
 
   const [headerActionsEl, setHeaderActionsEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -433,6 +433,7 @@ export default function ConsoleQueuePage() {
         selEnqId={selEnqId}
         onSelectEnquiry={pickEnquiry}
         onPickMember={pickMember}
+        onEnsureEnquiry={ensureEnquiryForMember}
       />
     </div>
   );
