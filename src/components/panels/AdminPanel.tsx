@@ -27,6 +27,7 @@ import {
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelpers";
 import { Card, Empty, Spinner, Icon } from "../ui";
+import { ApiCostsSection } from "./ApiCostsSection";
 
 function AgentsSection() {
   const [rows, setRows] = useState<any>(null);
@@ -551,12 +552,13 @@ export function AdminPanel(props: any) {
 
   return (
     <div className="taw-fade-in">
-      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment · access requests — admin only">
+      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment · access requests · API costs — admin only">
         <div className="taw-desk-tabs" role="tablist" aria-label="Admin view" style={{ marginBottom: 16 }}>
           {SubBtn("agents", "user", "Agents")}
           {SubBtn("orders", "luggage", "Orders")}
           {SubBtn("enquiries", "inbox", "Enquiry assignment")}
           {SubBtn("access-requests", "mail", "Access requests")}
+          {SubBtn("api-costs", "trend", "API costs")}
         </div>
         {sub === "agents" ? (
           <AgentsSection />
@@ -564,6 +566,8 @@ export function AdminPanel(props: any) {
           <AdminOrdersSection membersById={membersById} advisorsById={advisorsById} />
         ) : sub === "enquiries" ? (
           <EnquiryAssignSection advisors={advisors} />
+        ) : sub === "api-costs" ? (
+          <ApiCostsSection />
         ) : (
           <AccessRequestsSection />
         )}

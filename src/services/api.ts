@@ -1437,6 +1437,37 @@ function siteDenyAccessRequest(id, declineReason) {
   return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/deny", "POST", { reason: declineReason || "" });
 }
 
+// API cost tracking (2026-10-12): adminbe's /admin/api-usage aggregates the
+// api_usage table every backend writes one row to per paid API call
+// (Claude, Gemini, Google Places, Zyte, ...). Costs are estimates from each
+// backend's rate table. Admin-only, role re-checked server-side.
+function adminbeUsageCall(path) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/api-usage" + path, {
+    method: "GET",
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
+      }
+      return data;
+    });
+  });
+}
+
+// adminApiUsage(days) -> totals by provider, service, day, feature, customer.
+function adminApiUsage(days) {
+  return adminbeUsageCall("?days=" + encodeURIComponent(days || 30));
+}
+
+// adminApiUsageCustomer(key, days) -> one customer's consumption; key is the
+// invitation code or member id.
+function adminApiUsageCustomer(key, days) {
+  return adminbeUsageCall("/customer/" + encodeURIComponent(key) + "?days=" + encodeURIComponent(days || 90));
+}
+
 // acceptAdvisorInvite(token, password) — /join's only call. Public endpoint
 // (backend/app/routers/advisor_team_router.py's POST /advisor/team/accept-
 // invite/{token}): the invitee has no Supabase session yet, so unlike every
@@ -2409,6 +2440,10 @@ export {
   siteAccessRequestsPending,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
+
+  // API cost tracking — adminbe's /admin/api-usage, admin-only.
+  adminApiUsage,
+  adminApiUsageCustomer,
 };
 
 // getConversationMessages(conversationId) — live chat messages for the
