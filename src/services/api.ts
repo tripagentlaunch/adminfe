@@ -2292,6 +2292,9 @@ export {
   getMessagesByPhone,
   sendMessageByPhone,
   getChatbotConversation,
+  getRealWhatsAppMessages,
+  getConversationHandoff,
+  setConversationHandoff,
   sendChatbotReply,
   getDestinationPhoto,
 
@@ -2470,6 +2473,43 @@ function getChatbotConversation(code) {
     });
   });
 }
+
+// getRealWhatsAppMessages(code) — the raw WhatsApp thread (inbound from
+// wa_inbound_log + logged outbound), via GET /admin/conversation/{code}/real-messages.
+// Returns a list [{ sender_type: "customer"|"advisor", message, created_at, sender_name }], oldest first.
+function getRealWhatsAppMessages(code) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/real-messages", {
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to load WhatsApp messages.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// getConversationHandoff(code) / setConversationHandoff(code, paused) — whether
+// Tara is paused for this customer's WhatsApp number (advisor takeover), via
+// GET/POST /admin/conversation/{code}/handoff -> tripagent.whatsapp_handoff.
+function conversationHandoffCall(code, method, body) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  var opts = { method: method, headers: { Authorization: "Bearer " + jwt } };
+  if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/handoff", opts).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (b) {
+      if (!res.ok) throw new ApiError((b && b.detail) || "Failed to update takeover state.", { status: res.status, body: b });
+      return b;
+    });
+  });
+}
+function getConversationHandoff(code) { return conversationHandoffCall(code, "GET"); }
+function setConversationHandoff(code, paused) { return conversationHandoffCall(code, "POST", { paused: !!paused }); }
 
 // sendChatbotReply(code, text) — send an advisor reply into a customer's Tara
 // conversation, via adminbe's POST /admin/conversation/{code}/reply. It's

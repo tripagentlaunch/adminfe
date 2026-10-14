@@ -34,6 +34,7 @@ import { cx } from "../../../lib/cx";
 
 const SCREENS = [
   { key: "queue", label: "Console", icon: "sliders" },
+  { key: "conversation", label: "Conversation", icon: "chat" },
   { key: "proposal-composer", label: "Proposal Composer", icon: "note" },
   // Pipeline (2026-09-08, direct request) — a read-only tracker across
   // every enquiry's real stage (New / Building Itinerary / Sent to
