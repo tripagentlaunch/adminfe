@@ -65,6 +65,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // Builder and Search still use unchanged — only Traveller Profile reads
   // this. null = nothing selected yet OR the fetch hasn't resolved/failed;
   // QueueProfileAccordion's loading/placeholder state covers both.
+  const [convoTarget, setConvoTarget] = useState<any>(null);
+  const [summaryDismissedFor, setSummaryDismissedFor] = useState<string | null>(null);
+  const [backToSummaryFor, setBackToSummaryFor] = useState<string | null>(null);
   const [travellerProfile, setTravellerProfile] = useState<any>(null);
   const [travellerProfileLoading, setTravellerProfileLoading] = useState(false);
   // Tracks the most recently REQUESTED enquiry id (synchronously, unlike
@@ -449,6 +452,12 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         members,
         membersById,
         travellers,
+        convoTarget,
+        setConvoTarget,
+        summaryDismissedFor,
+        setSummaryDismissedFor,
+        backToSummaryFor,
+        setBackToSummaryFor,
         enquiries,
         inboxLoading,
         reloadInbox,
