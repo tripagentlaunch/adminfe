@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { Icon } from "../ui";
 import { toast } from "../../lib/advisorHelpers";
-import { fmtINR, type Flight, type Hotel, type Itinerary, type MockOrder, type Visa } from "../../lib/mockOrders";
+import { fmtINR, type Flight, type Hotel, type Itinerary, type Order, type Visa } from "../../lib/orderTypes";
 import { statusClass } from "./orderUi";
 
 const soon = (what: string) => toast(what + " — placeholder (mock data, not wired yet)", "info");
@@ -28,9 +28,11 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
       </div>
       {open ? (
         <div className="ow-seg-detail">
-          <div><b>Baggage</b>{f.detail.baggage}</div>
-          <div><b>Seats</b>{f.detail.seat}</div>
-          <div><b>Terminal</b>{f.detail.terminal}</div>
+          <div><b>Baggage</b>{f.detail.baggage || "Not provided"}</div>
+          {f.detail.seatPreference ? <div><b>Seat preference</b>{f.detail.seatPreference}</div> : null}
+          {f.detail.baggageExtra ? <div><b>Extra baggage</b>{f.detail.baggageExtra}</div> : null}
+          <div><b>Seats</b>{f.detail.seat || "Not selected yet"}</div>
+          <div><b>Terminal</b>{f.detail.terminal || "Not provided"}</div>
           <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div>
         </div>
       ) : null}
@@ -62,10 +64,22 @@ function HotelTab({ h }: { h: Hotel | null }) {
             </div>
             <span className="ow-rating"><Icon name="star" size={14} />{h.rating.toFixed(1)}</span>
           </div>
-          <div style={{ marginTop: 6, fontSize: 13 }}><b>{fmtINR(h.pricePerNight)}</b> <span className="ow-sub">per night</span></div>
+          {h.pricePerNight ? <div style={{ marginTop: 6, fontSize: 13 }}><b>{fmtINR(h.pricePerNight)}</b> <span className="ow-sub">per night</span></div> : null}
+          {h.roomType ? <div style={{ marginTop: 4, fontSize: 13 }}>{h.roomType}{h.board ? " · " + h.board : ""}</div> : null}
+          {h.refundable != null ? <div className="ow-sub">{h.refundable ? "Refundable" : "Non-refundable"}{h.priceChanged ? " · price changed at verification" : ""}</div> : null}
           <div className="ow-tags">{h.amenities.map((a) => <span key={a} className="ow-amen">{a}</span>)}</div>
         </div>
       </div>
+      {h.lock ? (
+        <div className="ow-lock">
+          <b>Room locked with Tripsure</b>
+          <div>Reference {h.lock.partnerRef}{h.lock.guest ? " · Guest " + h.lock.guest : ""}</div>
+          {h.lock.total != null ? <div>Locked amount {fmtINR(h.lock.total)}</div> : null}
+          <div className="ow-sub" style={{ whiteSpace: "normal" }}>Not booked — nothing is paid.</div>
+        </div>
+      ) : (
+        <div className="ow-sub" style={{ whiteSpace: "normal", margin: "8px 0" }}>Room not locked yet (no guest details).</div>
+      )}
       <div className="ow-sum">
         <div><div className="k">Check-in</div><div className="v">{h.checkIn}</div></div>
         <div><div className="k">Check-out</div><div className="v">{h.checkOut}</div></div>
@@ -106,11 +120,15 @@ function VisaTab({ v }: { v: Visa | null }) {
   );
 }
 
-export function OrderDetail({ order }: { order: MockOrder }) {
+export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?: () => void }) {
   const [itinId, setItinId] = useState(order.itineraries[0].id);
-  const [sub, setSub] = useState<"flights" | "hotels" | "visa">("flights");
+  const first = order.itineraries[0];
+  // A hotel-only itinerary has nothing under Flights, so open on Hotels.
+  const [sub, setSub] = useState<"flights" | "hotels" | "visa">(first.flights.length === 0 && first.hotel ? "hotels" : "flights");
   const it = order.itineraries.find((i) => i.id === itinId) || order.itineraries[0];
-  const n = order.travellers.length;
+  // Live orders have no passengers until Update Itinerary is built; fall back to
+  // the searched passenger count so per-traveller totals still add up.
+  const n = order.travellers.length || order.paxCount || 0;
   const lead = order.travellers[0];
 
   return (
@@ -150,6 +168,9 @@ export function OrderDetail({ order }: { order: MockOrder }) {
       <div className="ow-layout">
         <div>
           {sub === "flights" ? <FlightsTab it={it} travellers={n} /> : null}
+          {sub === "flights" && onAddFlight ? (
+            <button type="button" className="taw-btn taw-btn--block" style={{ marginTop: 8 }} onClick={onAddFlight}><Icon name="plus" size={15} /> Add another flight itinerary</button>
+          ) : null}
           {sub === "hotels" ? <HotelTab h={it.hotel} /> : null}
           {sub === "visa" ? <VisaTab v={it.visa} /> : null}
         </div>
@@ -159,7 +180,15 @@ export function OrderDetail({ order }: { order: MockOrder }) {
             <div className="ow-photo" style={{ background: order.tone }}>{order.destination}</div>
             <h5>{it.title}</h5>
             <div className="m"><Icon name="calendar" size={13} /> {it.dates}</div>
-            <div className="m"><Icon name="user" size={13} /> {n} traveller{n === 1 ? "" : "s"} · Lead: {lead.name}</div>
+            <div className="m"><Icon name="user" size={13} /> {n} traveller{n === 1 ? "" : "s"} · Lead: {lead ? lead.name : "not added yet"}</div>
+            {it.tripsure ? (
+              <div className="ow-lock">
+                <b>Fare locked with Tripsure</b>
+                <div>Itinerary {it.tripsure.itineraryId}</div>
+                {it.tripsure.totalFare != null ? <div>Fare {fmtINR(it.tripsure.totalFare)}{it.tripsure.priceChanged ? " (price changed since search)" : ""}</div> : null}
+                <div className="ow-sub" style={{ whiteSpace: "normal" }}>Fare lock is short-lived. Passengers and ticketing are not built yet — nothing is paid or issued.</div>
+              </div>
+            ) : null}
             <div className="ow-actions">
               <button type="button" className="taw-btn taw-btn--primary taw-btn--block" onClick={() => soon("Download Itinerary")}><Icon name="download" size={15} /> Download Itinerary</button>
               <button type="button" className="taw-btn taw-btn--block" onClick={() => soon("Share")}><Icon name="arrowUR" size={15} /> Share</button>
@@ -167,6 +196,7 @@ export function OrderDetail({ order }: { order: MockOrder }) {
           </div>
           <div className="ow-card">
             <h4>Traveller Information</h4>
+            {order.travellers.length === 0 ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>No passengers added yet.</div> : null}
             <ul className="ow-trav">
               {order.travellers.map((t) => (
                 <li key={t.name}>

@@ -12,6 +12,7 @@
  * ===========================================================================*/
 import { accessToken } from "./auth";
 import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
+import { detailToText } from "../lib/errText";
 
 // --- Live backend config (publishable anon key — safe for the browser) -----
 const URL = SUPABASE_URL;
@@ -25,12 +26,17 @@ const FUNCTIONS_BASE = (process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.
 const REST_BASE = URL + "/rest/v1/";
 
 // ---------------------------------------------------------------------------
+// (detailToText: lib/errText.ts)
 // Error type — lets callers distinguish HTTP/backend errors from network ones
 // and inspect status + the parsed error payload.
 // ---------------------------------------------------------------------------
 function ApiError(message, info) {
   this.name = "ApiError";
-  this.message = message || "Request failed.";
+  // FastAPI 422s put an ARRAY of {type, loc, msg, input} in body.detail and
+  // many call sites pass `body.detail` straight in here; always store a string
+  // (rendering an object as a React child crashes the page). Raw value kept on .detail.
+  this.detail = message && typeof message !== "string" ? message : null;
+  this.message = detailToText(message) || "Request failed.";
   info = info || {};
   this.status = info.status != null ? info.status : 0;
   this.fn = info.fn || null; // edge function name, if applicable
@@ -1672,6 +1678,19 @@ export function getTripsureFlightOffer(id) {
 // {fareSourceCode} is used as a synthetic stand-in, unique for the lifetime
 // of one search, and the only three values that together identify "this
 // exact fare" per the guide's own identifier chain (section 5).
+// Preserves absence: missing/unrecognised -> undefined (UI shows no tag), not
+// false. refundStatus' exact live shape isn't documented here, so a boolean is
+// used as-is and a string is read by wording ("Non-refundable" must not
+// count as refundable, which a plain !! would do).
+function _tripSureRefundable(v) {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    if (/non[\s_-]*refund|not[\s_-]*refund/i.test(v)) return false;
+    if (/refund/i.test(v)) return true;
+  }
+  return undefined;
+}
+
 function mapTripSureFlightOffer(rawOffer, ctx) {
   var segments = rawOffer.segments || [];
   var first = segments[0] || {};
@@ -1719,7 +1738,7 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
       // connection count the old UI's stop-count filter/display expects.
       stops: Math.max(0, segments.length - 1),
       baggageKg: baggage ? Number(baggage.Value) || null : null,
-      refundable: !!price.refundStatus,
+      refundable: _tripSureRefundable(price.refundStatus),
       cabin: String(ctx.cabin || "economy").toLowerCase(),
       pax: ctx.pax,
     },
@@ -1791,6 +1810,65 @@ function fastapiFlightSearch(params) {
 function fastapiFlightAutosuggest(query, limit) {
   var qs = "q=" + encodeURIComponent(query) + "&limit=" + (limit || 8);
   return fastapiFlightCall("/flights/autosuggest?" + qs, { method: "GET" });
+}
+
+// --- Booking orders (real backend — backend/app/routers/booking_order_router.py)
+// Phase 1: customer lookup, flight Create Itinerary, and reading booking_*
+// orders back. Same contract as fastapiFlightCall: real advisor JWT.
+function fastapiBookingCall(path, options) {
+  return fastapiFlightCall(path, options);
+}
+
+// bookingCustomerSearch(q) — GET /booking-orders/customers?q=
+function bookingCustomerSearch(q) {
+  return fastapiBookingCall("/booking-orders/customers?q=" + encodeURIComponent(q), { method: "GET" });
+}
+
+// bookingCreateFlightItinerary(payload) — POST /booking-orders/flight-itinerary
+// Locks the fare via Tripsure Create Itinerary and records order ->
+// itinerary -> flight rows. No passengers / payment / ticketing.
+function bookingCreateFlightItinerary(payload) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary", { method: "POST", body: payload });
+}
+
+// Draft flow: Select locks the fare with payload.draft=true (hidden, no total),
+// then flightSsr() reads real seat/baggage options for that Tripsure
+// itinerary, then Confirm finalises (server re-verifies SSR prices) or
+// Discard deletes the draft.
+function flightSsr(tripsureItineraryId) {
+  return fastapiFlightCall("/flights/itinerary/" + encodeURIComponent(tripsureItineraryId) + "/ssr", { method: "GET" });
+}
+function bookingConfirmFlightItinerary(itineraryId, payload) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/confirm", { method: "POST", body: payload });
+}
+function bookingDiscardFlightItinerary(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId), { method: "DELETE" });
+}
+
+// bookingAddHotelStay(payload) — POST /booking-orders/hotel-stay
+// Server re-runs Tripsure priceCheck, then records booking_hotels. Attach
+// precedence: itinerary_id > order_id > neither (new order + itinerary).
+// No Tripsure booking, guests or payment.
+function bookingAddHotelStay(payload) {
+  return fastapiBookingCall("/booking-orders/hotel-stay", { method: "POST", body: payload });
+}
+
+// bookingLockHotelItinerary(payload) — POST /booking-orders/hotel-itinerary
+// Stage A: Tripsure create-itinerary (guest + PAN) for a recorded hotel stay;
+// stores partnerReferenceId + locked price. No booking, no payment. payload:
+// { booking_hotel_id, handles: {hotelId,docKey,token,bookingCode}, guest }.
+function bookingLockHotelItinerary(payload) {
+  return fastapiBookingCall("/booking-orders/hotel-itinerary", { method: "POST", body: payload });
+}
+
+// bookingListOrders() — GET /booking-orders (v_booking_order_summary rows)
+function bookingListOrders() {
+  return fastapiBookingCall("/booking-orders", { method: "GET" });
+}
+
+// bookingGetOrder(id) — GET /booking-orders/{id}
+function bookingGetOrder(id) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(id), { method: "GET" });
 }
 
 // --- RFQ engine (real backend — backend/app/routers/rfq_router.py) --------
@@ -2400,6 +2478,15 @@ export {
   hotelSetWebsite,
   fastapiFlightSearch,
   fastapiFlightAutosuggest,
+  bookingCustomerSearch,
+  bookingCreateFlightItinerary,
+  flightSsr,
+  bookingConfirmFlightItinerary,
+  bookingDiscardFlightItinerary,
+  bookingAddHotelStay,
+  bookingLockHotelItinerary,
+  bookingListOrders,
+  bookingGetOrder,
 
   // Admin oversight (admin-only; server re-checks role on every call)
   adminListAdvisors,

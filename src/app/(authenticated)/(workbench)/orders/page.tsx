@@ -18,7 +18,7 @@ export default function OrdersPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 8, padding: "2px 0 8px" }}>
-        {view === "workspace" ? <span style={{ fontSize: 11, color: "var(--muted)" }}>Preview with sample data</span> : null}
+        {view === "workspace" ? <span style={{ fontSize: 11, color: "var(--muted)" }}>Live orders first · sample data below</span> : null}
         <div className="taw-segrp" role="group" aria-label="Orders view">
           <button type="button" className={"taw-seg" + (view === "workspace" ? " is-on" : "")} onClick={() => setView("workspace")}>Orders</button>
           <button type="button" className={"taw-seg" + (view === "live" ? " is-on" : "")} onClick={() => setView("live")}>Live board</button>

@@ -221,7 +221,30 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
       // when there's truly no photo anywhere, the one case
       // PhotoPlaceholder still covers honestly.
       const imageSource: "tripsure" | "pexels" | null = (enrichmentRec && enrichmentRec.imageSource) || (it.image ? "tripsure" : null);
+      // MOCK- hotels (USE_MOCK_HOTELS test data) have no hotel_snapshots row, so
+      // /hotels/public/{key}/image would 404 — use their own direct photo URL.
+      const hotelImageUrl = (key: string | undefined, raw: string | null | undefined): string | null =>
+        key && String(key).startsWith("MOCK-")
+          ? raw || null
+          : key && raw
+          ? `${FASTAPI_BASE}/hotels/public/${encodeURIComponent(key)}/image`
+          : null;
       return {
+        // id/hotelKey/isOriginalChoice/alternatives — the "Our choice + alternatives with Swap"
+        // data (itinerary_service._real_hotel_item's `alternatives`); `id` is the itinerary
+        // item id Swap acts on. Flows into the PDF and the shared web-link snapshot too,
+        // since both are built from this same object.
+        id: it.id,
+        hotelKey: it.hotelKey || null,
+        isOriginalChoice: !it.originalHotelKey || it.originalHotelKey === it.hotelKey,
+        alternatives: (it.alternatives || []).map((a: any) => ({
+          hotelKey: a.hotelKey,
+          name: a.name,
+          price: a.price || 0,
+          stars: a.stars ?? null,
+          detail: a.detail || [a.stars ? `${a.stars}-star` : null, a.address].filter(Boolean).join(" · "),
+          image: hotelImageUrl(a.hotelKey, a.image),
+        })),
         city,
         name: it.title,
         roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
@@ -241,7 +264,11 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // Still null (PhotoPlaceholder, never a broken image) when there's
         // genuinely no photo OR stock fallback available anywhere, or no
         // hotelKey to proxy by.
-        image: imageSource && it.hotelKey ? `${FASTAPI_BASE}/hotels/public/${encodeURIComponent(it.hotelKey)}/image` : null,
+        image: String(it.hotelKey || "").startsWith("MOCK-")
+          ? it.image || null
+          : imageSource && it.hotelKey
+          ? `${FASTAPI_BASE}/hotels/public/${encodeURIComponent(it.hotelKey)}/image`
+          : null,
         imageSource,
         url: hotelUrl(it.hotelKey),
         mapsUrl: hotelMapsUrl(it.hotelKey, it.title, it.address, city, it.lat, it.lng),
