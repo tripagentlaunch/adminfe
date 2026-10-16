@@ -32,7 +32,7 @@
  *      there is none.
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { inr } from "../../services/api";
+import { getDestinationPhoto, inr } from "../../services/api";
 import "../../styles/proposal-preview.css";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
@@ -110,7 +110,103 @@ function RecommendedStayRow({ st }: { st: any }) {
   );
 }
 
-export function ProposalPreviewPage({ data }: { data: any }) {
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return mobile;
+}
+
+function hideBrokenImage(e: any) {
+  e.currentTarget.style.display = "none";
+}
+
+// "Our choice" + alternatives with Swap (mockup: switzerland-itinerary-preview.html's
+// recommendationGroupHTML, hotel/sideBySide layout). Desktop: chosen card and the
+// alternatives list side by side; mobile: chosen card, alternatives behind <details>.
+function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey: string) => void }) {
+  const mobile = useIsMobile();
+  const alts: any[] = st.alternatives || [];
+  const badge = st.isOriginalChoice === false ? "Selected" : "Our choice";
+
+  const chosen = (
+    <div className="pv-recstay-stacked">
+      <div className="pv-recstay-stacked-media">
+        {st.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="pv-recstay-stacked-photo" src={st.image} alt="" onError={hideBrokenImage} />
+        ) : null}
+        <div className="pv-recstay-chip-overlay">
+          <span className="pv-chip pv-chip--choice">
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8L6 21l1.6-7L2.2 9.2l7.1-.6z" />
+            </svg>
+            {badge}
+          </span>
+        </div>
+      </div>
+      <div className="pv-recstay-stacked-body">
+        <span className="pv-option-name pv-option-name--block">{st.name}</span>
+        {st.roomAndBoard ? (
+          <div className="pv-option-detail" style={{ marginTop: 8 }}>
+            {st.roomAndBoard}
+          </div>
+        ) : null}
+        <div className="pv-option-price pv-option-price--hotel" style={{ marginTop: 10 }}>
+          {inr(st.price)}
+        </div>
+      </div>
+    </div>
+  );
+
+  const altRows = alts.map((a: any) => (
+    <div className="pv-option" key={a.hotelKey}>
+      {a.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="pv-option-thumb" src={a.image} alt="" onError={hideBrokenImage} />
+      ) : null}
+      <div className="pv-option-body">
+        <span className="pv-option-name pv-option-name--block">{a.name}</span>
+        {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
+      </div>
+      <div className="pv-option-side">
+        <div className="pv-option-price">{inr(a.price)}</div>
+        {onSwap && st.id ? (
+          <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
+            Swap
+          </button>
+        ) : null}
+      </div>
+    </div>
+  ));
+
+  return mobile ? (
+    <>
+      {chosen}
+      <details className="pv-otheroptions">
+        <summary>Other options</summary>
+        <div className="pv-alt-grid">{altRows}</div>
+      </details>
+    </>
+  ) : (
+    <div className="pv-recgroup-split">
+      <div>{chosen}</div>
+      <div>
+        <div className="pv-recgroup-eyebrow" style={{ marginBottom: 10 }}>
+          Alternatives
+        </div>
+        <div className="pv-alt-stack">{altRows}</div>
+      </div>
+    </div>
+  );
+}
+
+export function ProposalPreviewPage({ data, onSwapHotel }: { data: any; onSwapHotel?: (stayId: string, hotelKey: string) => void }) {
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -151,14 +247,49 @@ export function ProposalPreviewPage({ data }: { data: any }) {
   }));
   const enrichedData = { ...data, stays: enrichedStays };
 
-  const heroImage = enrichedStays?.find((s: any) => s.image)?.image;
+  // Destination hero photo — adbe's GET /enquiries/destination-photo (Google
+  // Places, then Pexels). "Nepal (Kathmandu + Pokhara)" is searched as "Nepal":
+  // the parenthetical route detail isn't part of the place name. When it
+  // returns nothing the hero is exactly what it was before (first stay photo,
+  // else the plain dark background).
+  const destQuery = data.destination ? String(data.destination).replace(/\s*\(.*\)\s*$/, "").trim() : "";
+  const [destPhoto, setDestPhoto] = useState<{ dest: string; url: string; credit: string | null; creditUrl: string | null } | null>(null);
+  useEffect(() => {
+    if (!destQuery) return;
+    let cancelled = false;
+    getDestinationPhoto(destQuery)
+      .then((r: any) => {
+        if (!cancelled && r && r.url) {
+          setDestPhoto({ dest: destQuery, url: r.url, credit: r.photographer || null, creditUrl: r.photographerUrl || null });
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [destQuery]);
+  const destPhotoShown = destPhoto && destPhoto.dest === destQuery ? destPhoto : null;
+
+  const heroImage = (destPhotoShown && destPhotoShown.url) || enrichedStays?.find((s: any) => s.image)?.image;
 
   return (
     <div className="pv-page">
       <div className="pv-shell">
         <div className="pv-card">
-          <div className="pv-hero" style={heroImage ? { backgroundImage: `url(${heroImage})` } : undefined}>
+          <div className="pv-hero" style={heroImage ? { backgroundImage: `url("${heroImage}")` } : undefined}>
             <div className="pv-hero-scrim" />
+            {/* Photo attribution (required by Google Places photo terms; shown for
+                Pexels too) — only when the destination photo is the one on screen. */}
+            {destPhotoShown && destPhotoShown.credit ? (
+              <span style={{ position: "absolute", right: 14, bottom: 8, zIndex: 1, fontSize: 10, color: "rgba(250,246,235,0.78)" }}>
+                Photo:{" "}
+                {destPhotoShown.creditUrl ? (
+                  <a href={destPhotoShown.creditUrl} target="_blank" rel="noreferrer" style={{ color: "inherit", textDecoration: "underline" }}>
+                    {destPhotoShown.credit}
+                  </a>
+                ) : (
+                  destPhotoShown.credit
+                )}
+              </span>
+            ) : null}
             <div className="pv-hero-content">
               <div className="pv-header">
                 <div className="pv-header-left">
@@ -250,7 +381,7 @@ export function ProposalPreviewPage({ data }: { data: any }) {
                             <span className="pv-recgroup-title">{st.city}</span>
                             {st.dateRange ? <span className="pv-recgroup-sub">{st.dateRange}</span> : null}
                           </div>
-                          <RecommendedStayRow st={st} />
+                          {st.alternatives?.length ? <StayGroup st={st} onSwap={onSwapHotel} /> : <RecommendedStayRow st={st} />}
                         </div>
                       ))}
                     </>

@@ -545,3 +545,175 @@
   font-size: 11.5px;
   color: var(--muted);
 }
+
+
+/* Our choice + alternatives with Swap — copied from the switzerland-itinerary-preview mockup. */
+.pv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--gold);
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.pv-chip--choice {
+  background: #262626;
+  color: #ffc42e;
+  border: none;
+}
+
+.pv-option-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.pv-swap-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 30px;
+  border: 0;
+  background: #3a3a3a;
+  color: #fff;
+  font-family: "Proposal Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: font-size 0.3s ease 0.03s;
+}
+
+.pv-swap-btn:hover {
+  font-size: 12px;
+}
+
+.pv-otheroptions {
+  margin-top: 8px;
+  padding: 6px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.pv-otheroptions summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 6px 0;
+}
+
+.pv-otheroptions summary::-webkit-details-marker {
+  display: none;
+}
+
+.pv-otheroptions summary::after {
+  content: "▾";
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+
+.pv-otheroptions[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.pv-alt-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin-top: 10px;
+}
+
+.pv-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pv-option-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.pv-alt-grid .pv-option:not(:first-child) {
+  border-left: 1px solid var(--line);
+  padding-left: 24px;
+}
+
+.pv-recgroup-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+.pv-alt-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.pv-alt-stack .pv-option {
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.pv-alt-stack .pv-option:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.pv-option-thumb {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.pv-recstay-stacked {
+  background: #f8f9fa;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.pv-recstay-stacked-media {
+  position: relative;
+}
+
+.pv-recstay-stacked-photo {
+  display: block;
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+
+.pv-recstay-chip-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+}
+
+.pv-recstay-stacked-body {
+  padding: 16px;
+}
+
+@media (max-width: 640px) {
+  .pv-alt-grid { grid-template-columns: 1fr; gap: 0; }
+  .pv-alt-grid .pv-option:not(:first-child) { border-left: 0; padding-left: 0; border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
+  .pv-recgroup-split { grid-template-columns: 1fr; gap: 20px; }
+}

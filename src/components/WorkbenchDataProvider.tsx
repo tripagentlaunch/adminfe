@@ -35,7 +35,7 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { blankItinerary, addCartItemToItinerary, boundFromDateRange } from "../lib/itineraryFromCart";
+import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
   const router = useRouter();
@@ -65,6 +65,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // Builder and Search still use unchanged — only Traveller Profile reads
   // this. null = nothing selected yet OR the fetch hasn't resolved/failed;
   // QueueProfileAccordion's loading/placeholder state covers both.
+  const [convoTarget, setConvoTarget] = useState<any>(null);
+  const [summaryDismissedFor, setSummaryDismissedFor] = useState<string | null>(null);
+  const [backToSummaryFor, setBackToSummaryFor] = useState<string | null>(null);
   const [travellerProfile, setTravellerProfile] = useState<any>(null);
   const [travellerProfileLoading, setTravellerProfileLoading] = useState(false);
   // Tracks the most recently REQUESTED enquiry id (synchronously, unlike
@@ -315,6 +318,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // DOES get surfaced via toast, unlike the fire-and-forget calls above —
   // this one has a visible caller (Proposal Composer's new outcome
   // control) that should know if the record didn't actually stick.
+  function swapProposalHotel(enquiryId: string, itemId: string, hotelKey: string) {
+    setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapHotelAlternative(e.data, itemId, hotelKey) } : e)));
+  }
   function setProposalOutcome(enquiryId: string, outcome: ProposalOutcome) {
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, outcome } : e)));
     if (outcome === "awaiting") return; // never a real PATCH target — see enquiryProposalOutcome's own note
@@ -449,6 +455,12 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         members,
         membersById,
         travellers,
+        convoTarget,
+        setConvoTarget,
+        summaryDismissedFor,
+        setSummaryDismissedFor,
+        backToSummaryFor,
+        setBackToSummaryFor,
         enquiries,
         inboxLoading,
         reloadInbox,
@@ -470,6 +482,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         proposalQueue,
         selectedProposalEnqId,
         sendItineraryToProposal,
+        swapProposalHotel,
         selectProposal,
         setProposalOutcome,
         itinerariesByEnquiry,

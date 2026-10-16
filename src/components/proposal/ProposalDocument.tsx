@@ -79,12 +79,31 @@ function TabRow({ active, hasVisa }: { active: "Plan" | "Days" | "Decisions"; ha
 }
 
 function Cover({ data }: { data: any }) {
+  // Optional destination photo ({ url, credit, creditUrl }), fetched fresh by
+  // Proposal Composer's downloadPdf. Without one, the cover is exactly the
+  // plain ink + contour-art cover.
+  const photo = data.coverPhoto && data.coverPhoto.url ? data.coverPhoto : null;
   return (
-    <Page size="A4" style={[s.page, s.coverPage]}>
+    // wrap={false} only with a photo: react-pdf counts the full-bleed absolute
+    // Image as page content and spilled the cover onto a blank second page
+    // (reproduced in a harness). The cover is always one page, so never wrap it.
+    <Page size="A4" wrap={photo ? false : undefined} style={[s.page, s.coverPage]}>
+      {photo ? (
+        <>
+          {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf's own Image; no alt prop exists on it */}
+          <Image src={photo.url} style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+          {/* react-pdf has no CSS gradients: a full scrim plus a darker band
+              over the lower part, approximating the on-screen hero's scrim. */}
+          <View style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", backgroundColor: "rgba(23,19,16,0.5)" }} />
+          <View style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: "45%", backgroundColor: "rgba(23,19,16,0.3)" }} />
+        </>
+      ) : null}
       <View style={{ padding: "48pt 40pt", height: "100%", flexDirection: "column", justifyContent: "space-between", position: "relative" }}>
-        <View style={{ position: "absolute", left: 0, right: 0, top: "34%" }}>
-          <ContourArt width={595} height={360} stroke={GOLD} strokeOpacity={0.55} />
-        </View>
+        {photo ? null : (
+          <View style={{ position: "absolute", left: 0, right: 0, top: "34%" }}>
+            <ContourArt width={595} height={360} stroke={GOLD} strokeOpacity={0.55} />
+          </View>
+        )}
 
         <View style={[s.row, { alignItems: "center" }]}>
           <Text style={[s.labelOnInk, { color: GOLD, opacity: 1 }]}>TRIPAGENT</Text>
@@ -116,6 +135,19 @@ function Cover({ data }: { data: any }) {
           </View>
         </View>
       </View>
+      {photo && photo.credit ? (
+        // Photo attribution (Google Places photo terms) — bottom edge, inside
+        // the page's 48pt bottom padding so it never overlaps the footer row.
+        photo.creditUrl ? (
+          <Link src={photo.creditUrl} style={{ position: "absolute", right: 40, bottom: 20, fontFamily: "Proposal Sans", fontSize: 6.5, color: "rgba(250,246,235,0.75)", textDecoration: "none" }}>
+            {"Photo: " + photo.credit}
+          </Link>
+        ) : (
+          <Text style={{ position: "absolute", right: 40, bottom: 20, fontFamily: "Proposal Sans", fontSize: 6.5, color: "rgba(250,246,235,0.75)" }}>
+            {"Photo: " + photo.credit}
+          </Text>
+        )
+      ) : null}
     </Page>
   );
 }
@@ -285,6 +317,31 @@ function StayCard({ st, i, isLast }: { st: any; i: number; isLast: boolean }) {
           <Text style={{ fontFamily: "Proposal Serif", fontSize: 19, marginTop: 7 }}>{st.name}</Text>
         )}
         {st.roomAndBoard ? <Text style={{ fontSize: 9.5, color: MUTED, marginTop: 3 }}>{st.roomAndBoard}</Text> : null}
+
+        {/* Alternatives: name, tag line, price, plus a small thumbnail ONLY when the alternative
+            carries a verified image (downloadPdf checks each URL first and drops any that fail —
+            react-pdf itself can't tell us a fetch failed, and a hung host would stall the render).
+            No image -> the original text-only row. */}
+        {st.alternatives?.length ? (
+          <View style={{ marginTop: 12, paddingTop: 9, borderTopWidth: 0.75, borderTopColor: LINE }}>
+            <Text style={s.label}>ALTERNATIVES</Text>
+            {st.alternatives.map((a: any, k: number) => (
+              <View key={k} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 7 }}>
+                {a.image ? (
+                  <View style={{ width: 66, height: 50, borderRadius: 3, overflow: "hidden", backgroundColor: IVORY_DIM, marginRight: 10 }}>
+                    {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf's own Image; no alt prop exists on it */}
+                    <Image src={a.image} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  </View>
+                ) : null}
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={{ fontFamily: "Proposal Serif", fontSize: 10.5 }}>{a.name}</Text>
+                  {a.detail ? <Text style={{ fontSize: 8.5, color: MUTED, marginTop: 1 }}>{a.detail}</Text> : null}
+                </View>
+                <Text style={{ fontFamily: "Proposal Serif", fontSize: 10.5 }}>{inr(a.price)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {st.officialWebsiteUrl || st.mapsUrl ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 14, marginTop: 12 }}>

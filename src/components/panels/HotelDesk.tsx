@@ -7,7 +7,7 @@
  * ===========================================================================*/
 import { useEffect, useState } from "react";
 import { cx } from "../../lib/cx";
-import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
+import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { boundFromDateRange } from "../../lib/itineraryFromCart";
@@ -328,6 +328,172 @@ function HotelWebsiteEditor({ hotelKey, hotelName }: { hotelKey: string; hotelNa
 // can see room-group net for sourcing; the member.js path passes member_id and
 // gets the SELL-ONLY shape (the function strips net for any member/verified
 // session). This advisor surface is sourcing-side, so net is expected here.
+// RealHotelDetail — real TripSure property view for a listing result. Details are
+// fetched on demand (POST /hotels/details with the listing's docKey/token/hotelId);
+// each room option is price-checked (POST /hotels/price-check with its bookingCode
+// and the LISTING token) before it can be added. Every provider error is shown.
+function roomOptions(det: any): any[] {
+  const out: any[] = [];
+  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
+    (g.options || []).forEach((o: any) => {
+      const sr = (o.standardRooms || [])[0] || {};
+      const rt = sr.roomType || {};
+      out.push({
+        code: o.recommendationId,
+        title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
+        board: rt.roomDescription || "",
+        refundable: !!rt.refundable,
+        rooms: (o.standardRooms || []).length || 1,
+        perNight: sr.rateBreakdown ? sr.rateBreakdown.perRoomPerNightTotal : null,
+        total: Number(o.totalRate) || 0,
+        maxAdults: rt.maxAdults,
+      });
+    })
+  );
+  return out;
+}
+
+function RealHotelDetail({ offer, checkIn, onAdd }: any) {
+  const ts = offer._tripsure || {};
+  const [det, setDet] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  const [checks, setChecks] = useState<any>({}); // bookingCode -> {state, ...}
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    hotelDetailsV2({ docKey: ts.docKey, token: ts.token, hotelId: ts.hotelId })
+      .then((r: any) => { if (!cancelled) { setDet(r || {}); setLoading(false); } })
+      .catch((e: any) => { if (!cancelled) { setErr(errText(e)); setLoading(false); } });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
+
+  function confirmPrice(opt: any) {
+    setChecks((c: any) => ({ ...c, [opt.code]: { state: "loading" } }));
+    hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code })
+      .then((r: any) => {
+        const rate = (r.roomRates || [])[0];
+        if (!rate) throw new Error("TripSure returned no rate for this room.");
+        const total = Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0;
+        setChecks((c: any) => ({
+          ...c,
+          [opt.code]: {
+            state: "ok", total, listed: opt.total,
+            refundable: !!(rate.roomType && rate.roomType.refundable),
+            refundability: rate.refundability || null,
+            roomTypeCode: rate.roomType && rate.roomType.roomTypeCode,
+            roomTypeId: rate.roomType && rate.roomType.roomTypeId,
+          },
+        }));
+      })
+      .catch((e: any) => setChecks((c: any) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
+  }
+
+  function addRoom(opt: any, chk: any) {
+    const d = offer.detail || {};
+    const nights = d.nights || 1, rooms = d.rooms || 1;
+    const verified = {
+      ...offer,
+      base_net: chk.total,
+      detail: { ...d, roomType: opt.title, board: opt.board || d.board, refundable: chk.refundable,
+                nightlyFrom: chk.total / Math.max(1, nights * rooms) },
+    };
+    onAdd({
+      ...hotelCartItem(verified, []),
+      checkIn,
+      // kept for the later Create Itinerary / Book Room step
+      tripsure: { hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code,
+                  roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
+    });
+    toast(d.hotelName + " — " + opt.title + " added at " + inr(chk.total), "success");
+  }
+
+  if (loading) return <div className="taw-dx"><div className="taw-dx-body"><SkeletonRows count={4} height={14} /></div></div>;
+  if (err)
+    return (
+      <div className="taw-dx">
+        <div className="taw-banner taw-banner--err"><Icon name="alert" size={14} />{err}</div>
+        <button className="taw-btn taw-btn--sm" style={{ marginTop: 8 }} onClick={() => { setErr(null); setLoading(true); setTick((t) => t + 1); }}>Retry</button>
+      </div>
+    );
+
+  const info = (det && det.hotelInfo) || {};
+  const opts = roomOptions(det);
+  const shownOpts = showAll ? opts : opts.slice(0, 8);
+  const amenities: string[] = [];
+  (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
+  const rev = (info.reviews || [])[0];
+  return (
+    <div className="taw-dx">
+      <div className="taw-dx-body">
+        {info.address ? <div style={{ fontSize: 12.5 }}><b>{info.hotelName}</b> · {info.address}</div> : null}
+        <div className="taw-res-sub" style={{ margin: "4px 0 8px" }}>
+          {info.checkIn ? <span>Check-in {info.checkIn}</span> : null}
+          {info.checkOut ? <span>Check-out {info.checkOut}</span> : null}
+          {rev ? <span>Guest rating {rev.rating} ({rev.count} reviews)</span> : null}
+        </div>
+        {info.description ? (
+          <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: "0 0 8px", color: "var(--taupe)" }}>
+            {String(info.description).slice(0, 420)}{String(info.description).length > 420 ? "…" : ""}
+          </p>
+        ) : null}
+        {amenities.length ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+            {amenities.map((a) => <span key={a} className="taw-chip taw-chip--dom">{a}</span>)}
+          </div>
+        ) : null}
+        <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
+        {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
+        {shownOpts.map((opt) => {
+          const chk = checks[opt.code] || {};
+          const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
+          return (
+            <div key={opt.code} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{opt.title}{opt.rooms > 1 ? " × " + opt.rooms : ""}</div>
+                  <div className="taw-res-sub">
+                    {opt.board ? <span>{opt.board}</span> : null}
+                    {opt.refundable ? <span className="taw-chip taw-chip--ref">Refundable</span> : <span className="taw-chip taw-chip--noref">Non-ref</span>}
+                    {opt.perNight ? <span className="ta-num">{inr(opt.perNight)}/night/room</span> : null}
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
+                  {chk.state === "ok" ? (
+                    <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} onClick={() => addRoom(opt, chk)}>
+                      <Icon name="plus" size={13} /> Add this room
+                    </button>
+                  ) : (
+                    <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
+                      {chk.state === "loading" ? <Spinner /> : "Confirm price"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {chk.state === "ok" ? (
+                <div style={{ fontSize: 11.5, marginTop: 5, color: changed ? "#B03434" : "var(--taupe)" }}>
+                  {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
+                  {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
+                </div>
+              ) : null}
+              {chk.state === "err" ? (
+                <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
+              ) : null}
+            </div>
+          );
+        })}
+        {opts.length > 8 && !showAll ? (
+          <button className="taw-linkbtn" onClick={() => setShowAll(true)}>Show all {opts.length} room options</button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function HotelPdpDetail(props: any) {
   const offer = props.offer || {};
   const [data, setData] = useState<any>(null);
@@ -586,15 +752,21 @@ export function HotelDesk(props: any) {
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
         })
-        .catch(() => {
-          // Same fallback contract as FlightDesk (see mockHotelSearch.ts's
-          // own docblock) — the real call above always runs first; only on
-          // failure (every time locally, no backend reachable) does the UI
-          // fall back to mock data instead of a bare error banner.
+        .catch((e: any) => {
+          // A real answer from the backend (e.g. TripSure's own error, relayed with
+          // its message and codes) is shown as-is — never replaced by demo data.
+          if (e && e.status) {
+            setErr(errText(e));
+            setLoading(false);
+            toast("Hotel search failed: " + errText(e), "error");
+            return;
+          }
+          // No response at all (backend unreachable, e.g. local dev): fall back to
+          // demo data, but say why instead of hiding the error.
           const mock = buildMockHotelOffers({ city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: Number(form.rooms) || 1, pax: Number(form.pax) || 2 });
           setRes(mock);
           setLoading(false);
-          toast("Live API unreachable — showing demo hotel data — " + mock.count + " hotel offers loaded", "error");
+          toast("Backend unreachable (" + errText(e) + ") — showing demo hotel data — " + mock.count + " hotel offers loaded", "error");
         });
       return;
     }
@@ -788,6 +960,7 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
             let starStr = "";
             for (let i = 0; i < stars; i++) starStr += "★";
             const isOpen = openOffer === o.id;
+            const real = !!(o._tripsure && !o._isMock);
             return (
               <div key={o.id} className="taw-res" style={{ display: "block" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
@@ -813,13 +986,22 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
                     </button>
                   </div>
                   <div className="taw-res-side">
-                    <div className="taw-res-net ta-num">
-                      {inr(net)}
-                      <small>net cost</small>
-                    </div>
+                    {real && !net ? (
+                      <div className="taw-res-net" style={{ fontSize: 12, color: "var(--taupe)" }}>Rates on selection</div>
+                    ) : (
+                      <div className="taw-res-net ta-num">
+                        {inr(net)}
+                        <small>net cost</small>
+                      </div>
+                    )}
                     <button
                       className="taw-btn taw-btn--accent taw-btn--sm"
                       onClick={() => {
+                        // Real TripSure hotel: pick a room and confirm its price first (opens the room list).
+                        if (real) {
+                          if (!isOpen) toggleDetail(o.id);
+                          return;
+                        }
                         const others = shown.filter((x: any) => x.id !== o.id).slice(0, 2);
                         const alternatives = others.map((alt: any) => {
                           const ad = alt.detail || {};
@@ -833,8 +1015,8 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
                         onAdd({ ...hotelCartItem(o, alternatives), checkIn });
                       }}
                     >
-                      <Icon name="plus" size={13} />
-                      Add
+                      <Icon name={real ? "chevron" : "plus"} size={13} />
+                      {real ? "Select room" : "Add"}
                     </button>
                   </div>
                 </div>
@@ -851,7 +1033,7 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
                     <HotelWebsiteEditor hotelKey={o.id} hotelName={d.hotelName} />
                   </div>
                 ) : null}
-                {isOpen ? <HotelPdpDetail offer={o} advisorId={advisorId} checkIn={checkIn} /> : null}
+                {isOpen ? (real ? <RealHotelDetail offer={o} checkIn={checkIn} onAdd={onAdd} /> : <HotelPdpDetail offer={o} advisorId={advisorId} checkIn={checkIn} />) : null}
               </div>
             );
           })

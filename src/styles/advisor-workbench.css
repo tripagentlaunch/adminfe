@@ -378,6 +378,9 @@ display:flex;flex-direction:column;}
 .taw-card-b{padding:12px;flex:1 1 auto;min-height:0;overflow-y:auto;
 scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;}
 .taw-card-b::-webkit-scrollbar{width:6px;}
+/* Conversation chat card: let its single child fill the body so the message
+   list can flex and the takeover card + WhatsApp button stay pinned at the bottom. */
+.taw-convo-card .taw-card-b{display:flex;flex-direction:column;}
 .taw-card-b::-webkit-scrollbar-track{background:transparent;}
 .taw-card-b::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:999px;}
 .taw-card-b::-webkit-scrollbar-thumb:hover{background:var(--taupe);}

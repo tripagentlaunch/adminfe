@@ -102,13 +102,30 @@ export function boundFromDateRange(rangeStr: string | undefined, year: number) {
     }
   }
 
-  const m = rangeStr.match(/(\d{1,2})\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)/);
+  // Bug fix (2026-10-12): the old regex `(\d{1,2})\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)`
+  // had no left boundary on the first \d{1,2}, so on a string like
+  // "23 Jan 2027 – 01 Feb 2027" it matched the TRAIL digits of the year
+  // ("27" from "2027") as the start day, producing startIso/endIso one
+  // day/month off and always using the hardcoded fallback `year` param
+  // even when the string itself names a real year (e.g. 2027) — this
+  // showed up as flight search pre-filling 27/02/2026 for a trip that was
+  // actually 23 Jan – 01 Feb 2027. (?<!\d) blocks matching mid-number, and
+  // an optional trailing \s*(\d{4})? on each side captures a real year
+  // when present, used in place of the fallback `year` param.
+  const m = rangeStr.match(/(?<!\d)(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?/);
   if (!m) return null;
-  const monthIdx = MONTH_ABBR.indexOf(m[3].slice(0, 3).toLowerCase());
-  if (monthIdx < 0) return null;
-  const mm = String(monthIdx + 1).padStart(2, "0");
+  const startMonthIdx = MONTH_ABBR.indexOf(m[2].slice(0, 3).toLowerCase());
+  const endMonthIdx = MONTH_ABBR.indexOf(m[5].slice(0, 3).toLowerCase());
+  if (startMonthIdx < 0 || endMonthIdx < 0) return null;
+  const startYear = m[3] || m[6] || String(year);
+  const endYear = m[6] || m[3] || String(year);
   const pad = (n: string) => n.padStart(2, "0");
-  return { startIso: `${year}-${mm}-${pad(m[1])}`, endIso: `${year}-${mm}-${pad(m[2])}` };
+  const startMm = String(startMonthIdx + 1).padStart(2, "0");
+  const endMm = String(endMonthIdx + 1).padStart(2, "0");
+  return {
+    startIso: `${startYear}-${startMm}-${pad(m[1])}`,
+    endIso: `${endYear}-${endMm}-${pad(m[4])}`,
+  };
 }
 
 // fmtDateRangeIso — the same "D – D Mon" shape as above (or "D Mon – D
@@ -442,4 +459,76 @@ export function cartFromItinerary(data: any): any[] {
     items.push({ type: "visa", product: "visa", baseNet: data.visa.price || 0, international: true, label: data.visa.title });
   }
   return items;
+}
+
+
+// swapHotelAlternative (2026-10-12, alternatives-with-swap) — makes one of a
+// hotel item's `alternatives` the chosen hotel and moves the previous choice
+// into that alternative's slot. Pure: returns a new itinerary. The item keeps
+// `originalHotelKey` (the first, "Our choice" pick) so the UI can label a
+// swapped pick "Selected". Dropped on swap: `note`, the over-budget warning
+// computed for the ORIGINAL hotel's price (the frontend has no budget to
+// recompute it from).
+//
+// Tag lines (alternatives[].detail) are AI comparisons written against the
+// ORIGINAL pick, so they'd be wrong once something else is chosen: while a
+// swapped hotel is chosen they're cleared (the preview falls back to the plain
+// facts line, same as when the AI call failed), and they're restored from
+// `detailsVsOriginal` — saved on the first swap — if the user swaps back.
+export function swapHotelAlternative(data: any, itemId: string, hotelKey: string): any {
+  if (!data || !Array.isArray(data.days)) return data;
+  return {
+    ...data,
+    days: data.days.map((day: any) => ({
+      ...day,
+      items: (day.items || []).map((it: any) => {
+        if (it.id !== itemId || it.type !== "hotel") return it;
+        const alts: any[] = it.alternatives || [];
+        const idx = alts.findIndex((a) => a.hotelKey === hotelKey);
+        if (idx < 0) return it;
+        const alt = alts[idx];
+        const prevStars = it.stars ?? (parseInt(String(it.roomType || ""), 10) || null);
+        const demoted = {
+          hotelKey: it.hotelKey,
+          name: it.title,
+          image: it.image ?? null,
+          price: it.price,
+          stars: prevStars,
+          address: it.address ?? null,
+          board: it.board ?? null,
+          lat: it.lat ?? null,
+          lng: it.lng ?? null,
+          detail: null,
+        };
+        const roomType = alt.stars ? `${alt.stars}-star` : null;
+        const { note: _staleNote, detailLine: _oldLine, ...rest } = it;
+        void _staleNote;
+        void _oldLine;
+        const originalHotelKey = it.originalHotelKey || it.hotelKey;
+        // Tag lines as generated against the original choice (saved once, on the first swap).
+        const detailsVsOriginal: Record<string, string | null> =
+          it.detailsVsOriginal || Object.fromEntries(alts.map((a) => [a.hotelKey, a.detail ?? null]));
+        const backToOriginal = alt.hotelKey === originalHotelKey;
+        return {
+          ...rest,
+          originalHotelKey,
+          detailsVsOriginal,
+          hotelKey: alt.hotelKey,
+          title: alt.name,
+          price: alt.price,
+          image: alt.image ?? null,
+          address: alt.address ?? null,
+          lat: alt.lat ?? null,
+          lng: alt.lng ?? null,
+          stars: alt.stars ?? null,
+          board: alt.board ?? null,
+          roomType,
+          sub: [roomType, alt.address, alt.board].filter(Boolean).join(" · "),
+          alternatives: alts
+            .map((a, i) => (i === idx ? demoted : a))
+            .map((a) => ({ ...a, detail: backToOriginal ? detailsVsOriginal[a.hotelKey] ?? null : null })),
+        };
+      }),
+    })),
+  };
 }

@@ -26,6 +26,14 @@ export interface WorkbenchContextValue {
   // travellers (2026-10-09) — merged site_members + unclaimed invites +
   // members, for Traveller Profile's list. See WorkbenchDataProvider.
   travellers: any[];
+  // Console/Conversation shared UI state (lifted from WorkbenchTab so the
+  // Conversation tab sees the same selected traveller + summary flags).
+  convoTarget: any;
+  setConvoTarget: (t: any) => void;
+  summaryDismissedFor: string | null;
+  setSummaryDismissedFor: (id: string | null) => void;
+  backToSummaryFor: string | null;
+  setBackToSummaryFor: (id: string | null) => void;
   enquiries: any[];
   inboxLoading: boolean;
   reloadInbox: () => Promise<void>;
@@ -62,6 +70,9 @@ export interface WorkbenchContextValue {
   proposalQueue: ProposalQueueEntry[];
   selectedProposalEnqId: string | null;
   sendItineraryToProposal: (enquiryId: string, member: any, data: any) => void;
+  // swapProposalHotel — Proposal Composer's "Swap": makes an alternative the chosen hotel in
+  // this enquiry's proposal itinerary (see swapHotelAlternative), so PDF/web link follow.
+  swapProposalHotel: (enquiryId: string, itemId: string, hotelKey: string) => void;
   selectProposal: (enquiryId: string) => void;
   // setProposalOutcome (2026-09-08) — the Pipeline tab's "Accepted" /
   // "Revision Requested" / "Rejected" stages need SOME record of what

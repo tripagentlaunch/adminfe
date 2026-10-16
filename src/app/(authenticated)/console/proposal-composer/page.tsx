@@ -53,7 +53,7 @@ import { cartFromItinerary } from "../../../../lib/itineraryFromCart";
 import { useQuotePricing } from "../../../../lib/useQuotePricing";
 import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
 import { toast, errText } from "../../../../lib/advisorHelpers";
-import { enquiryProposalShareCreate } from "../../../../services/api";
+import { enquiryProposalShareCreate, getDestinationPhoto } from "../../../../services/api";
 import { buildProposalTemplateData } from "../../../../lib/proposalTemplateData";
 import { ProposalDocument, PAGE_COUNT } from "../../../../components/proposal/ProposalDocument";
 import { ProposalPreviewPage } from "../../../../components/proposal/ProposalPreviewPage";
@@ -112,7 +112,7 @@ function relativeTime(ts: number) {
 }
 
 export default function ProposalComposerPage() {
-  const { proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, creating, createOrder, setProposalOutcome } = useWorkbench();
+  const { proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, creating, createOrder, setProposalOutcome, swapProposalHotel } = useWorkbench();
   const selected = proposalQueue.find((e) => e.enquiryId === selectedProposalEnqId) || proposalQueue[0] || null;
 
   // open: "queue" | "quote" (2026-09-04) — same shape as
@@ -271,12 +271,84 @@ export default function ProposalComposerPage() {
   // itinerary/pricing actually change) stops the churn.
   const proposalDocumentEl = useMemo(() => <ProposalDocument data={proposalData} />, [proposalData]);
 
+  // Cover photo for the exported PDF — fetched fresh here, right before
+  // rendering, not reused from the on-screen preview: Google's photoUri is
+  // short-lived. Never blocks or fails the export: any error, no photo, or a
+  // slow lookup (6s cap) just means the plain cover.
+  async function fetchCoverPhoto(): Promise<{ url: string; credit: string | null; creditUrl: string | null } | null> {
+    const query = proposalData && proposalData.destination ? String(proposalData.destination).replace(/\s*\(.*\)\s*$/, "").trim() : "";
+    if (!query) return null;
+    try {
+      const r: any = await Promise.race([
+        getDestinationPhoto(query),
+        new Promise((resolve) => setTimeout(() => resolve(null), 6000)),
+      ]);
+      return r && r.url ? { url: r.url, credit: r.photographer || null, creditUrl: r.photographerUrl || null } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Image pre-checks for the PDF — cover photo, each stay's hero photo, and each hotel
+  // alternative's thumbnail. renderProposalPdf no longer has a fetch timeout (a hung image host
+  // can stall a render indefinitely), and react-pdf can't report a failed image, so every image
+  // is proven loadable HERE first: 6s cap, must be an image/* response readable cross-origin (the
+  // same CORS rules react-pdf's own fetch is under). Anything that fails is dropped and the PDF
+  // falls back exactly as if that photo had never existed (plain dark cover / no stay hero /
+  // text-only alternative row).
+  async function imageLoads(url: string): Promise<boolean> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      if (!res.ok || !(res.headers.get("content-type") || "").startsWith("image/")) return false;
+      await res.blob(); // fully downloaded inside the time cap; also warms the HTTP cache
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  // One verifier per export: every distinct URL is checked once (stays often repeat a hotel), all
+  // checks start immediately and run concurrently.
+  function makeImageVerifier() {
+    const seen = new Map<string, Promise<boolean>>();
+    return (url: string): Promise<boolean> => {
+      let p = seen.get(url);
+      if (!p) {
+        p = imageLoads(url);
+        seen.set(url, p);
+      }
+      return p;
+    };
+  }
+  async function withVerifiedStayImages(data: any, verify: (u: string) => Promise<boolean>): Promise<any> {
+    if (!data || !Array.isArray(data.stays)) return data;
+    const stays = await Promise.all(
+      data.stays.map(async (st: any) => {
+        const [heroOk, alternatives] = await Promise.all([
+          st.image ? verify(st.image) : Promise.resolve(true),
+          Promise.all((st.alternatives || []).map(async (a: any) => (a.image && !(await verify(a.image)) ? { ...a, image: null } : a))),
+        ]);
+        // A dropped hero also drops its "REPRESENTATIVE IMAGE" stock-photo label.
+        return { ...st, ...(heroOk ? {} : { image: null, imageSource: null }), alternatives };
+      })
+    );
+    return { ...data, stays };
+  }
+
   function downloadPdf() {
+    const verify = makeImageVerifier();
     Promise.all([
       import("../../../../components/proposal/ProposalDocument"),
       import("../../../../lib/renderProposalPdf"),
-    ]).then(async ([{ ProposalDocument }, { renderProposalPdfBlob }]) => {
-      const blob = await renderProposalPdfBlob(<ProposalDocument data={proposalData} />);
+      // cover: look the photo up, then verify it — this chain runs alongside the stay/alternative checks
+      fetchCoverPhoto().then(async (cp) => (cp && (await verify(cp.url)) ? cp : null)),
+      withVerifiedStayImages(proposalData, verify),
+    ]).then(async ([{ ProposalDocument }, { renderProposalPdfBlob }, coverPhoto, verifiedData]) => {
+      const docData = coverPhoto ? { ...verifiedData, coverPhoto } : verifiedData;
+      const blob = await renderProposalPdfBlob(<ProposalDocument data={docData} />);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -482,7 +554,7 @@ export default function ProposalComposerPage() {
                 className="taw-pdf-preview"
                 style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
               >
-                <ProposalPreviewPage data={proposalData && proposalData.destination ? proposalData : {
+                <ProposalPreviewPage onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} data={proposalData && proposalData.destination ? proposalData : {
                   destination: "Switzerland",
                   memberName: "Kabir Shah",
                   dateRange: "12 – 20 Oct 2026",

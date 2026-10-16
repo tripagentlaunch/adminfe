@@ -2,7 +2,7 @@ export { EnquiryInbox } from "./EnquiryInbox";
 export { Member360 } from "./Member360";
 export { CartPanel } from "./CartPanel";
 export { QuoteBuilder } from "./QuoteBuilder";
-export { WorkbenchTab } from "./WorkbenchTab";
+export { WorkbenchTab, ConversationTab } from "./WorkbenchTab";
 export { SearchDesksPanel } from "./SearchDesksPanel";
 export { FlightDesk } from "./FlightDesk";
 export { HotelDesk } from "./HotelDesk";

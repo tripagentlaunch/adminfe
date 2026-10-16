@@ -17,17 +17,10 @@
  * page/layout is). Only /workbench is wired to a real page in this pass —
  * the other five link to their real future paths (/broadcast, /journeys,
  * /pulse, /copilot, /analytics) which 404 for now; that's expected (see
- * later passes). "Member View" is a plain external link.
+ * later passes).
  *
  * Brand mark reuses AdvisorLoginGate's own sign-in-card treatment
  * (`<Icon name="shield" /><span>TripAgent</span>`) — no new logo invented.
- *
- * MEMBER_APP_URL: advisor-panel and the legacy web/ (still hosting
- * member.html) deploy as two SEPARATE Vercel projects with no recorded
- * relationship in this repo. NEXT_PUBLIC_MEMBER_APP_URL lets each
- * environment point at the real URL (mirrors services/api.ts's
- * NEXT_PUBLIC_FASTAPI_BASE pattern) — "/member.html" below is an
- * unconfirmed placeholder, not a known-good path.
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -37,8 +30,6 @@ import { AccountMenu } from "./AccountMenu";
 import { AdvisorSessionContext } from "../lib/advisorSessionContext";
 import { cx } from "../lib/cx";
 import "../styles/app-shell.css";
-
-const MEMBER_APP_URL = process.env.NEXT_PUBLIC_MEMBER_APP_URL || "/member.html";
 
 // "Enquiries" (route stays /console — renamed the page, not the URL, to
 // avoid touching every link into it) — the pre-proposal phase: Console +
@@ -208,12 +199,6 @@ export function ShellChrome({
                 <span className="ta-shell-tab-label">Analytics</span>
               </span>
             </Link>
-            <a className="ta-shell-tab" href={MEMBER_APP_URL} target="_blank" rel="noreferrer" title="Member View">
-              <span className="ta-shell-tab-inner">
-                <Icon name="arrowUR" size={20} />
-                <span className="ta-shell-tab-label">Member View ↗</span>
-              </span>
-            </a>
           </div>
           <div className="ta-shell-footer">
             <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />
