@@ -4,6 +4,9 @@
  * ===========================================================================*/
 import type { Flight, Hotel, Itinerary, Order, OrderStatus, PaymentStatus } from "./orderTypes";
 
+/** An order as the Orders workspace renders it (what summaryToOrder/detailToOrder return). */
+export type RealOrder = Order;
+
 const LIVE_TONE = "linear-gradient(135deg,#7C8798 0%,#BDC5D2 55%,#EEF0F4 100%)";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -72,7 +75,7 @@ function flightToUi(f: any, cabinFallback: string): Flight {
     flightNo: [f.airline_code, f.flight_number].filter(Boolean).join(" "),
     pricePerTraveller: Number(f.price_per_traveller) || 0,
     detail: {
-      baggage: f.checkin_baggage || f.baggage_text || "Not provided",
+      baggage: f.baggage_text || f.checkin_baggage || "Not provided",
       seat: f.seat_text || "Not selected yet",
       terminal: f.terminal_text || "Not provided",
     },

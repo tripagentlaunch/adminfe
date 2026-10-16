@@ -29,8 +29,6 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
       {open ? (
         <div className="ow-seg-detail">
           <div><b>Baggage</b>{f.detail.baggage || "Not provided"}</div>
-          {f.detail.seatPreference ? <div><b>Seat preference</b>{f.detail.seatPreference}</div> : null}
-          {f.detail.baggageExtra ? <div><b>Extra baggage</b>{f.detail.baggageExtra}</div> : null}
           <div><b>Seats</b>{f.detail.seat || "Not selected yet"}</div>
           <div><b>Terminal</b>{f.detail.terminal || "Not provided"}</div>
           <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div>
