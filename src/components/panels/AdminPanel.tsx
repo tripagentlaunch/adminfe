@@ -20,6 +20,7 @@ import {
   adminAssignEnquiry,
   enquiries as fetchEnquiries,
   siteAccessRequestsPending,
+  siteAccessRequestsMissingCode,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
   inr,
@@ -330,6 +331,9 @@ function EnquiryAssignSection(props: any) {
 // isAdmin() gate is only a UI convenience.
 function AccessRequestsSection() {
   const [rows, setRows] = useState<any>(null);
+  // noCode — approved before approval minted a code, so they can't sign in
+  // (and their WhatsApp itinerary links can't open). approve() issues one.
+  const [noCode, setNoCode] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<any>(null);
   const [busyId, setBusyId] = useState<any>(null);
@@ -368,6 +372,9 @@ function AccessRequestsSection() {
         setErr(errText(e));
         setLoading(false);
       });
+    siteAccessRequestsMissingCode()
+      .then((list: any) => setNoCode(Array.isArray(list) ? list : []))
+      .catch(() => setNoCode([]));
   }
   useEffect(load, []);
 
@@ -526,6 +533,36 @@ function AccessRequestsSection() {
         ) : (
           <Empty icon={<Icon name="inbox" size={28} />}>No pending access requests.</Empty>
         )}
+        {noCode.length ? (
+          <div style={{ marginTop: 20 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>Approved without a code</div>
+            <div style={{ fontSize: 12.5, color: "var(--taupe)", marginBottom: 10 }}>
+              Approved before codes were issued automatically, so they can't sign in or open itinerary links. Issuing a
+              code emails it to them.
+            </div>
+            <div className="taw-qlist">
+              {noCode.map((r: any) => (
+                <div key={r.id} className="taw-qrow" style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
+                  <div className="taw-qrow-main">
+                    <span className="taw-qtype taw-icrow">
+                      <Icon name="user" size={13} />
+                      {r.first_name || r.last_name ? `${r.first_name || ""} ${r.last_name || ""}`.trim() : r.full_name}
+                    </span>
+                    <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
+                      {r.email} · {r.phone}
+                    </div>
+                  </div>
+                  <div className="taw-qrow-actions">
+                    <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busyId === r.id} onClick={() => approve(r)}>
+                      {busyId === r.id ? <Spinner /> : <Icon name="check" size={13} />}
+                      Issue code
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
     </Card>
   );
