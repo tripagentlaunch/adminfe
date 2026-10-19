@@ -554,7 +554,7 @@ export default function ProposalComposerPage() {
                 className="taw-pdf-preview"
                 style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
               >
-                <ProposalPreviewPage onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} data={proposalData && proposalData.destination ? proposalData : {
+                <ProposalPreviewPage onDownload={cart.length ? downloadPdf : undefined} onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} data={proposalData && proposalData.destination ? proposalData : {
                   destination: "Switzerland",
                   memberName: "Kabir Shah",
                   dateRange: "12 – 20 Oct 2026",
