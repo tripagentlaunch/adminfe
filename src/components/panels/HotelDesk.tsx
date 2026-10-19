@@ -5,10 +5,12 @@
  * property-detail (PDP) expander, HotelPdpDetail (line ~1199, colocated here
  * — only ever used by HotelDesk in the original module too).
  * ===========================================================================*/
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
+import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
+import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
@@ -67,7 +69,7 @@ const DEFAULT_CITY_SUGGESTIONS = [
 // above for why.
 function cityLocationSuggestions(query: string) {
   if (!query) return Promise.resolve(DEFAULT_CITY_SUGGESTIONS);
-  return hotelAutosuggestV2(query).then((r: any) => (r && r.locationSuggestions) || []);
+  return hotelAutosuggestV2(query).then((r: any) => rankLocationSuggestions(query, (r && r.locationSuggestions) || []));
 }
 
 function renderCityLocationSuggestion(loc: any) {
@@ -671,6 +673,11 @@ export function HotelDesk(props: any) {
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
+  // The search in flight (deadline + cancel, see lib/abortableSearch.ts).
+  // Replaced on every run(); anything finishing for a handle that is no longer
+  // current (cancelled, superseded, unmounted) is ignored.
+  const searchRef = useRef<any>(null);
+  useEffect(() => () => { if (searchRef.current) searchRef.current.cancel(); }, []);
   // Hotel shop controls (HTL filters + sort), client-side over hotel-search offers.
   const [view, setView] = useState({ sort: "best", stars: "any", refundable: false, board: "all" });
   function setV(k: string, v: any) {
@@ -680,7 +687,7 @@ export function HotelDesk(props: any) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
-  function runReal() {
+  function runReal(signal?: AbortSignal) {
     const city = form.city.trim();
     const checkIn = form.checkIn;
     const checkOut = form.checkOut;
@@ -696,7 +703,7 @@ export function HotelDesk(props: any) {
     // for anyone who ignores the dropdown.
     const withLocation = selectedLocation
       ? Promise.resolve(selectedLocation)
-      : hotelAutosuggestV2(city).then((locRes: any) => {
+      : hotelAutosuggestV2(city, signal).then((locRes: any) => {
           const top = (locRes && locRes.locationSuggestions && locRes.locationSuggestions[0]) || null;
           if (!top) throw new Error("No location match for \"" + city + "\".");
           return top;
@@ -724,7 +731,7 @@ export function HotelDesk(props: any) {
         fetchFromCache: false,
       };
 
-      return hotelListingV2(listingPayload).then((listRes: any) => {
+      return hotelListingV2(listingPayload, signal).then((listRes: any) => {
         const ctx = {
           international: countryCode !== "IN",
           nights: nights,
@@ -738,7 +745,17 @@ export function HotelDesk(props: any) {
     });
   }
 
+  function cancelSearch() {
+    const s = searchRef.current;
+    if (!s) return;
+    searchRef.current = null; // its late rejection is then ignored
+    s.cancel();
+    setLoading(false);
+    setErr(null);
+  }
+
   function run() {
+    if (searchRef.current) searchRef.current.cancel();
     setErr(null);
     setLoading(true);
     setRes(null);
@@ -746,13 +763,30 @@ export function HotelDesk(props: any) {
     setView({ sort: "best", stars: "any", refundable: false, board: "all" });
 
     if (USE_REAL_HOTELS) {
-      runReal()
+      const search = startSearch();
+      searchRef.current = search;
+      runReal(search.signal)
         .then((r: any) => {
+          if (searchRef.current !== search) return;
+          search.done();
+          searchRef.current = null;
           setRes(r);
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
         })
         .catch((e: any) => {
+          if (searchRef.current !== search) return;
+          search.done();
+          searchRef.current = null;
+          // Deadline hit: back to the form (fields untouched) with a Retry-able
+          // error. Never demo data, which is only for "backend unreachable".
+          if (search.timedOut()) {
+            const msg = "Hotel search timed out after " + Math.round(SEARCH_TIMEOUT_MS / 1000) + "s — the hotel supplier is responding slowly. Your search is kept; try again.";
+            setErr(msg);
+            setLoading(false);
+            toast(msg, "error");
+            return;
+          }
           // A real answer from the backend (e.g. TripSure's own error, relayed with
           // its message and codes) is shown as-is — never replaced by demo data.
           if (e && e.status) {
@@ -814,6 +848,12 @@ export function HotelDesk(props: any) {
 
   const formView = (
     <>
+      {err ? (
+        <div className="taw-banner taw-banner--err" style={{ marginBottom: 11 }}>
+          <Icon name="alert" size={16} />
+          {err}
+        </div>
+      ) : null}
       <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
         <Field label="City" htmlFor="taw-ho-city">
           <AutosuggestInput
@@ -868,7 +908,12 @@ export function HotelDesk(props: any) {
           <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
             <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
           </button>
-        ) : null}
+        ) : (
+          <>
+            <button className="taw-btn taw-btn--sm" onClick={cancelSearch}>Cancel</button>
+            <span style={{ fontSize: 12, color: "var(--taupe)" }}>Searching hotels in {form.city || "your city"} — large cities can take 20–45s.</span>
+          </>
+        )}
         {res ? (
           <div className="taw-leg-switch">
             <span className="taw-leg-tab is-active">

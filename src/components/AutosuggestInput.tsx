@@ -29,7 +29,7 @@ import { Spinner } from "./ui";
 //   id, value, onChange(text), onSelect(item),
 //   fetchSuggestions(query) -> Promise<item[]>,
 //   renderSuggestion(item) -> JSX, getKey(item) -> string,
-//   placeholder?, minChars = 2, debounceMs = 300, className?,
+//   placeholder?, minChars = 1, debounceMs = 300, maxResults = 8, className?,
 //   showDefaultsOnFocus? = false, floating? = false,
 // })
 //
@@ -58,8 +58,9 @@ export function AutosuggestInput(props: any) {
     renderSuggestion,
     getKey,
     placeholder,
-    minChars = 2,
+    minChars = 1,
     debounceMs = 300,
+    maxResults = 8,
     className,
     showDefaultsOnFocus = false,
     floating = false,
@@ -105,10 +106,16 @@ export function AutosuggestInput(props: any) {
   function runQuery(query: string) {
     const thisRequest = ++requestIdRef.current;
     setLoading(true);
+    // Open now, not only when the response lands — otherwise the "Searching…"
+    // row below is unreachable on a first query and the field looks dead for
+    // the whole round trip.
+    setOpen(true);
     fetchSuggestions(query)
       .then((items: any) => {
         if (requestIdRef.current !== thisRequest) return; // superseded by a newer keystroke
-        setSuggestions(Array.isArray(items) ? items : []);
+        // maxResults caps what's shown no matter what the caller's source
+        // returned — a 1-letter query can match dozens of places.
+        setSuggestions(Array.isArray(items) ? items.slice(0, maxResults) : []);
         setLoading(false);
         setOpen(true);
         setActiveIndex(-1);

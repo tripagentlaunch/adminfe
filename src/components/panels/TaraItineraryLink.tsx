@@ -2,73 +2,105 @@
 /* =============================================================================
  * TripAgent — src/components/panels/TaraItineraryLink.tsx
  *
- * Read-only pointer from the Itinerary Builder card to the shareable itinerary
- * page Tara built in the traveller's chat (…/trips/<key>). Nothing is imported
- * or converted: Tara's plan lives in chatbot-be, the Builder's itinerary in the
- * Console, and they are separate systems. This only finds the most recent
- * /trips/ URL in the conversation (via the same GET /admin/conversation/{code}
- * the Conversation panel uses) and shows it as a link. Renders nothing when the
- * traveller has no code, the conversation can't be loaded, or no link exists.
+ * "Open Tara's itinerary" on the Itinerary Builder card. When Tara (the
+ * chatbot) has built a trip plan for this traveller, the button loads that plan
+ * into the Builder as the enquiry's itinerary — no rebuilding via Generate AI
+ * Itinerary / Start from scratch.
+ *
+ * The plan lives in chatbot-be, filed under the traveller's access code.
+ * GET /admin/tara-plan/{code} (adminbe) asks chatbot-be for it and converts it
+ * to the Builder's own itinerary shape, so ItineraryView renders it unchanged.
+ * Everything in it arrives as "draft": Tara's flight/hotel prices are web
+ * research, not TripSure results (the plan's own alert says so).
+ *
+ * With several plans for one traveller the newest is the default and a small
+ * picker appears. Renders nothing when the traveller has no code, no plan, or
+ * chatbot-be can't be reached — the Builder then shows its usual "Start this
+ * itinerary" chooser, as before.
  * ===========================================================================*/
 import { useEffect, useState } from "react";
-import { getChatbotConversation } from "../../services/api";
+import { getTaraPlan } from "../../services/api";
+import { errText, toast } from "../../lib/advisorHelpers";
+import { useWorkbench } from "../../lib/workbenchContext";
 import { Icon } from "../ui";
 import { memberCode } from "./ChatbotConversationPanel";
 
-const TRIPS_URL = /https?:\/\/[^\s<>"'\])]+\/trips\/[^\s<>"'\])]+/g;
+type PlanSummary = { planId: string; title?: string; updatedAt?: number; url?: string };
 
-// Newest Tara-shared /trips/ link, or null. Only http(s) URLs can match.
-function latestTripsLink(messages: any[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role === "user") continue;
-    const text = [m.content, ...(Array.isArray(m.parts) ? m.parts : [])].filter((x) => typeof x === "string").join("\n");
-    const hits = text.match(TRIPS_URL);
-    if (hits && hits.length) return hits[hits.length - 1].replace(/[.,;:!?]+$/, "");
-  }
-  return null;
-}
+const fmtUpdated = (ms?: number) =>
+  ms ? new Date(ms).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "";
 
-// TEMPORARY / DEMO ONLY — REMOVE BEFORE REAL USE. For the traveller "Bhanumathi S" the
-// button points at a locally served demo page instead of a real Tara link from the chat.
-// This is NOT real behaviour; to revert, delete DEMO_TRAVELLER_NAME, DEMO_ITINERARY_URL,
-// isDemoTraveller(), and the two `demo` lines marked below.
-const DEMO_TRAVELLER_NAME = "bhanumathi s";
-const DEMO_ITINERARY_URL = "http://localhost:8000/london-itinerary-preview.html";
-const isDemoTraveller = (m: any) => String((m && m.name) || "").trim().toLowerCase() === DEMO_TRAVELLER_NAME;
-
-export function TaraItineraryLink({ member }: any) {
+export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry }: any) {
   const code = memberCode(member);
-  const [url, setUrl] = useState<string | null>(null);
-  const demo = isDemoTraveller(member); // TEMPORARY/DEMO
+  const { itinerariesByEnquiry, loadTaraItinerary } = useWorkbench();
+  // Plans are stored with the code they were fetched for, so switching traveller
+  // shows nothing (not the previous traveller's plans) until the new list arrives.
+  const [loaded, setLoaded] = useState<{ code: string; plans: PlanSummary[] }>({ code: "", plans: [] });
+  const [pick, setPick] = useState<string>("");
+  const [opening, setOpening] = useState(false);
+  const plans = code && loaded.code === code ? loaded.plans : [];
 
   useEffect(() => {
-    setUrl(null);
-    if (demo) return; // TEMPORARY/DEMO: skip the real conversation lookup
     if (!code) return;
     let cancelled = false;
-    getChatbotConversation(code)
-      .then((d: any) => { if (!cancelled) setUrl(latestTripsLink(Array.isArray(d && d.messages) ? d.messages : [])); })
-      .catch(() => { /* no conversation / chatbot-be unavailable: just no link */ });
+    getTaraPlan(code)
+      .then((d: any) => {
+        if (!cancelled) setLoaded({ code, plans: Array.isArray(d && d.plans) ? d.plans : [] });
+      })
+      .catch(() => { /* chatbot-be unavailable / no plans route: just no button */ });
     return () => { cancelled = true; };
-  }, [code, demo]);
+  }, [code]);
 
-  if (demo) {
-    // TEMPORARY/DEMO: hardcoded link, clearly labelled so it isn't mistaken for a real Tara link.
-    return (
-      <div style={{ marginBottom: 10 }}>
-        <a className="taw-btn taw-btn--sm" href={DEMO_ITINERARY_URL} target="_blank" rel="noopener noreferrer">
-          <Icon name="sparkle" size={13} /> Open Tara&apos;s itinerary
-        </a>
-      </div>
-    );
-  }
-  if (!url) return null;
+  if (!plans.length) return null;
+  const chosen = plans.find((p) => p.planId === pick) || plans[0];
+
+  const open = async () => {
+    if (opening) return;
+    // Fetch at click time — Tara may have revised the plan since the list loaded.
+    setOpening(true);
+    try {
+      const d: any = await getTaraPlan(code, chosen.planId);
+      if (!d || !d.itinerary) {
+        toast("Tara's plan is no longer available.", "error");
+        return;
+      }
+      const enquiryId = selEnqId || (onEnsureEnquiry && member ? (await onEnsureEnquiry(member)).id : null);
+      if (!enquiryId) return;
+      const existing = itinerariesByEnquiry[enquiryId];
+      const hasContent = !!(existing && Array.isArray(existing.days) && existing.days.length);
+      if (hasContent && !window.confirm("This traveller already has an itinerary in the Builder. Replace it with Tara's plan? Anything you added or edited will be lost.")) return;
+      loadTaraItinerary(enquiryId, d.itinerary);
+    } catch (e: any) {
+      toast("Couldn't open Tara's itinerary: " + errText(e), "error");
+    } finally {
+      setOpening(false);
+    }
+  };
+
   return (
-    <div style={{ marginBottom: 10 }}>
-      <a className="taw-btn taw-btn--sm" href={url} target="_blank" rel="noopener noreferrer">
-        <Icon name="sparkle" size={13} /> Open Tara&apos;s itinerary
-      </a>
+    <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <button type="button" className="taw-btn taw-btn--sm" onClick={open} disabled={opening}>
+        <Icon name="sparkle" size={13} /> {opening ? "Opening…" : "Open Tara’s itinerary"}
+      </button>
+      {plans.length > 1 ? (
+        <select
+          className="taw-select-plain"
+          aria-label="Which of Tara's plans"
+          value={chosen.planId}
+          onChange={(e) => setPick(e.target.value)}
+        >
+          {plans.map((p, i) => (
+            <option key={p.planId} value={p.planId}>
+              {(p.title || p.planId) + (p.updatedAt ? " · " + fmtUpdated(p.updatedAt) : "") + (i === 0 ? " (latest)" : "")}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {chosen.url ? (
+        <a href={chosen.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
+          Tara&apos;s page
+        </a>
+      ) : null}
     </div>
   );
 }

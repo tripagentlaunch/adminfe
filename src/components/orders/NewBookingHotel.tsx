@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
+import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, hotelAutosuggestV2, hotelDetailsV2, hotelListingV2, hotelPriceCheckV2, inr,
@@ -76,7 +77,7 @@ function roomOptions(det: any): any[] {
 }
 
 const citySuggestions = (q: string) =>
-  q ? hotelAutosuggestV2(q).then((r: any) => (r && r.locationSuggestions) || []).catch(() => []) : Promise.resolve([]);
+  q ? hotelAutosuggestV2(q).then((r: any) => rankLocationSuggestions(q, (r && r.locationSuggestions) || [])).catch(() => []) : Promise.resolve([]);
 
 export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdded, onError }: {
   customer: Customer;

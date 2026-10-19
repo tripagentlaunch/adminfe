@@ -515,7 +515,7 @@ export function WorkbenchTab(props: any) {
           ) : null
         }
       >
-        <TaraItineraryLink member={convoMember} />
+        <TaraItineraryLink member={convoMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} />
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (

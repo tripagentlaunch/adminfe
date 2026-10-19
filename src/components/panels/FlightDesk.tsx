@@ -5,10 +5,12 @@
  * depth expander, FlightFareDetail (line ~872, colocated here — only ever
  * used by FlightDesk in the original module too).
  * ===========================================================================*/
-import { useEffect, useState } from "react";
-import { fastapiFlightAutosuggest, fastapiFlightSearch, flightFares, searchFlights, inr } from "../../services/api";
+import { useEffect, useRef, useState } from "react";
+import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
+import { fastapiFlightSearch, flightFares, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { searchAirports } from "../../lib/airports";
+import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
 import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { Dropdown, Empty, Field, Spinner, SkeletonRows, Icon, SleekScroll } from "../ui";
@@ -114,41 +116,13 @@ const DEFAULT_AIRPORT_SUGGESTIONS = [
 ];
 
 // airportSuggestions(query) — AutosuggestInput's fetchSuggestions for both
-// From/To fields. GET /flights/autosuggest requires a real advisor session
-// (get_current_advisor) same as everything else fastapiFlightCall() drives —
-// no anon-key fallback, unlike the legacy edge-function path this panel
-// otherwise still uses for search itself. Empty query (showDefaultsOnFocus's
-// on-focus/on-clear call) never reaches the network — see
-// DEFAULT_AIRPORT_SUGGESTIONS above for why.
-//
-// 2026-10-09: falls back to the built-in directory (lib/airports.ts) so
-// suggestions always appear while typing — TripSure's flight host is
-// IP-restricted and was unreachable, which left the dropdown empty. Live
-// results win when TripSure answers within LIVE_WAIT_MS; after a failure
-// or timeout it isn't retried for LIVE_RETRY_MS, so typing never stalls.
-const LIVE_WAIT_MS = 2500;
-const LIVE_RETRY_MS = 60_000;
-let liveAutosuggestDownUntil = 0;
-
-function liveAirports(query: string, limit: number): Promise<any[] | null> {
-  if (Date.now() < liveAutosuggestDownUntil) return Promise.resolve(null);
-  const markDown = () => {
-    liveAutosuggestDownUntil = Date.now() + LIVE_RETRY_MS;
-    return null;
-  };
-  const live = fastapiFlightAutosuggest(query, limit)
-    .then((r: any) => {
-      const rows = Array.isArray(r) ? r : (r && r.data) || [];
-      return rows.length ? rows : null;
-    })
-    .catch(markDown);
-  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(markDown()), LIVE_WAIT_MS));
-  return Promise.race([live, timeout]);
-}
-
+// From/To fields. Live TripSure results with a built-in-directory fallback
+// live in lib/airportSuggest.ts (shared with the order page's "Add flight
+// itinerary" modal). Empty query (showDefaultsOnFocus's on-focus/on-clear
+// call) never reaches the network — see DEFAULT_AIRPORT_SUGGESTIONS above.
 function airportSuggestions(query: string) {
   if (!query) return Promise.resolve(DEFAULT_AIRPORT_SUGGESTIONS);
-  return liveAirports(query, 8).then((rows) => rows || searchAirports(query, 8));
+  return airportAutosuggest(query, 8);
 }
 
 function renderAirportSuggestion(a: any) {
@@ -459,6 +433,11 @@ export function FlightDesk(props: any) {
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<any>(null);
   const [err, setErr] = useState<any>(null);
+  // The search in flight (deadline + cancel, see lib/abortableSearch.ts).
+  // Replaced on every run(); anything finishing for a handle that is no longer
+  // current (cancelled, superseded, unmounted) is ignored.
+  const searchRef = useRef<any>(null);
+  useEffect(() => () => { if (searchRef.current) searchRef.current.cancel(); }, []);
   // Shopping controls (FLT-011 filters / FLT-012 sort) — applied client-side
   // over the offers the search adapter returns. Reset whenever a new search runs.
   const [view, setView] = useState({ sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" });
@@ -557,7 +536,7 @@ export function FlightDesk(props: any) {
   // one-way-shaped query — round-trip here means "outbound and return
   // fetched and shown separately," not a single combined round-trip
   // search param.
-  function fetchOffersForDate(dateStr: string, fromCode: string, toCode: string) {
+  function fetchOffersForDate(dateStr: string, fromCode: string, toCode: string, signal?: AbortSignal) {
     const base: any = {
       originCode: fromCode,
       destCode: toCode,
@@ -565,7 +544,7 @@ export function FlightDesk(props: any) {
       pax: Number(form.pax) || 1,
       cabin: form.cabin,
     };
-    if (USE_REAL_FLIGHTS) return fastapiFlightSearch(base);
+    if (USE_REAL_FLIGHTS) return fastapiFlightSearch({ ...base, signal });
     if (member && member.id) base.member_id = member.id;
     if (props.advisorId) base.advisor_id = props.advisorId;
     return searchFlights(base);
@@ -578,9 +557,12 @@ export function FlightDesk(props: any) {
   // if every real call for this leg failed — so different dates/legs
   // actually look different from each other when compared, per direct
   // request, instead of the same canned data reappearing everywhere.
-  function fetchLeg(dates: string[], fromCode: string, toCode: string) {
-    return Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt, fromCode, toCode).then((r: any) => ({ dt, r })))).then((results) => {
+  function fetchLeg(dates: string[], fromCode: string, toCode: string, signal?: AbortSignal) {
+    return Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt, fromCode, toCode, signal).then((r: any) => ({ dt, r })))).then((results) => {
       const ok = results.filter((x: any) => x.status === "fulfilled").map((x: any) => x.value);
+      // Aborted (cancel / deadline): the caller handles it. Fabricating demo
+      // offers here would present them as if the search had worked.
+      if (signal && signal.aborted) return { offers: [], usedMock: false, aborted: true };
       if (!ok.length) {
         const merged: any[] = [];
         dates.forEach((dt) => {
@@ -625,8 +607,25 @@ export function FlightDesk(props: any) {
     const outboundDates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
     const returnDates = roundTrip ? (includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(form.returnDate, d)) : [form.returnDate]) : [];
 
-    Promise.all([fetchLeg(outboundDates, originCode, destCode), roundTrip ? fetchLeg(returnDates, destCode, originCode) : Promise.resolve({ offers: [], usedMock: false })]).then(
-      ([outboundResult, returnResult]) => {
+    if (searchRef.current) searchRef.current.cancel();
+    const search = startSearch();
+    searchRef.current = search;
+    const signal = search.signal;
+
+    Promise.all([fetchLeg(outboundDates, originCode, destCode, signal), roundTrip ? fetchLeg(returnDates, destCode, originCode, signal) : Promise.resolve({ offers: [], usedMock: false })])
+      .then(([outboundResult, returnResult]) => {
+        if (searchRef.current !== search) return; // cancelled, superseded or unmounted
+        search.done();
+        searchRef.current = null;
+        // Deadline hit: back to the form (fields untouched) with an error,
+        // not partial results presented as the whole answer.
+        if (search.timedOut()) {
+          const msg = "Flight search timed out after " + Math.round(SEARCH_TIMEOUT_MS / 1000) + "s — the flight supplier is responding slowly. Your search is kept; try again.";
+          setErr(msg);
+          setLoading(false);
+          toast(msg, "error");
+          return;
+        }
         setRes({
           outbound: outboundResult.offers,
           return: roundTrip ? returnResult.offers : null,
@@ -644,8 +643,27 @@ export function FlightDesk(props: any) {
             " flight offers loaded",
           anyMock ? "error" : "success"
         );
-      }
-    );
+      })
+      .catch((e: any) => {
+        // Anything unexpected in the chain above: never leave the desk on the
+        // loading state.
+        if (searchRef.current !== search) return;
+        search.done();
+        searchRef.current = null;
+        const msg = "Flight search failed: " + ((e && e.message) || "unexpected error");
+        setErr(msg);
+        setLoading(false);
+        toast(msg, "error");
+      });
+  }
+
+  function cancelSearch() {
+    const s = searchRef.current;
+    if (!s) return;
+    searchRef.current = null; // its late settlement is then ignored
+    s.cancel();
+    setLoading(false);
+    setErr(null);
   }
 
   // showResults (2026-09-02) — the form and the results are now mutually
@@ -683,6 +701,12 @@ export function FlightDesk(props: any) {
   // there's something to search for.
   const formView = (
     <>
+      {err ? (
+        <div className="taw-banner taw-banner--err" style={{ marginBottom: 8 }}>
+          <Icon name="alert" size={16} />
+          {err}
+        </div>
+      ) : null}
       <div className="taw-join-row" style={{ marginBottom: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <Field label="From" htmlFor="taw-fl-origin">
@@ -900,6 +924,7 @@ export function FlightDesk(props: any) {
           <div className="message">
             Looking up real fares for {form.originCode || "your origin"} → {form.destCode || "your destination"} — this takes a few seconds.
           </div>
+          <button className="taw-btn taw-btn--sm" onClick={cancelSearch}>Cancel</button>
         </div>
       ) : null}
       {!loading && res ? (
