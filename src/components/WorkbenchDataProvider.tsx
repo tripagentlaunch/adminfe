@@ -88,6 +88,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
   // real loading state while that's in flight.
   const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
+  const [retryingSearch, setRetryingSearch] = useState<Record<string, boolean>>({});
   // pipelineStatusByEnquiry (real backend, GET /enquiries/pipeline-status) —
   // the persisted counterpart to itinerariesByEnquiry/proposalQueue above,
   // surviving a reload / visible to any advisor. Pipeline (console/pipeline/
@@ -407,6 +408,26 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       });
   }
 
+  // "Retry search" on the tripsure-unavailable alert. generate-itinerary
+  // first (re-seeds the backend's in-memory draft cache — refresh alone
+  // 409s after a restart), then refresh for the real TripSure search; the
+  // refreshed itinerary replaces the current one, clearing the unresolved
+  // placeholders. Any items the advisor added/edited by hand since are
+  // overwritten, same as the original refresh merge.
+  function retryItinerarySearch(enquiryId: string) {
+    if (retryingSearch[enquiryId]) return;
+    setRetryingSearch((r) => ({ ...r, [enquiryId]: true }));
+    enquiryGenerateItinerary(enquiryId)
+      .then(() => enquiryRefreshItinerary(enquiryId))
+      .then((refreshed: any) => {
+        setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: refreshed }));
+        const stillDown = (refreshed?.alerts || []).some((a: any) => a.id === "tripsure-unavailable" || a.id === "tripsure-rejected" || a.id === "dates-in-past");
+        toast(stillDown ? "TripSure search still failed — see the alert in the Itinerary Builder for the cause" : "Real flight/hotel search complete", stillDown ? "error" : "success");
+      })
+      .catch((e: any) => toast("Retry search failed: " + errText(e), "error"))
+      .finally(() => setRetryingSearch((r) => ({ ...r, [enquiryId]: false })));
+  }
+
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: updater(m[enquiryId]) }));
   }
@@ -487,6 +508,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         setProposalOutcome,
         itinerariesByEnquiry,
         generatingItinerary,
+        retryingSearch,
+        retryItinerarySearch,
         initItinerary,
         updateItineraryData,
         addSearchItemToItinerary,

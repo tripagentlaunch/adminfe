@@ -240,6 +240,32 @@
 .ow-searchbtn:disabled{opacity:.6;cursor:progress;}
 @media (max-width:760px){.ow-sbar-route{flex-basis:100%;}.ow-sbar-opts{flex-basis:100%;}.ow-searchbtn{flex-basis:100%;}}
 
+/* ---- Unified single-row search card (flights + hotels) -------------------- */
+.ow-trip{display:flex;gap:8px;margin-bottom:8px;}
+.ow-trip-pill{padding:6px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:12.5px;font-weight:600;color:var(--taupe);font-family:inherit;cursor:pointer;}
+.ow-trip-pill.on{background:#1a1712;border-color:#1a1712;color:#fff;}
+.ow-trip-pill:disabled{opacity:.45;cursor:not-allowed;}
+.ow-sbar--flight,.ow-sbar--hotel{flex-wrap:nowrap;align-items:stretch;gap:8px;padding:10px;border-radius:999px;}
+.ow-sbar--flight .ow-sbar-route{flex:2.4 1 0;}
+.ow-sbar--flight .ow-pill,.ow-sbar--hotel .ow-pill{border-radius:999px;padding:8px 16px;}
+.ow-sbar--flight .ow-pill--field,.ow-sbar--hotel .ow-pill--field{flex:1 1 0;}
+.ow-sbar--flight .ow-pill--date{flex:1 1 110px;}
+.ow-sbar--flight .ow-pill--trav{flex:1.3 1 150px;}
+.ow-sbar--hotel .ow-sbar-where{flex:2 1 0;}
+.ow-sbar--hotel .ow-sbar-date{flex:1 1 110px;}
+.ow-sbar--hotel .ow-sbar-guests{flex:1.2 1 140px;}
+.ow-pill--disabled{opacity:.45;cursor:not-allowed;background:var(--bone,#F4EFE3);}
+.ow-pill--disabled .ow-pillbtn{cursor:not-allowed;}
+.ow-cabins{display:flex;gap:6px;flex-wrap:wrap;}
+@media (max-width:980px){.ow-sbar--flight,.ow-sbar--hotel{flex-wrap:wrap;border-radius:16px;}.ow-sbar--flight .ow-sbar-route{flex-basis:100%;}}
+/* Airport / destination suggestion rows */
+.ow-sug{display:flex;align-items:center;gap:10px;}
+.ow-sug-ic{flex:none;width:30px;height:30px;border-radius:50%;background:var(--bone,#F4EFE3);display:grid;place-items:center;color:var(--gold-ink,#785c12);}
+.ow-sug-t{display:flex;flex-direction:column;min-width:0;line-height:1.25;}
+.ow-sug-t b{font-size:13px;font-weight:600;color:var(--ink);white-space:normal;}
+.ow-sug-code{font-weight:500;color:var(--taupe);}
+.ow-sug-t small{font-size:11.5px;color:var(--taupe);}
+
 /* ---- Hotel search: dates calendar + guests panel -------------------------- */
 .ow-sbar-where{flex:2 1 200px;}
 .ow-sbar-dates{flex:2 1 200px;}
@@ -336,3 +362,10 @@
 .ow-hero-ph{height:300px;}
 .ow-thumb-ph{display:grid;place-items:center;width:100%;height:100%;color:var(--taupe);}
 @media (max-width:760px){.ow-hero-ph{height:220px;}}
+
+/* Single-date calendar (flight Depart) — shares .ow-cal; gold selected day */
+.ow-cal--single{max-width:340px;}
+.ow-cal--single .ow-cal-day.is-start{background:var(--gold);color:var(--ink);font-weight:700;border-radius:50%;}
+.ow-cal--single .ow-cal-day.is-today:not(.is-start){box-shadow:inset 0 0 0 1px var(--gold);border-radius:50%;}
+.ow-cal-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);}
+.ow-cal-foot .ow-link:disabled{opacity:.4;cursor:not-allowed;}

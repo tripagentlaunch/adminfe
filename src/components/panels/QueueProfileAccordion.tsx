@@ -161,6 +161,7 @@ export function QueueProfileAccordion(props: any) {
             <TravellerList
               travellers={travellers}
               loading={inboxLoading}
+              enquiries={enquiries}
               selectedKey={picked ? picked.key : null}
               selectedMemberId={member && member.id}
               onSelect={selectTraveller}
@@ -258,14 +259,116 @@ function QueueMenu(props: any) {
 
 const KIND_LABEL: Record<string, string> = { member: "Member", invited: "Invited", expired: "Invite expired" };
 
-function TravellerList({ travellers, loading, selectedKey, selectedMemberId, onSelect }: {
+// ---- Hover preview (2026-10) ------------------------------------------------
+// A read-only summary shown near the cursor while hovering/focusing a traveller
+// card. Uses only data already in memory — the traveller row, the enquiries
+// list, the session itineraries and the pipeline-status map — so hovering never
+// triggers a request. Rows with nothing known are left out.
+function travellerPreviewRows(t: any, enquiries: any[], itins: Record<string, any>, pipeline: Record<string, any>): [string, string][] {
+  const rows: [string, string | null][] = [];
+  const mine = t.member ? enquiries.filter((e: any) => e.member_id === t.member.id) : [];
+  if (t.member) {
+    const open = mine.filter((e: any) => (e.status || "open") !== "closed");
+    rows.push(["Enquiries", mine.length ? `${open.length} open · ${mine.length} total` : "None yet"]);
+    const latest = mine.slice().sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())[0];
+    if (latest) {
+      const intent = latest.intent || {};
+      let dests = intent.destinations || intent.destination || [];
+      if (typeof dests === "string") dests = [dests];
+      rows.push(["Trip status", String(latest.status || "open").replace(/_/g, " ")]);
+      rows.push(["Destination", (dests as string[]).slice(0, 2).join(", ") || null]);
+      const itin = itins[latest.id];
+      rows.push([
+        "Travel dates",
+        (itin && itin.dateRange) || (latest.ask && latest.ask.dates && latest.ask.dates.month) || "Not set yet",
+      ]);
+      rows.push(["Latest enquiry", latest.created_at ? fmtDate(latest.created_at) : null]);
+    }
+    const withItin = mine.filter((e: any) => itins[e.id] || (pipeline[e.id] && pipeline[e.id].itinerary_generated_at)).length;
+    rows.push(["Itineraries", mine.length ? `${withItin} ${withItin === 1 ? "itinerary" : "itineraries"}` : null]);
+    const proposals = mine.map((e: any) => pipeline[e.id] && pipeline[e.id].proposal).filter(Boolean);
+    if (proposals.length) {
+      const p = proposals[0];
+      rows.push(["Proposal", p.outcome ? String(p.outcome).replace(/_/g, " ") : p.sent_at ? "Sent " + fmtDate(p.sent_at) : null]);
+    }
+  }
+  rows.push(["City", t.city || null]);
+  rows.push(["Plan", t.plan ? String(t.plan).replace(/_/g, " ") : null]);
+  rows.push(["Member until", t.memberUntil ? fmtDate(t.memberUntil) : null]);
+  rows.push([t.kind === "member" ? "Joined" : "Invited", t.since ? fmtDate(t.since) : null]);
+  if (t.kind !== "member" && t.expiresAt) rows.push(["Invite expires", fmtDate(t.expiresAt)]);
+  if (!t.member && t.kind === "member") rows.push(["Note", "No enquiry yet"]);
+  return rows.filter((r): r is [string, string] => !!r[1]);
+}
+
+function TravellerHoverPreview({ t, x, y, rows }: { t: any; x: number; y: number; rows: [string, string][] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  // Offset from the cursor, flipped/clamped so it never leaves the viewport.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight, gap = 16, pad = 8;
+    let left = x + gap;
+    if (left + w > window.innerWidth - pad) left = Math.max(pad, x - gap - w);
+    let top = y + gap;
+    if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - pad - h);
+    setPos({ left, top });
+  }, [x, y, rows]);
+  return createPortal(
+    <div
+      ref={ref}
+      className="taw-trav-pop"
+      role="tooltip"
+      style={{ left: pos ? pos.left : x + 16, top: pos ? pos.top : y + 16, visibility: pos ? "visible" : "hidden" }}
+    >
+      <div className="taw-trav-pop-h">
+        <span className="taw-trav-pop-name">{t.name || "Unnamed traveller"}</span>
+        <span className={"taw-trav-badge is-" + t.kind}>{KIND_LABEL[t.kind] || t.kind}</span>
+      </div>
+      <dl>
+        {rows.map(([k, v]) => (
+          <div key={k} className="taw-trav-pop-row">
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>,
+    document.body
+  );
+}
+
+function TravellerList({ travellers, loading, enquiries, selectedKey, selectedMemberId, onSelect }: {
   travellers: any[];
+  enquiries: any[];
   loading: boolean;
   selectedKey: string | null;
   selectedMemberId?: string;
   onSelect: (t: any) => void;
 }) {
   const [q, setQ] = useState("");
+  const { itinerariesByEnquiry, pipelineStatusByEnquiry } = useWorkbench();
+  // Hover preview: shown after a short delay so sweeping the cursor down the
+  // list doesn't flash a popup per card; cleared on leave, click, or scroll.
+  const [hover, setHover] = useState<{ t: any; x: number; y: number } | null>(null);
+  const hoverTimer = useRef<any>(null);
+  const hoverRows = useMemo(
+    () => (hover ? travellerPreviewRows(hover.t, enquiries || [], itinerariesByEnquiry || {}, pipelineStatusByEnquiry || {}) : []),
+    [hover && hover.t, enquiries, itinerariesByEnquiry, pipelineStatusByEnquiry]
+  );
+  function showHover(t: any, x: number, y: number) {
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHover({ t, x, y }), 250);
+  }
+  function moveHover(t: any, x: number, y: number) {
+    setHover((h) => (h && h.t === t ? { t, x, y } : h));
+  }
+  function hideHover() {
+    clearTimeout(hoverTimer.current);
+    setHover(null);
+  }
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     if (!needle) return travellers;
@@ -290,26 +393,43 @@ function TravellerList({ travellers, loading, selectedKey, selectedMemberId, onS
       ) : !filtered.length ? (
         <Empty icon={<Icon name="user" size={26} />}>{q ? "No travellers match that search." : "No travellers yet."}</Empty>
       ) : (
-        <div className="taw-enq">
-          {filtered.map((t: any) => (
-            <button
-              key={t.key}
-              type="button"
-              className={cx(
-                "taw-enq-item",
-                (selectedKey === t.key || (t.member && selectedMemberId === t.member.id)) && "is-active"
-              )}
-              onClick={() => onSelect(t)}
-            >
-              <div className="taw-enq-top">
-                <div className="taw-enq-name">{t.name || "Unnamed traveller"}</div>
-                <span className={"taw-trav-badge is-" + t.kind}>{KIND_LABEL[t.kind] || t.kind}</span>
-              </div>
-              <div className="taw-enq-meta">{[t.email, t.phone].filter(Boolean).join(" · ") || "No contact details"}</div>
-            </button>
-          ))}
+        <div className="taw-trav-list" onScroll={hideHover}>
+          {filtered.map((t: any) => {
+            const active = selectedKey === t.key || (t.member && selectedMemberId === t.member.id);
+            return (
+              <button
+                key={t.key}
+                type="button"
+                className={cx("taw-trav-item", active && "is-active")}
+                aria-current={active ? "true" : undefined}
+                onClick={() => { hideHover(); onSelect(t); }}
+                onMouseEnter={(e) => showHover(t, e.clientX, e.clientY)}
+                onMouseMove={(e) => moveHover(t, e.clientX, e.clientY)}
+                onMouseLeave={hideHover}
+                onFocus={(e) => { const r = e.currentTarget.getBoundingClientRect(); showHover(t, r.right - 24, r.top + r.height / 2); }}
+                onBlur={hideHover}
+              >
+                <div className="taw-trav-main">
+                  <div className="taw-trav-top">
+                    <span className="taw-trav-name">{t.name || "Unnamed traveller"}</span>
+                    <span className={"taw-trav-badge is-" + t.kind}>{KIND_LABEL[t.kind] || t.kind}</span>
+                  </div>
+                  {t.email || t.phone ? (
+                    <>
+                      {t.email ? <div className="taw-trav-line">{t.email}</div> : null}
+                      {t.phone ? <div className="taw-trav-line">{t.phone}</div> : null}
+                    </>
+                  ) : (
+                    <div className="taw-trav-line">No contact details</div>
+                  )}
+                </div>
+                <Icon name="chevron" size={14} className="taw-trav-chev" style={{ transform: "rotate(-90deg)" }} />
+              </button>
+            );
+          })}
         </div>
       )}
+      {hover && hoverRows.length ? <TravellerHoverPreview t={hover.t} x={hover.x} y={hover.y} rows={hoverRows} /> : null}
     </div>
   );
 }

@@ -91,6 +91,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [sub, setSub] = useState<Sub>("search");
   const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16), rooms: 1, adults: 2 });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  // Dates of the search that minted `session` (docKey/token). The form can be edited
+  // after "Change search" without re-searching, so recording a stay must use these.
+  const [searched, setSearched] = useState<{ checkIn: string; checkOut: string } | null>(null);
   const [location, setLocation] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState<null | "dates" | "guests">(null); // inline calendar / guests panel
@@ -195,6 +198,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       )
       .then((r: any) => {
         setSession({ docKey: r.docKey, token: r.token });
+        setSearched({ checkIn: form.checkIn, checkOut: form.checkOut });
         setHotels(r.hotels || []);
         setSub("results");
       })
@@ -245,7 +249,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   function confirmAdd(opt: any) {
-    if (!session || !hotel) return;
+    if (!session || !hotel || !searched) return;
     const info = hotel.hotelInfo || {};
     const amenities: string[] = [];
     ((details && details.hotelInfo && details.hotelInfo.hotelAmenities) || []).forEach((a: any) =>
@@ -269,8 +273,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         amenities,
         board_basis: opt.board || null,
       },
-      check_in: form.checkIn,
-      check_out: form.checkOut,
+      check_in: (searched || form).checkIn,
+      check_out: (searched || form).checkOut,
       rooms: form.rooms,
       adults: form.adults,
     })
@@ -316,37 +320,55 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     );
     return (
       <>
-        <div className="ow-sbar">
+        <div className="ow-sbar ow-sbar--hotel">
           <label className="ow-pill ow-pill--field ow-sbar-where">
-            <span className="ow-pill-l">Where</span>
+            <span className="ow-pill-l">Where to?</span>
             <AutosuggestInput
               className="ow-pill-input"
               value={form.city}
               onChange={(v: any) => { set("city", String(v)); setLocation(null); }}
               onSelect={(l: any) => { set("city", l.name); setLocation(l); }}
               fetchSuggestions={citySuggestions}
-              renderSuggestion={(l: any) => <span>{l.name}{l.state ? ", " + l.state : ""}, {l.country}</span>}
+              floating
+              renderSuggestion={(l: any) => (
+                <span className="ow-sug">
+                  <span className="ow-sug-ic"><Icon name="hotel" size={16} /></span>
+                  <span className="ow-sug-t">
+                    <b>{l.name}</b>
+                    <small>{[l.state, l.country].filter(Boolean).join(", ")}</small>
+                  </span>
+                </span>
+              )}
               getKey={(l: any) => String(l.id)}
-              placeholder="City or destination"
+              placeholder="City, area or hotel"
             />
             <span className="ow-pill-s">{location ? [location.state, location.country].filter(Boolean).join(", ") : "Destination, area or hotel"}</span>
           </label>
 
-          <div className={`ow-pill ow-pill--btn ow-sbar-dates${panel === "dates" ? " open" : ""}`}>
-            <span className="ow-pill-l">Dates</span>
+          <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
+            <span className="ow-pill-l">Check-in</span>
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
               onClick={() => setPanel(panel === "dates" ? null : "dates")}>
               <Icon name="calendar" size={14} />
-              <span>{fmtPill(form.checkIn)} → {fmtPill(form.checkOut)}{nights >= 1 ? ` · ${nights}N` : ""}</span>
+              <span>{fmtPill(form.checkIn)}</span>
+            </button>
+          </div>
+
+          <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
+            <span className="ow-pill-l">Check-out{nights >= 1 ? ` · ${nights}N` : ""}</span>
+            <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
+              onClick={() => setPanel(panel === "dates" ? null : "dates")}>
+              <Icon name="calendar" size={14} />
+              <span>{fmtPill(form.checkOut)}</span>
             </button>
           </div>
 
           <div className={`ow-pill ow-pill--btn ow-sbar-guests${panel === "guests" ? " open" : ""}`}>
-            <span className="ow-pill-l">Rooms &amp; Guests</span>
+            <span className="ow-pill-l">Guests &amp; rooms</span>
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "guests"}
               onClick={() => setPanel(panel === "guests" ? null : "guests")}>
               <Icon name="people" size={14} />
-              <span>{form.rooms} Room{form.rooms === 1 ? "" : "s"}, {form.adults} Guest{form.adults === 1 ? "" : "s"}</span>
+              <span>{form.adults} Guest{form.adults === 1 ? "" : "s"} · {form.rooms} Room{form.rooms === 1 ? "" : "s"}</span>
             </button>
           </div>
 

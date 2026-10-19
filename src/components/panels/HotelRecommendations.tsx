@@ -33,7 +33,12 @@ const RECOMMENDATION_LABELS: Record<string, string> = {
   recommended: "Recommended",
 };
 
-type BaseState = { status: "loading" | "done" | "error"; hotels: any[]; error?: string };
+// `outcome` mirrors the backend's recommend_hotels `status` (ok / no_match /
+// no_rates / location_unresolved / invalid_dates / invalid_request / search_failed) so a
+// failed or rejected search is never rendered as "no hotels matched" — that
+// wording is reserved for outcome "no_match". A response with no `status`
+// (older backend) and no hotels is treated as no_match, as before.
+type BaseState = { status: "loading" | "done" | "error"; hotels: any[]; error?: string; outcome?: string; message?: string };
 
 function baseKey(base: HotelBase) {
   return `${base.city}|${base.checkIn}|${base.checkOut}`;
@@ -53,6 +58,7 @@ export function HotelRecommendations({
   const bases = hotelBasesFromItinerary(data);
   const basesSig = bases.map(baseKey).join(",");
   const [byBase, setByBase] = useState<Record<string, BaseState>>({});
+  const [retryNonce, setRetryNonce] = useState(0);
 
   // Hard requirements pulled from the SAME real enquiry `ask` Member360/
   // FlightDesk.tsx already read (GET /enquiries/{id}/traveller-profile —
@@ -69,7 +75,9 @@ export function HotelRecommendations({
     let cancelled = false;
     bases.forEach((base) => {
       const key = baseKey(base);
-      setByBase((m) => (m[key] ? m : { ...m, [key]: { status: "loading", hotels: [] } }));
+      // A retry (retryNonce bump) must show the spinner again, so overwrite
+      // a settled entry; otherwise keep the existing one (no flicker).
+      setByBase((m) => (m[key] && retryNonce === 0 ? m : { ...m, [key]: { status: "loading", hotels: [] } }));
       hotelRecommendations({
         city: base.city,
         checkIn: base.checkIn,
@@ -81,7 +89,11 @@ export function HotelRecommendations({
       })
         .then((res: any) => {
           if (cancelled) return;
-          setByBase((m) => ({ ...m, [key]: { status: "done", hotels: (res && res.hotels) || [] } }));
+          const hotels = (res && res.hotels) || [];
+          setByBase((m) => ({
+            ...m,
+            [key]: { status: "done", hotels, outcome: (res && res.status) || (hotels.length ? "ok" : "no_match"), message: res && res.message },
+          }));
         })
         .catch((e: any) => {
           if (cancelled) return;
@@ -92,7 +104,7 @@ export function HotelRecommendations({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basesSig, starMin, adults, budgetTotal]);
+  }, [basesSig, starMin, adults, budgetTotal, retryNonce]);
 
   if (!bases.length) {
     // No real per-day date/city signal at all yet (e.g. a brand-new
@@ -129,8 +141,38 @@ export function HotelRecommendations({
                 <Icon name="alert" size={14} />
                 {state.error || "Hotel search failed."}
               </div>
+            ) : state.hotels.length === 0 && state.outcome === "invalid_dates" ? (
+              <div className="taw-banner taw-banner--err">
+                <Icon name="alert" size={14} />
+                Hotel search wasn't run for {base.city}: {state.message} Fix the itinerary dates — this is not a no-match.
+              </div>
+            ) : state.hotels.length === 0 && state.outcome === "invalid_request" ? (
+              <div className="taw-banner taw-banner--err">
+                <Icon name="alert" size={14} />
+                TripSure rejected the hotel search for {base.city}: {state.message} Retrying won't help — this is not a no-match.
+              </div>
+            ) : state.hotels.length === 0 && state.outcome === "search_failed" ? (
+              <div className="taw-banner taw-banner--err">
+                <Icon name="alert" size={14} />
+                Hotel search for {base.city} failed (TripSure error, not a no-match): {state.message}{" "}
+                <button className="taw-btn taw-btn--sm" onClick={() => setRetryNonce((n) => n + 1)}>
+                  Retry search
+                </button>
+              </div>
+            ) : state.hotels.length === 0 && state.outcome === "no_rates" ? (
+              <div className="taw-banner taw-banner--info">
+                <Icon name="alert" size={14} />
+                {state.message} This is missing pricing data from TripSure, not a result of your star or budget requirements.{" "}
+                <button className="taw-btn taw-btn--sm" onClick={() => setRetryNonce((n) => n + 1)}>
+                  Retry search
+                </button>
+              </div>
+            ) : state.hotels.length === 0 && state.outcome === "location_unresolved" ? (
+              <Empty icon={<Icon name="hotel" size={22} />}>{state.message || `TripSure has no location matching "${base.city}".`}</Empty>
             ) : state.hotels.length === 0 ? (
-              <Empty icon={<Icon name="hotel" size={22} />}>No hotels matched the requirements in {base.city} right now.</Empty>
+              <Empty icon={<Icon name="hotel" size={22} />}>
+                No hotels matched the requirements in {base.city}.{state.message ? ` ${state.message}` : ""}
+              </Empty>
             ) : (
               <div className="taw-results">
                 {state.hotels.map((hotel: any) => {

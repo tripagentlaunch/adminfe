@@ -2576,6 +2576,27 @@ function getDestinationPhoto(destination) {
   });
 }
 
+// fetchWithTimeout(url, options, timeoutMs, timeoutMessage) — fetch() never
+// times out on its own, so a hung request left the Conversation panel on its
+// spinner indefinitely. This aborts after timeoutMs and throws an ApiError
+// (status 0) carrying timeoutMessage instead of a raw AbortError.
+function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
+  var controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs) : null;
+  return fetch(url, controller ? Object.assign({}, options, { signal: controller.signal }) : options)
+    .catch(function (err) {
+      // Checked against our own controller, not err.name — the AbortError text is unhelpful.
+      if (controller && controller.signal.aborted) throw new ApiError(timeoutMessage, { status: 0, cause: err });
+      throw err;
+    })
+    .finally(function () { if (timer) clearTimeout(timer); });
+}
+
+// Above chatbot-be's own 15s cap on adminbe's side, so adminbe answers first.
+var CONVERSATION_READ_TIMEOUT_MS = 20000;
+// Above adminbe's 20s WhatsApp-send cap, so its 504 ("may still be delivered") wins.
+var CONVERSATION_SEND_TIMEOUT_MS = 30000;
+
 // getChatbotConversation(code) — a customer's Tara (chatbot) conversation,
 // proxied through adminbe's GET /admin/conversation/{code} (which calls
 // chatbot-be server-side). `code` is the member's invitation/access code.
@@ -2584,9 +2605,9 @@ function getChatbotConversation(code) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
-  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code), {
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code), {
     headers: { Authorization: "Bearer " + jwt },
-  }).then(function (res) {
+  }, CONVERSATION_READ_TIMEOUT_MS, "Loading the conversation timed out.").then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to load conversation.", { status: res.status, body: body });
@@ -2596,16 +2617,25 @@ function getChatbotConversation(code) {
   });
 }
 
-// getRealWhatsAppMessages(code) — the raw WhatsApp thread (inbound from
-// wa_inbound_log + logged outbound), via GET /admin/conversation/{code}/real-messages.
-// Returns a list [{ sender_type: "customer"|"advisor", message, created_at, sender_name }], oldest first.
-function getRealWhatsAppMessages(code) {
+// getRealWhatsAppMessages(code, { limit?, before?, after? }) — a window of the raw
+// WhatsApp thread, via GET /admin/conversation/{code}/real-messages. No options =
+// the newest page; `before` = the page older than that cursor (pass the previous
+// next_before); `after` = everything from just before that cursor on (live poll —
+// dedupe by id). Returns { messages: [{ id, sender_type: "customer"|"advisor"|"tara",
+// message, created_at, sender_name }] oldest first, has_more, next_before, has_newer? }.
+// A cursor is "<created_at>|<id>".
+function getRealWhatsAppMessages(code, opts) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  var o = opts || {};
+  var qs = [];
+  if (o.limit) qs.push("limit=" + encodeURIComponent(o.limit));
+  if (o.before) qs.push("before=" + encodeURIComponent(o.before));
+  if (o.after) qs.push("after=" + encodeURIComponent(o.after));
 
-  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/real-messages", {
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/real-messages" + (qs.length ? "?" + qs.join("&") : ""), {
     headers: { Authorization: "Bearer " + jwt },
-  }).then(function (res) {
+  }, CONVERSATION_READ_TIMEOUT_MS, "Loading WhatsApp messages timed out.").then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to load WhatsApp messages.", { status: res.status, body: body });
@@ -2623,7 +2653,7 @@ function conversationHandoffCall(code, method, body) {
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
   var opts = { method: method, headers: { Authorization: "Bearer " + jwt } };
   if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
-  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/handoff", opts).then(function (res) {
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/handoff", opts, CONVERSATION_READ_TIMEOUT_MS, "Checking who is replying timed out.").then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (b) {
       if (!res.ok) throw new ApiError((b && b.detail) || "Failed to update takeover state.", { status: res.status, body: b });
       return b;
@@ -2633,19 +2663,22 @@ function conversationHandoffCall(code, method, body) {
 function getConversationHandoff(code) { return conversationHandoffCall(code, "GET"); }
 function setConversationHandoff(code, paused) { return conversationHandoffCall(code, "POST", { paused: !!paused }); }
 
-// sendChatbotReply(code, text) — send an advisor reply into a customer's Tara
-// conversation, via adminbe's POST /admin/conversation/{code}/reply. It's
-// stored in the member's chatbot history, so it shows in this panel and in the
-// customer's own chatbot.
-function sendChatbotReply(code, text) {
+// sendChatbotReply(code, text, clientMsgId?) — send an advisor reply into a
+// customer's Tara conversation, via adminbe's POST /admin/conversation/{code}/reply.
+// It's stored in the member's chatbot history, so it shows in this panel and in
+// the customer's own chatbot. Pass the same clientMsgId when retrying the same
+// message: the backend then never sends it to WhatsApp twice.
+function sendChatbotReply(code, text, clientMsgId) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
-  return fetch(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/reply", {
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/reply", {
     method: "POST",
     headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
-    body: JSON.stringify({ text: text }),
-  }).then(function (res) {
+    body: JSON.stringify(clientMsgId ? { text: text, client_msg_id: clientMsgId } : { text: text }),
+  }, CONVERSATION_SEND_TIMEOUT_MS,
+  // The request may have reached WhatsApp even though no answer came back.
+  "No answer after " + Math.round(CONVERSATION_SEND_TIMEOUT_MS / 1000) + "s — the message may still have been delivered. Check the conversation before sending again" + (clientMsgId ? "; retrying is safe, it will not be sent twice." : ".")).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to send reply.", { status: res.status, body: body });

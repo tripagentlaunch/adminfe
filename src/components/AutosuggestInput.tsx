@@ -21,6 +21,7 @@
  * scratch.
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cx } from "../lib/cx";
 import { Spinner } from "./ui";
 
@@ -29,8 +30,15 @@ import { Spinner } from "./ui";
 //   fetchSuggestions(query) -> Promise<item[]>,
 //   renderSuggestion(item) -> JSX, getKey(item) -> string,
 //   placeholder?, minChars = 2, debounceMs = 300, className?,
-//   showDefaultsOnFocus? = false,
+//   showDefaultsOnFocus? = false, floating? = false,
 // })
+//
+// floating (opt-in, default false): renders the suggestion list in a portal
+// on document.body with position:fixed, anchored under the input, instead
+// of absolutely inside the field. For use inside a modal/panel whose own
+// overflow:auto/hidden would otherwise clip the list (e.g. the order page's
+// "Add flight itinerary" modal) — the list also gets a min-width so a
+// narrow pill doesn't cramp it.
 //
 // showDefaultsOnFocus (opt-in, default false — every other/future caller of
 // this component is unaffected): on focus of an EMPTY field, or on clearing
@@ -54,6 +62,7 @@ export function AutosuggestInput(props: any) {
     debounceMs = 300,
     className,
     showDefaultsOnFocus = false,
+    floating = false,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -61,6 +70,8 @@ export function AutosuggestInput(props: any) {
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
 
+  const [coords, setCoords] = useState<any>(null);
+  const rootRef = useRef<any>(null);
   const timerRef = useRef<any>(null);
   // Guards against a slow earlier request overwriting a faster later one —
   // e.g. "del" resolves after "delh" did, and would otherwise clobber the
@@ -72,6 +83,24 @@ export function AutosuggestInput(props: any) {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!floating || !open) return;
+    function update() {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const width = Math.max(r.width, 280);
+      setCoords({ top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - width - 8)), width });
+    }
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [floating, open]);
 
   function runQuery(query: string) {
     const thisRequest = ++requestIdRef.current;
@@ -146,8 +175,10 @@ export function AutosuggestInput(props: any) {
     }
   }
 
+  const floatWrap = (node: any) => (floating ? createPortal(node, document.body) : node);
+
   return (
-    <div className={cx("taw-typeahead", className)}>
+    <div className={cx("taw-typeahead", className)} ref={rootRef}>
       <input
         id={id}
         className="taw-input"
@@ -167,8 +198,13 @@ export function AutosuggestInput(props: any) {
         // this blur) still lands — see the button below.
         onBlur={() => setTimeout(() => setOpen(false), 120)}
       />
-      {open ? (
-        <div className="taw-typeahead-list" role="listbox">
+      {open && (!floating || coords) ? (
+        floatWrap(
+        <div
+          className={cx("taw-typeahead-list", floating && "taw-typeahead-list--modal")}
+          role="listbox"
+          style={floating ? { position: "fixed", top: coords.top, left: coords.left, right: "auto", width: coords.width } : undefined}
+        >
           {loading ? (
             <div className="taw-typeahead-empty">
               <Spinner /> Searching…
@@ -197,6 +233,7 @@ export function AutosuggestInput(props: any) {
             <div className="taw-typeahead-empty">No matches.</div>
           )}
         </div>
+        )
       ) : null}
     </div>
   );

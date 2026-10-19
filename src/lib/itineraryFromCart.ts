@@ -288,8 +288,11 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
 }
 
 function addDaysIso(iso: string, n: number) {
+  // UTC end to end: new Date("yyyy-MM-dd") parses as UTC midnight, so mixing
+  // in local-time setDate() shifts the result a day across a DST change in
+  // the browser's timezone (checkOut one day short).
   const d = new Date(iso);
-  d.setDate(d.getDate() + n);
+  d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
 

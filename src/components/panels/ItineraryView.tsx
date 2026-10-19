@@ -189,7 +189,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile } = useWorkbench();
+  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -514,9 +514,20 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           </button>
           {alertsOpen
             ? data.alerts.map((a: any) => (
-                <button key={a.id} className="taw-itin-alert" onClick={() => jumpTo(a)}>
-                  {a.text}
-                </button>
+                <div key={a.id}>
+                  <button className="taw-itin-alert" onClick={() => jumpTo(a)}>
+                    {a.text}
+                  </button>
+                  {a.id === "tripsure-unavailable" ? (
+                    <button
+                      className="taw-itin-alert-retry"
+                      disabled={!!retryingSearch[enquiryId]}
+                      onClick={() => retryItinerarySearch(enquiryId)}
+                    >
+                      {retryingSearch[enquiryId] ? "Searching real flights & hotels…" : "Retry search"}
+                    </button>
+                  ) : null}
+                </div>
               ))
             : null}
         </div>

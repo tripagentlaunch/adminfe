@@ -66,6 +66,7 @@ import { ChatbotConversationPanel } from "./ChatbotConversationPanel";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
+import { TaraItineraryLink } from "./TaraItineraryLink";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
 
@@ -514,6 +515,7 @@ export function WorkbenchTab(props: any) {
           ) : null
         }
       >
+        <TaraItineraryLink member={convoMember} />
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (

@@ -352,6 +352,10 @@ display:flex;flex-direction:column;}
    underneath the opaque overlay. Scoped to this floating variant only,
    so it doesn't affect the base popup's stacking anywhere else. */
 .taw-typeahead-list.taw-typeahead-list--floating{border-top:1px solid #F8F8F8;z-index:1001;}
+/* Popups portaled to <body> (Dropdown, AutosuggestInput[floating]) must clear
+   .taw-modal-overlay (z-index:2000) or they render hidden behind a modal. */
+.taw-typeahead-list.taw-dropdown-list,.taw-typeahead-list.taw-typeahead-list--floating,.taw-typeahead-list.taw-typeahead-list--modal{z-index:2100;}
+.taw-typeahead-list.taw-typeahead-list--modal{border-top:1px solid #F8F8F8;}
 /* Dropdown's own option rows (2026-09-02) — deliberately diverge from the
    shared .taw-typeahead-item look (used as-is by AutosuggestInput's
    from/to popup, untouched here) via a higher-specificity compound
@@ -1098,6 +1102,9 @@ padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
 .taw-itin-alerts-chevron{flex:none;margin-left:auto;transition:transform .16s var(--ease);}
 .taw-itin-alert{border:0;background:none;text-align:left;padding:2px 0 2px 20px;font-size:12.5px;color:var(--danger-ink);cursor:pointer;text-decoration:underline;text-decoration-color:rgba(178,85,47,.35);}
 .taw-itin-alert:hover{color:var(--terracotta);}
+.taw-itin-alert-retry{margin:4px 0 2px 20px;padding:3px 10px;font-size:12px;font-weight:600;font-family:inherit;color:var(--danger-ink);background:none;border:1px solid currentColor;border-radius:var(--radius-sm);cursor:pointer;}
+.taw-itin-alert-retry:hover:not(:disabled){color:var(--terracotta);}
+.taw-itin-alert-retry:disabled{opacity:.6;cursor:progress;}
 
 /* Divider, not a boxed card (2026-09-03, direct request) — each day
    used to be its own bordered/rounded/backgrounded container, nested
@@ -1680,3 +1687,28 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
 .taw-trav-row dt{color:var(--taupe);}
 .taw-trav-row dd{margin:0;color:var(--ink);text-align:right;word-break:break-all;}
 .taw-trav-note{margin:12px 0 0;font-family:var(--sans);font-size:12px;color:var(--muted);}
+
+/* Traveller list — one white card per traveller (2026-10). Scoped to .taw-trav-list
+   so the shared .taw-enq-item look (Queue, Proposal Composer) is untouched. */
+.taw-trav-list{display:flex;flex-direction:column;gap:8px;padding:4px 12px 12px;min-width:0;}
+.taw-trav-item{display:flex;align-items:center;gap:10px;width:100%;min-width:0;text-align:left;font-family:var(--sans);color:var(--ink);cursor:pointer;
+background:var(--card);border:1px solid var(--champagne);border-radius:12px;padding:12px 12px 12px 14px;box-shadow:0 1px 3px rgba(23,19,16,.06);
+transition:background .14s var(--ease),border-color .14s var(--ease),box-shadow .14s var(--ease);}
+.taw-trav-item:hover{border-color:#D8CBA8;box-shadow:0 2px 6px rgba(23,19,16,.08);}
+.taw-trav-item.is-active{background:var(--bone);border-color:#D8CBA8;box-shadow:0 1px 3px rgba(23,19,16,.06);}
+.taw-trav-item:focus-visible{border-radius:12px;}
+.taw-trav-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;}
+.taw-trav-top{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;margin-bottom:2px;}
+.taw-trav-name{font-weight:700;font-size:14px;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.taw-trav-line{font-size:12px;font-weight:500;color:var(--taupe);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.taw-trav-chev{flex:none;color:var(--muted);}
+.taw-trav-item.is-active .taw-trav-chev,.taw-trav-item:hover .taw-trav-chev{color:var(--ink);}
+
+/* Traveller hover preview — portalled to <body>, follows the cursor, never takes pointer events. */
+.taw-trav-pop{position:fixed;z-index:2200;width:260px;max-width:calc(100vw - 16px);pointer-events:none;background:var(--card);border:1px solid #D8CBA8;border-radius:12px;padding:12px 14px;box-shadow:var(--shadow-lg);font-family:var(--sans);color:var(--ink);}
+.taw-trav-pop-h{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:8px;margin-bottom:4px;border-bottom:1px solid var(--line);}
+.taw-trav-pop-name{font-weight:700;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.taw-trav-pop dl{margin:0;}
+.taw-trav-pop-row{display:flex;justify-content:space-between;gap:12px;padding:4px 0;font-size:12px;}
+.taw-trav-pop-row dt{color:var(--taupe);flex:none;}
+.taw-trav-pop-row dd{margin:0;text-align:right;color:var(--ink);font-weight:500;text-transform:capitalize;min-width:0;overflow-wrap:anywhere;}

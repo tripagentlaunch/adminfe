@@ -98,3 +98,38 @@ export function RangeCalendar({ checkIn, checkOut, min, onChange, onDone }: {
     </div>
   );
 }
+
+/* Single-date variant (flight "Depart"): same card, month grid and arrows as the
+   range picker above, one selected day, plus Clear / Today. */
+export function SingleCalendar({ value, min, onChange, onDone }: {
+  value: string; min: string;
+  onChange: (date: string) => void;
+  onDone?: () => void;
+}) {
+  const base = parse(value || min);
+  const [view, setView] = useState({ y: base.y, m: base.m });
+  const prevDisabled = iso(view.y, view.m, 1) <= iso(parse(min).y, parse(min).m, 1);
+  const shift = (d: number) => setView((v) => { const t = v.y * 12 + v.m + d; return { y: Math.floor(t / 12), m: t % 12 }; });
+  const pick = (d: string) => { onChange(d); onDone?.(); };
+
+  return (
+    <div className="ow-cal ow-cal--single">
+      <div className="ow-cal-pills">
+        <div className="ow-cal-pill on"><small>Depart</small><b>{fmtPill(value)}</b></div>
+      </div>
+      <div className="ow-cal-nav">
+        <button type="button" className="ow-cal-arrow" onClick={() => shift(-1)} disabled={prevDisabled} aria-label="Previous month">
+          <Icon name="chevron" size={14} style={{ transform: "rotate(90deg)" }} />
+        </button>
+        <button type="button" className="ow-cal-arrow" onClick={() => shift(1)} aria-label="Next month">
+          <Icon name="chevron" size={14} style={{ transform: "rotate(-90deg)" }} />
+        </button>
+      </div>
+      <Month {...view} min={min} start={value} end="" hover={null} onPick={pick} onHover={() => {}} />
+      <div className="ow-cal-foot">
+        <button type="button" className="ow-link" onClick={() => onChange("")} disabled={!value}>Clear</button>
+        <button type="button" className="ow-link" onClick={() => { onChange(min); setView({ y: parse(min).y, m: parse(min).m }); onDone?.(); }}>Today</button>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Dropdown, Empty, Field, Icon, Spinner } from "../ui";
+import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
@@ -10,6 +10,7 @@ import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
+import { SingleCalendar } from "./RangeCalendar";
 
 type Customer = { member_id: string | null; name: string; email: string };
 type Step = "customer" | "search" | "results" | "seats" | "flightDone" | "hotel";
@@ -104,19 +105,21 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
   const airportSuggestions = (q: string) =>
     q ? fastapiFlightAutosuggest(q, 8).then(airportRows).catch(() => []) : Promise.resolve([]);
+  // Real Tripsure autosuggest fields only: airport_name, airport_code, city, country.
   const renderAirport = (a: any) => (
-    <span>{a.city} — {a.airport_name} <span className="taw-muted">({a.airport_code})</span></span>
+    <span className="ow-sug">
+      <span className="ow-sug-ic"><Icon name="flight" size={16} /></span>
+      <span className="ow-sug-t">
+        <b>{a.airport_name || a.city} <span className="ow-sug-code">({a.airport_code})</span></b>
+        <small>{[a.city, a.country].filter(Boolean).join(" — ")}</small>
+      </span>
+    </span>
   );
+  const [panel, setPanel] = useState<null | "trav" | "date">(null);
 
-  const dateRef = useRef<HTMLInputElement>(null);
-  const openDate = () => {
-    const el = dateRef.current;
-    if (!el) return;
-    try { (el as any).showPicker(); } catch { el.focus(); el.click(); }
-  };
   const swapAirports = () =>
     setForm((f) => ({ ...f, from: f.to, to: f.from, fromCity: f.toCity, toCity: f.fromCity }));
-  const TRAVELLERS = Array.from({ length: 9 }, (_, i) => ({ key: String(i + 1), label: `${i + 1} Adult${i ? "s" : ""}` }));
+  const cabinLabel = (CABINS.find((c) => c.key === form.cabin) || CABINS[0]).label;
 
   function runSearch() {
     setErr(null);
@@ -124,6 +127,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
       setErr("Pick a From and To airport from the suggestions."); return;
     }
     if (form.from === form.to) { setErr("From and To must differ."); return; }
+    if (!form.date) { setErr("Pick a departure date."); return; }
     setSearching(true);
     fastapiFlightSearch({
       originCode: form.from, destCode: form.to,
@@ -333,7 +337,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     step === "results" ? "Choose a fare" :
     step === "hotel" ? "Hotel" :
     step === "flightDone" ? "Fare locked" : "Seats & baggage";
-  const title = addToOrder ? "Add flight itinerary" : "New booking";
+  const title = step === "hotel" ? "Add hotel" : addToOrder ? "Add flight itinerary" : "New booking";
 
   return (
     <div
@@ -404,7 +408,11 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
         {/* ── Step 2: Search ── */}
         {step === "search" ? (
           <>
-            <div className="ow-sbar">
+            <div className="ow-trip" role="tablist" aria-label="Trip type">
+              <button type="button" role="tab" aria-selected="true" className="ow-trip-pill on">One way</button>
+              <button type="button" role="tab" aria-selected="false" className="ow-trip-pill" disabled title="Round trip isn't supported yet">Round trip</button>
+            </div>
+            <div className="ow-sbar ow-sbar--flight">
               <div className="ow-sbar-route">
                 <label className="ow-pill ow-pill--field">
                   <span className="ow-pill-l">From</span>
@@ -414,6 +422,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                     onChange={(v: any) => set("from", String(v).toUpperCase())}
                     onSelect={(a: any) => setForm((f) => ({ ...f, from: a.airport_code, fromCity: a.city }))}
                     fetchSuggestions={airportSuggestions}
+                    floating
                     renderSuggestion={renderAirport}
                     getKey={(a: any) => a.airport_code}
                     placeholder="DEL"
@@ -431,6 +440,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                     onChange={(v: any) => set("to", String(v).toUpperCase())}
                     onSelect={(a: any) => setForm((f) => ({ ...f, to: a.airport_code, toCity: a.city }))}
                     fetchSuggestions={airportSuggestions}
+                    floating
                     renderSuggestion={renderAirport}
                     getKey={(a: any) => a.airport_code}
                     placeholder="BOM"
@@ -438,35 +448,23 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                   <span className="ow-pill-s">{form.to.length === 3 && form.toCity ? form.toCity : "City or airport"}</span>
                 </label>
               </div>
-
-              <div className="ow-sbar-opts">
-                <div className="ow-pill ow-pill--btn">
-                  <span className="ow-pill-l">Onward</span>
-                  <button type="button" className="ow-pillbtn" onClick={openDate} aria-label="Choose departure date">
-                    <Icon name="calendar" size={14} />
-                    <span>{fmtDay(form.date) || "Select date"}</span>
-                  </button>
-                  <input
-                    ref={dateRef} className="ow-date-native" type="date" tabIndex={-1} aria-hidden="true"
-                    min={todayISO()} value={form.date} onChange={(e) => set("date", e.target.value)}
-                  />
-                </div>
-                <div className="ow-pill ow-pill--btn">
-                  <span className="ow-pill-l">Travellers</span>
-                  <Dropdown
-                    value={String(form.adults)} options={TRAVELLERS} ariaLabel="Travellers"
-                    onChange={(v: string) => set("adults", Number(v) || 1)}
-                    triggerClassName="ow-pillbtn" hideOptionIcons
-                  />
-                </div>
-                <div className="ow-pill ow-pill--btn">
-                  <span className="ow-pill-l">Cabin</span>
-                  <Dropdown
-                    value={form.cabin} options={CABINS} ariaLabel="Cabin"
-                    onChange={(v: string) => set("cabin", v)}
-                    triggerClassName="ow-pillbtn" hideOptionIcons
-                  />
-                </div>
+              <div className={`ow-pill ow-pill--btn ow-pill--date${panel === "date" ? " open" : ""}`}>
+                <span className="ow-pill-l">Depart</span>
+                <button type="button" className="ow-pillbtn" aria-expanded={panel === "date"} onClick={() => setPanel(panel === "date" ? null : "date")} aria-label="Choose departure date">
+                  <Icon name="calendar" size={14} />
+                  <span>{fmtDay(form.date) || "Select date"}</span>
+                </button>
+              </div>
+              <div className="ow-pill ow-pill--btn ow-pill--date ow-pill--disabled" title="Round trip isn't supported yet" aria-disabled="true">
+                <span className="ow-pill-l">Return</span>
+                <span className="ow-pillbtn"><Icon name="calendar" size={14} /><span>Add return</span></span>
+              </div>
+              <div className={`ow-pill ow-pill--btn ow-pill--trav${panel === "trav" ? " open" : ""}`}>
+                <span className="ow-pill-l">Travellers &amp; Cabin</span>
+                <button type="button" className="ow-pillbtn" aria-expanded={panel === "trav"} onClick={() => setPanel(panel === "trav" ? null : "trav")}>
+                  <Icon name="people" size={14} />
+                  <span>{form.adults} Adult{form.adults === 1 ? "" : "s"} · {cabinLabel}</span>
+                </button>
               </div>
 
               <button type="button" className="ow-searchbtn" onClick={runSearch} disabled={searching}>
@@ -474,6 +472,32 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 {searching ? "Searching…" : "Search"}
               </button>
             </div>
+
+            {panel === "date" ? (
+              <SingleCalendar value={form.date} min={todayISO()} onChange={(d) => set("date", d)} onDone={() => setPanel(null)} />
+            ) : null}
+
+            {panel === "trav" ? (
+              <div className="ow-gpanel">
+                <div className="ow-gstep">
+                  <span>Adults</span>
+                  <div className="ow-step">
+                    <button type="button" disabled={form.adults <= 1} aria-label="Fewer adults" onClick={() => set("adults", form.adults - 1)}><Icon name="minus" size={13} /></button>
+                    <b>{form.adults}</b>
+                    <button type="button" disabled={form.adults >= 9} aria-label="More adults" onClick={() => set("adults", form.adults + 1)}><Icon name="plus" size={13} /></button>
+                  </div>
+                </div>
+                <div className="ow-gstep">
+                  <span>Cabin</span>
+                  <div className="ow-cabins">
+                    {CABINS.map((c) => (
+                      <button key={c.key} type="button" className={`ow-fchip${form.cabin === c.key ? " on" : ""}`} aria-pressed={form.cabin === c.key} onClick={() => set("cabin", c.key)}>{c.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPanel(null)}>Done</button>
+              </div>
+            ) : null}
 
             <div className="ow-sub" style={{ whiteSpace: "normal" }}>One-way, live Tripsure search.</div>
             <button type="button" className="taw-btn taw-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => { setErr(null); setLock(null); setHotelBack("search"); setStep("hotel"); }}>

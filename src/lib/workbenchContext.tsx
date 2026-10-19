@@ -100,6 +100,12 @@ export interface WorkbenchContextValue {
   // now, not instant mock cloning) — WorkbenchTab's chooser screen reads
   // this to show a real loading state instead of nothing.
   generatingItinerary: Record<string, boolean>;
+  // retryingSearch / retryItinerarySearch — the "Retry search" action on the
+  // tripsure-unavailable alert: re-runs generate-itinerary then /refresh
+  // (so it also works after a backend restart wiped the in-memory draft
+  // cache) and overwrites the current itinerary with the real-search result.
+  retryingSearch: Record<string, boolean>;
+  retryItinerarySearch: (enquiryId: string) => void;
   // `enquiry` (2026-09-04) — used to seed the itinerary's own committed
   // date bound (startIso/endIso) from the enquiry's ask.dateRange when
   // there's no mock data to derive it from (see WorkbenchDataProvider).
