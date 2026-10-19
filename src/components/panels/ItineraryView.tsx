@@ -746,8 +746,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                           <StatusPill status={item.status} nextStep={item.nextStep} />
                           <span className="taw-itin-item-price">
                             {item.oldPrice ? <s>{inr(item.oldPrice)}</s> : null}
-                            {item.priceIsFrom ? "from " : ""}
-                            {inr(item.price)}
+                            {/* no price (Tara's plan leaves one empty when its text isn't a clear total) shows "—", not ₹0 */}
+                            {item.price == null ? "—" : (item.priceIsFrom ? "from " : "") + inr(item.price)}
                           </span>
                         </button>
                       </div>

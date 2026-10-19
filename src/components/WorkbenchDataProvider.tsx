@@ -428,6 +428,13 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       .finally(() => setRetryingSearch((r) => ({ ...r, [enquiryId]: false })));
   }
 
+  // "Open Tara's itinerary" — the converted plan replaces the enquiry's itinerary
+  // outright. Same "Building" signal as the scratch path: a real itinerary now exists.
+  function loadTaraItinerary(enquiryId: string, itinerary: any) {
+    setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: itinerary }));
+    enquiryItineraryStarted(enquiryId).catch(() => {});
+  }
+
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: updater(m[enquiryId]) }));
   }
@@ -511,6 +518,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         retryingSearch,
         retryItinerarySearch,
         initItinerary,
+        loadTaraItinerary,
         updateItineraryData,
         addSearchItemToItinerary,
         pipelineStatusByEnquiry,

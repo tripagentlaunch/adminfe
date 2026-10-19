@@ -43,6 +43,7 @@ function ApiError(message, info) {
   this.path = info.path || null; // rest path, if applicable
   this.body = info.body || null; // parsed error body (if any)
   this.cause = info.cause || null; // underlying error (network, parse)
+  this.aborted = !!info.aborted; // caller aborted via AbortSignal (cancel / deadline)
 }
 ApiError.prototype = Object.create(Error.prototype);
 ApiError.prototype.constructor = ApiError;
@@ -1562,14 +1563,14 @@ function fastapiHotelCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
-  return fetch(FASTAPI_BASE + path, {
+  return fetchAbortable(FASTAPI_BASE + path, {
     method: options.method,
     headers: {
       Authorization: "Bearer " + jwt,
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
-  }).then(function (res) {
+  }, options.signal).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError(body.detail || "Hotel request failed.", { status: res.status, body: body });
@@ -1579,12 +1580,12 @@ function fastapiHotelCall(path, options) {
   });
 }
 
-function hotelAutosuggestV2(query) {
-  return fastapiHotelCall("/hotels/locations?q=" + encodeURIComponent(query), { method: "GET" });
+function hotelAutosuggestV2(query, signal?: AbortSignal) {
+  return fastapiHotelCall("/hotels/locations?q=" + encodeURIComponent(query), { method: "GET", signal: signal });
 }
 
-function hotelListingV2(payload) {
-  return fastapiHotelCall("/hotels/listing", { method: "POST", body: payload });
+function hotelListingV2(payload, signal?: AbortSignal) {
+  return fastapiHotelCall("/hotels/listing", { method: "POST", body: payload, signal: signal });
 }
 
 function hotelDetailsV2(payload) {
@@ -1629,18 +1630,30 @@ function hotelSetWebsite(hotelKey, website) {
 // TripSure's response has no equivalent of, and migrating them needs the
 // Fare Family -> Create Itinerary -> Update Itinerary flow (backend already
 // has it; no UI calls it yet), not a shape adapter like this one.
+// fetchAbortable(url, init, signal?) — fetch() with an optional caller-owned
+// AbortSignal. An abort surfaces as ApiError { aborted: true, status: 0 }
+// instead of a raw AbortError, so callers can tell "I cancelled / my deadline
+// hit" apart from "the backend is unreachable" (which falls back to demo data
+// in the desks) by checking e.aborted.
+function fetchAbortable(url, init, signal) {
+  return fetch(url, signal ? Object.assign({}, init, { signal: signal }) : init).catch(function (err) {
+    if (signal && signal.aborted) throw new ApiError("Request aborted.", { status: 0, aborted: true, cause: err });
+    throw err;
+  });
+}
+
 function fastapiFlightCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
-  return fetch(FASTAPI_BASE + path, {
+  return fetchAbortable(FASTAPI_BASE + path, {
     method: options.method,
     headers: {
       Authorization: "Bearer " + jwt,
       "Content-Type": "application/json",
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
-  }).then(function (res) {
+  }, options.signal).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError(body.detail || "Flight request failed.", { status: res.status, body: body });
@@ -1827,7 +1840,7 @@ function fastapiFlightSearch(params) {
     infants: 0,
     cabin_class: String(params.cabin || "economy").toUpperCase(),
   };
-  return fastapiFlightCall("/flights/search", { method: "POST", body: body }).then(function (searchResponse) {
+  return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
     return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1 });
   });
 }
@@ -2408,6 +2421,7 @@ export {
   getMessagesByPhone,
   sendMessageByPhone,
   getChatbotConversation,
+  getTaraPlan,
   getRealWhatsAppMessages,
   getConversationHandoff,
   setConversationHandoff,
@@ -2619,6 +2633,29 @@ function getChatbotConversation(code) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to load conversation.", { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+
+// getTaraPlan(code, planId?) — the trip plan Tara built for this member, already
+// converted to an Itinerary Builder itinerary, via adminbe's GET /admin/tara-plan/{code}.
+// Returns { plans: [{ planId, title, places, startDate, endDate, updatedAt, url }]
+// (newest first), selected, itinerary } — itinerary is null when the member has no
+// plan. Without planId the newest plan is converted. Rejects (502) when chatbot-be
+// can't be asked; callers treat that as "no plan".
+function getTaraPlan(code, planId?) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+
+  var qs = planId ? "?plan_id=" + encodeURIComponent(planId) : "";
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/tara-plan/" + encodeURIComponent(code) + qs, {
+    headers: { Authorization: "Bearer " + jwt },
+  }, CONVERSATION_READ_TIMEOUT_MS, "Loading Tara's plan timed out.").then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        throw new ApiError((body && body.detail) || "Failed to load Tara's plan.", { status: res.status, body: body });
       }
       return body;
     });

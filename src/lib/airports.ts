@@ -232,8 +232,8 @@ const INDEX = AIRPORTS.map((a, order) => ({
   aliases: (a.aliases || []).map(fold),
 }));
 
-// Best matches first: exact code, then city/alias starting with the query,
-// then a word in the city/alias/airport name starting with it, then the
+// Best matches first: exact code, then city starting with the query, then an
+// alias starting with it (so "c" ranks Chennai above Kolkata/"calcutta"), then a word in the city/alias/airport name starting with it, then the
 // country, then anything containing it. Ties keep the list's order, which
 // puts each city's main airport first (DXB before DWC, LHR before LCY).
 export function searchAirports(query: string, limit = 8): Airport[] {
@@ -245,7 +245,8 @@ export function searchAirports(query: string, limit = 8): Airport[] {
     let score = 0;
     if (e.code === q) score = 100;
     else if (e.city === q || e.aliases.includes(q)) score = 90;
-    else if (e.city.startsWith(q) || e.aliases.some((x) => x.startsWith(q))) score = 80;
+    else if (e.city.startsWith(q)) score = 80;
+    else if (e.aliases.some((x) => x.startsWith(q))) score = 75;
     else if (q.length >= 2 && e.code.startsWith(q)) score = 70;
     else if (words.some((w) => w.startsWith(q))) score = 60;
     else if (e.country.startsWith(q)) score = 50;

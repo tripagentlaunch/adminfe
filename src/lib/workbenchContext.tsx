@@ -110,6 +110,10 @@ export interface WorkbenchContextValue {
   // date bound (startIso/endIso) from the enquiry's ask.dateRange when
   // there's no mock data to derive it from (see WorkbenchDataProvider).
   initItinerary: (enquiryId: string, mode: "ai" | "scratch", enquiry?: any) => void;
+  // loadTaraItinerary — "Open Tara's itinerary": puts the plan Tara built in chat
+  // (already converted by adminbe, see getTaraPlan) in as this enquiry's itinerary,
+  // replacing whatever is there. The caller confirms before replacing real content.
+  loadTaraItinerary: (enquiryId: string, itinerary: any) => void;
   updateItineraryData: (enquiryId: string, updater: (d: any) => any) => void;
   addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
   // pipelineStatusByEnquiry (real backend, 2026-09-10) — GET /enquiries/

@@ -4,8 +4,9 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
-  fastapiFlightAutosuggest, fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr,
+  fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr,
 } from "../../services/api";
+import { airportAutosuggest } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
@@ -51,8 +52,6 @@ const SORTS = [
   { key: "earliest", label: "Earliest departure", pick: (a: any, b: any) => String(a.detail.depTime).localeCompare(String(b.detail.depTime)) || a.base_net - b.base_net },
   { key: "latest", label: "Latest departure", pick: (a: any, b: any) => String(b.detail.depTime).localeCompare(String(a.detail.depTime)) || a.base_net - b.base_net },
 ] as const;
-
-const airportRows = (r: any): any[] => (Array.isArray(r) ? r : (r && r.data) || []);
 
 function fmtDay(ts?: string) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ts || "");
@@ -103,8 +102,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
-  const airportSuggestions = (q: string) =>
-    q ? fastapiFlightAutosuggest(q, 8).then(airportRows).catch(() => []) : Promise.resolve([]);
+  const airportSuggestions = (q: string) => airportAutosuggest(q, 8);
   // Real Tripsure autosuggest fields only: airport_name, airport_code, city, country.
   const renderAirport = (a: any) => (
     <span className="ow-sug">
@@ -373,7 +371,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 placeholder="Search by name or email"
               />
             </Field>
-            {custBusy ? <Spinner /> : null}
+            {/* custBusy alone sticks if the query is deleted back under 2 chars mid-request
+                (that request's `live` flag flips, so its finally never clears it). */}
+            {custBusy && custQuery.trim().length >= 2 ? <Spinner /> : null}
             {(custQuery.trim().length < 2 ? [] : custHits).map((m) => (
               <button
                 key={m.id}
