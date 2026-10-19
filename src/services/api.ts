@@ -1431,6 +1431,13 @@ function siteAccessRequestsPending() {
   return adminbeAccessRequestCall("?status=pending", "GET");
 }
 
+// siteAccessRequestsMissingCode() -> approved rows that never got an
+// invitation code (approved before approval minted one). Approving one
+// again issues its code.
+function siteAccessRequestsMissingCode() {
+  return adminbeAccessRequestCall("?status=missing-code", "GET");
+}
+
 // siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
@@ -2528,6 +2535,7 @@ export {
   // Access-request admin review — adminbe's /admin/access-requests,
   // admin-only, role re-checked server-side (see adminbeAccessRequestCall).
   siteAccessRequestsPending,
+  siteAccessRequestsMissingCode,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 
