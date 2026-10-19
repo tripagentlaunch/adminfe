@@ -206,7 +206,16 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
   );
 }
 
-export function ProposalPreviewPage({ data, onSwapHotel }: { data: any; onSwapHotel?: (stayId: string, hotelKey: string) => void }) {
+// onDownload — the hero's Download PDF button; hidden when there is nothing to call.
+export function ProposalPreviewPage({
+  data,
+  onSwapHotel,
+  onDownload,
+}: {
+  data: any;
+  onSwapHotel?: (stayId: string, hotelKey: string) => void;
+  onDownload?: () => void;
+}) {
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -298,12 +307,14 @@ export function ProposalPreviewPage({ data, onSwapHotel }: { data: any; onSwapHo
                     {data.memberName ? `Made for ${data.memberName}` : "Your proposal"}
                   </span>
                 </div>
-                <button type="button" className="pv-dlbtn">
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  Download PDF
-                </button>
+                {onDownload ? (
+                  <button type="button" className="pv-dlbtn" onClick={onDownload}>
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 2v8m0 0l-3-3m3 3l3-3M3 13h10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Download PDF
+                  </button>
+                ) : null}
               </div>
               <h1 className="pv-title">{data.destination ? `${data.destination}, curated for you` : "Your itinerary"}</h1>
               <div className="pv-subtitle">
