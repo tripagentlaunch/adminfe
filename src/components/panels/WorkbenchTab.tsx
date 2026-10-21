@@ -59,10 +59,11 @@
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
+import { getMessagesByPhone, getTaraPlan, sendMessageByPhone } from "../../services/api";
+import { errText, toast } from "../../lib/advisorHelpers";
 
 import { Card, Empty, Icon, Spinner } from "../ui";
-import { ChatbotConversationPanel } from "./ChatbotConversationPanel";
+import { ChatbotConversationPanel, memberCode } from "./ChatbotConversationPanel";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
@@ -370,8 +371,8 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, setSummaryDismissedFor, backToSummaryFor, setBackToSummaryFor } = useWorkbench();
-  const router = useRouter();
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, loadTaraItinerary } = useWorkbench();
+  const [taraOpening, setTaraOpening] = useState(false);
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -399,10 +400,8 @@ export function WorkbenchTab(props: any) {
   // own in-flight state to show instead of nothing.
   const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
-  // backToSummaryFor — set by the Itinerary Builder's "← Back" so the summary view can come
-  // back even while an itinerary exists or is generating (both of which otherwise force the
-  // Builder card). The itinerary itself lives in itinerariesByEnquiry, so nothing is lost; the
-  // summary's own "Generate Itinerary" sets summaryDismissedFor again and returns to it.
+  // backToSummaryFor — was set by the Itinerary Builder's "← Back" (removed 2026-10-20, replaced
+  // by the "Tara Itinerary" header button), so nothing sets it from this card now.
 
   // Conversation panel (2026-10-09, direct request): whenever a customer is
   // selected (from the Traveller Profile list) without an active enquiry, the
@@ -430,6 +429,33 @@ export function WorkbenchTab(props: any) {
         .catch(() => {});
     }
   };
+  // openTaraItinerary (2026-10-21, direct request) — the header's "Tara Itinerary"
+  // opens the itinerary Tara (the chatbot) already built for this traveller: the
+  // newest plan, fetched from chatbot-be via adminbe's GET /admin/tara-plan/{code}
+  // and loaded into the Builder, as TaraItineraryLink's "Open Tara's itinerary" does.
+  const openTaraItinerary = async () => {
+    const code = memberCode(convoMember);
+    if (!code || taraOpening) return;
+    setTaraOpening(true);
+    try {
+      const d: any = await getTaraPlan(code);
+      if (!d || !d.itinerary) {
+        toast("Tara hasn't built an itinerary for this traveller yet.", "error");
+        return;
+      }
+      const enquiryId = selEnqId || (onEnsureEnquiry && convoMember ? (await onEnsureEnquiry(convoMember)).id : null);
+      if (!enquiryId) return;
+      const existing = itinerariesByEnquiry[enquiryId];
+      const hasContent = !!(existing && Array.isArray(existing.days) && existing.days.length);
+      if (hasContent && !window.confirm("This traveller already has an itinerary in the Builder. Replace it with Tara's plan? Anything you added or edited will be lost.")) return;
+      loadTaraItinerary(enquiryId, d.itinerary);
+    } catch (e: any) {
+      toast("Couldn't open Tara's itinerary: " + errText(e), "error");
+    } finally {
+      setTaraOpening(false);
+    }
+  };
+
   // The "start this itinerary" content — the Drafting… spinner while
   // generating, else the Generate AI / Start from scratch chooser. Rendered
   // by the Itinerary Builder card below.
@@ -496,21 +522,19 @@ export function WorkbenchTab(props: any) {
         icon={<Icon name="sliders" size={20} />}
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          selectedEnquiry ? (
-            // Back (2026-10-10, direct request; widened 2026-10-12 to the whole flow — chooser,
-            // Drafting… and the generated itinerary) — short, in the header row next to the title.
-            // Returns to the key-requirements/summary view for this enquiry. Any itinerary or
-            // in-flight generation is kept in state, not discarded.
+          selectedEnquiry || convoMember ? (
+            // Tara Itinerary (2026-10-20; 2026-10-21 direct request) — replaces the old "← Back"
+            // button in this header. Opens the itinerary Tara already built in chat for this
+            // traveller (openTaraItinerary above); the chooser's "Generate AI Itinerary" still
+            // drafts a new one.
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              onClick={() => {
-                setSummaryDismissedFor(null);
-                setBackToSummaryFor(selEnqId);
-                router.push("/console/conversation");
-              }}
+              disabled={generating || taraOpening || !memberCode(convoMember)}
+              onClick={openTaraItinerary}
+              title="Open the itinerary Tara built for this traveller"
             >
-              ← Back
+              {taraOpening ? "Opening…" : "Tara Itinerary"}
             </button>
           ) : null
         }
