@@ -24,6 +24,7 @@ import {
   enquiries as fetchEnquiries,
   createOrder as apiCreateOrder,
   enquiryCreate,
+  enquiryEnsureMember,
   enquiryTravellerProfile,
   enquiryExtractTripDetails,
   enquiryGenerateItinerary,
@@ -225,10 +226,28 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   function ensureEnquiryForMember(m: any): Promise<any> {
     const crmMemberId = (m && m.member && m.member.id) || (m && m.id);
     if (!crmMemberId) {
-      toast("Can't build an itinerary — this traveller has no linked account yet.", "error");
-      return Promise.reject(new Error("no_crm_member"));
+      // A site signup with no CRM `members` row yet (the backend now creates one on approval/
+      // redemption, but older signups may lack it): have the backend link or create it by email,
+      // then carry on exactly as for any other traveller.
+      const email = ((m && m.email) || (m && m.member && m.member.email) || "").trim();
+      if (!email) {
+        toast("Can't build an itinerary — this traveller has no email on file to link an account.", "error");
+        return Promise.reject(new Error("no_crm_member"));
+      }
+      return enquiryEnsureMember({ email, name: m.name, phone: m.phone })
+        .then((r: any) => {
+          reloadInbox(); // so the Traveller list now shows this traveller as linked
+          return startEnquiryFor(r.member.id, r.member);
+        })
+        .catch((e: any) => {
+          toast("Couldn't link this traveller's account: " + errText(e), "error");
+          throw e;
+        });
     }
-    const crmMember = (m && m.member) || m;
+    return startEnquiryFor(crmMemberId, (m && m.member) || m);
+  }
+
+  function startEnquiryFor(crmMemberId: string, crmMember: any): Promise<any> {
     const existing = enquiries.find(
       (e: any) => e.member_id === crmMemberId && (e.status || "open") !== "closed"
     );
