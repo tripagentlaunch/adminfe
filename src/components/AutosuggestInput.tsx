@@ -69,6 +69,9 @@ export function AutosuggestInput(props: any) {
   const [open, setOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  // failed — fetchSuggestions rejected. Shown as its own message so a failed request is not
+  // mistaken for "No matches." (callers that want a failure to read as empty can catch themselves).
+  const [failed, setFailed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
 
   const [coords, setCoords] = useState<any>(null);
@@ -106,6 +109,7 @@ export function AutosuggestInput(props: any) {
   function runQuery(query: string) {
     const thisRequest = ++requestIdRef.current;
     setLoading(true);
+    setFailed(false);
     // Open now, not only when the response lands — otherwise the "Searching…"
     // row below is unreachable on a first query and the field looks dead for
     // the whole round trip.
@@ -123,8 +127,9 @@ export function AutosuggestInput(props: any) {
       .catch(() => {
         if (requestIdRef.current !== thisRequest) return;
         setSuggestions([]);
+        setFailed(true);
         setLoading(false);
-        setOpen(true); // stay open to show the "No matches" state
+        setOpen(true); // stay open to show the failure message
       });
   }
 
@@ -137,6 +142,7 @@ export function AutosuggestInput(props: any) {
 
     if (!trimmed) {
       requestIdRef.current++; // invalidate any in-flight live-search request
+      setFailed(false);
       if (showDefaultsOnFocus) {
         runQuery(""); // cleared back to empty while focused — show defaults again immediately
       } else {
@@ -149,6 +155,7 @@ export function AutosuggestInput(props: any) {
 
     if (trimmed.length < minChars) {
       requestIdRef.current++; // invalidate any in-flight request — its result would be stale by the time it lands
+      setFailed(false);
       setSuggestions([]);
       setOpen(false);
       setLoading(false);
@@ -236,6 +243,8 @@ export function AutosuggestInput(props: any) {
                 {renderSuggestion(item)}
               </button>
             ))
+          ) : failed ? (
+            <div className="taw-typeahead-empty" role="alert">Couldn&apos;t load suggestions, try again.</div>
           ) : (
             <div className="taw-typeahead-empty">No matches.</div>
           )}
