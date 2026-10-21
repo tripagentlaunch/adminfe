@@ -231,14 +231,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // side effects until they commit.
   const [summaryOpen, setSummaryOpen] = useState(false);
   function sendToProposal() {
-    // Defense-in-depth (2026-09-13) — the modal's own Continue button is
-    // already disabled for this same condition (see
-    // ItinerarySummaryModal.tsx), but this function is the actual
-    // handoff, so it refuses too rather than trusting the button alone.
-    if (hasDraftHotel(data)) {
-      toast("Search and add a real hotel for every stay before sending to proposal.", "error");
-      return;
-    }
+    // No longer refuses a draft hotel (2026-10-21, direct request): the summary modal still warns
+    // about it (hasDraftHotel), but the advisor may continue to the Proposal Composer anyway.
     sendItineraryToProposal(enquiryId, member, data);
     setSummaryOpen(false);
     router.push("/console/proposal-composer");
@@ -395,14 +389,14 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // regresses for anyone who's never touched it.
   const [alertsOpen, setAlertsOpen] = useState(true);
 
-  const attentionCount =
-    data.days.reduce((n: number, d: any) => n + d.items.filter((it: any) => tierOf(it.status) === "attention").length, 0) +
-    (data.visa && tierOf(data.visa.status) === "attention" ? 1 : 0);
   // searchPending — the real flight/hotel search (/generate-itinerary/refresh, or a "Retry search")
   // is still running. realSearchPending comes from the backend on the draft and is cleared when the
   // refresh lands or fails (WorkbenchDataProvider).
   const searchPending = !!data.realSearchPending || !!retryingSearch[enquiryId];
 
+  const attentionCount =
+    data.days.reduce((n: number, d: any) => n + d.items.filter((it: any) => tierOf(it.status) === "attention").length, 0) +
+    (data.visa && tierOf(data.visa.status) === "attention" ? 1 : 0);
 
   // Days filtered to the active tab (2026-09-03) — pulled out of the
   // render so the empty-state check below (visibleDays.length === 0)
@@ -519,15 +513,15 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         </div>
       </div>
 
-      {attentionCount > 0 ? (
-        <div className="taw-itin-alerts">
-          <button className="taw-itin-alerts-h" onClick={() => setAlertsOpen(!alertsOpen)} aria-expanded={alertsOpen}>
       {searchPending ? (
         <div role="status" className="taw-muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, margin: "0 0 8px" }}>
           <Spinner /> Searching flights &amp; hotels…
         </div>
       ) : null}
 
+      {attentionCount > 0 ? (
+        <div className="taw-itin-alerts">
+          <button className="taw-itin-alerts-h" onClick={() => setAlertsOpen(!alertsOpen)} aria-expanded={alertsOpen}>
             <Icon name="alert" size={14} />
             {attentionCount} item{attentionCount === 1 ? "" : "s"} need attention
             <Icon name="chevron" size={13} className="taw-itin-alerts-chevron" style={{ transform: alertsOpen ? "rotate(0deg)" : "rotate(-90deg)" }} />

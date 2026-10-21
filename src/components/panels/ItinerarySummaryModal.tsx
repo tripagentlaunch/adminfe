@@ -19,12 +19,11 @@ import { Icon } from "../ui";
 import { ItinerarySummaryContent, hasDraftHotel } from "./ItinerarySummaryContent";
 
 export function ItinerarySummaryModal({ data, onClose, onContinue }: { data: any; onClose: () => void; onContinue: () => void }) {
-  // blocked (2026-09-13, direct request) — a hard gate, not just a
-  // warning: an AI-drafted placeholder hotel (no real hotelKey, TripSure
-  // never searched) must never reach a customer-facing proposal, so
-  // Continue is disabled outright rather than merely flagged. The advisor
-  // has to go back, Search, and add a real property for every stay first.
-  const blocked = hasDraftHotel(data);
+  // Continue is always enabled (2026-10-21, direct request). It used to be a hard gate that disabled
+  // the button while any hotel was an AI-drafted placeholder; that is now a warning only — the red
+  // flag in the summary below still shows (ItinerarySummaryContent, hasDraftHotel), and the
+  // advisor decides whether to go back and add a real property or continue anyway.
+  const hasDraft = hasDraftHotel(data);
   return (
     <div className="taw-modal-overlay" onClick={onClose}>
       <div className="taw-modal-panel taw-modal-panel--wide" onClick={(e) => e.stopPropagation()}>
@@ -37,8 +36,7 @@ export function ItinerarySummaryModal({ data, onClose, onContinue }: { data: any
           <button
             className="taw-btn taw-btn--primary"
             onClick={onContinue}
-            disabled={blocked}
-            title={blocked ? "Search and add a real hotel for every stay before sending to proposal." : undefined}
+            title={hasDraft ? "This itinerary still has an AI-drafted hotel that isn't a verified TripSure result — you can continue anyway." : undefined}
           >
             <Icon name="send" size={14} />
             Continue to Proposal Composer
