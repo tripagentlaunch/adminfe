@@ -59,8 +59,7 @@
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getMessagesByPhone, getTaraPlan, sendMessageByPhone } from "../../services/api";
-import { errText, toast } from "../../lib/advisorHelpers";
+import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
 
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { ChatbotConversationPanel, memberCode } from "./ChatbotConversationPanel";
@@ -371,8 +370,7 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, loadTaraItinerary } = useWorkbench();
-  const [taraOpening, setTaraOpening] = useState(false);
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, parkTaraItinerary } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -400,8 +398,8 @@ export function WorkbenchTab(props: any) {
   // own in-flight state to show instead of nothing.
   const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
-  // backToSummaryFor — was set by the Itinerary Builder's "← Back" (removed 2026-10-20, replaced
-  // by the "Tara Itinerary" header button), so nothing sets it from this card now.
+  // backToSummaryFor — was set by the Itinerary Builder's old "← Back" (removed 2026-10-20), so
+  // nothing sets it from this card. The header's "← Back" now only leaves Tara's itinerary.
 
   // Conversation panel (2026-10-09, direct request): whenever a customer is
   // selected (from the Traveller Profile list) without an active enquiry, the
@@ -429,33 +427,6 @@ export function WorkbenchTab(props: any) {
         .catch(() => {});
     }
   };
-  // openTaraItinerary (2026-10-21, direct request) — the header's "Tara Itinerary"
-  // opens the itinerary Tara (the chatbot) already built for this traveller: the
-  // newest plan, fetched from chatbot-be via adminbe's GET /admin/tara-plan/{code}
-  // and loaded into the Builder, as TaraItineraryLink's "Open Tara's itinerary" does.
-  const openTaraItinerary = async () => {
-    const code = memberCode(convoMember);
-    if (!code || taraOpening) return;
-    setTaraOpening(true);
-    try {
-      const d: any = await getTaraPlan(code);
-      if (!d || !d.itinerary) {
-        toast("Tara hasn't built an itinerary for this traveller yet.", "error");
-        return;
-      }
-      const enquiryId = selEnqId || (onEnsureEnquiry && convoMember ? (await onEnsureEnquiry(convoMember)).id : null);
-      if (!enquiryId) return;
-      const existing = itinerariesByEnquiry[enquiryId];
-      const hasContent = !!(existing && Array.isArray(existing.days) && existing.days.length);
-      if (hasContent && !window.confirm("This traveller already has an itinerary in the Builder. Replace it with Tara's plan? Anything you added or edited will be lost.")) return;
-      loadTaraItinerary(enquiryId, d.itinerary);
-    } catch (e: any) {
-      toast("Couldn't open Tara's itinerary: " + errText(e), "error");
-    } finally {
-      setTaraOpening(false);
-    }
-  };
-
   // The "start this itinerary" content — the Drafting… spinner while
   // generating, else the Generate AI / Start from scratch chooser. Rendered
   // by the Itinerary Builder card below.
@@ -499,6 +470,16 @@ export function WorkbenchTab(props: any) {
           </div>
   );
 
+  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
+  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
+  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
+  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
+  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
+  const taraMember =
+    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
+  // Tara's itinerary is the one on screen (the converted plan carries `taraPlan`).
+  const taraShowing = !!(selEnqId && itineraryData && itineraryData.taraPlan);
+
   const profileColumn = (
       <QueueProfileAccordion
         enquiries={enquiries}
@@ -525,24 +506,23 @@ export function WorkbenchTab(props: any) {
         icon={<Icon name="sliders" size={20} />}
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          selectedEnquiry || convoMember ? (
-            // Tara Itinerary (2026-10-20; 2026-10-21 direct request) — replaces the old "← Back"
-            // button in this header. Opens the itinerary Tara already built in chat for this
-            // traveller (openTaraItinerary above); the chooser's "Generate AI Itinerary" still
-            // drafts a new one.
+          // "← Back" (2026-10-21) — only while Tara's itinerary is the one showing. It sets that
+          // itinerary aside (edits kept) and returns to the Generate / Start-from-scratch chooser;
+          // the inline Tara link then offers "Return to Tara's itinerary". This replaces the
+          // header's old "Tara Itinerary" button, which only repeated "Generate AI Itinerary".
+          taraShowing ? (
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              disabled={generating || taraOpening || !memberCode(convoMember)}
-              onClick={openTaraItinerary}
-              title="Open the itinerary Tara built for this traveller"
+              title="Back to Generate AI Itinerary / Start from scratch — Tara's itinerary is kept and can be reopened"
+              onClick={() => parkTaraItinerary(selEnqId as string)}
             >
-              {taraOpening ? "Opening…" : "Tara Itinerary"}
+              ← Back
             </button>
           ) : null
         }
       >
-        <TaraItineraryLink member={convoMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} />
+        <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} />
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (

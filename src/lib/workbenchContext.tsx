@@ -114,6 +114,12 @@ export interface WorkbenchContextValue {
   // (already converted by adminbe, see getTaraPlan) in as this enquiry's itinerary,
   // replacing whatever is there. The caller confirms before replacing real content.
   loadTaraItinerary: (enquiryId: string, itinerary: any) => void;
+  // parkedItineraries / parkTaraItinerary / resumeParkedItinerary — "← Back" from Tara's
+  // itinerary sets it aside (edits kept) and shows the Generate / Start-from-scratch chooser;
+  // resume puts it back.
+  parkedItineraries: Record<string, any>;
+  parkTaraItinerary: (enquiryId: string) => void;
+  resumeParkedItinerary: (enquiryId: string) => void;
   updateItineraryData: (enquiryId: string, updater: (d: any) => any) => void;
   addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
   // pipelineStatusByEnquiry (real backend, 2026-09-10) — GET /enquiries/

@@ -380,7 +380,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // leg switcher in flight search (.taw-leg-switch/.taw-leg-tab), reused
   // here instead of a new component since it's the exact same
   // "exactly one of a few mutually-exclusive views" shape.
-  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">("flights");
+  // A plan loaded from Tara has one note per day and flights/hotels only on a few days, so the
+  // Flights tab would show just those days: open it on "All" (re-applied when another Tara plan is
+  // loaded into this already-mounted view).
+  const taraPlanId = data.taraPlan ? String(data.taraPlan.planId || "tara") : null;
+  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">(taraPlanId ? "all" : "flights");
+  const [seenTaraPlanId, setSeenTaraPlanId] = useState(taraPlanId);
+  if (taraPlanId !== seenTaraPlanId) {
+    setSeenTaraPlanId(taraPlanId);
+    if (taraPlanId) setCategory("all");
+  }
   // alertsOpen (2026-09-04, direct request) — the "N items need
   // attention" banner is now collapsible, defaulting open so nothing
   // regresses for anyone who's never touched it.

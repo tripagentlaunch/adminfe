@@ -14,9 +14,13 @@
  * research, not TripSure results (the plan's own alert says so).
  *
  * With several plans for one traveller the newest is the default and a small
- * picker appears. Renders nothing when the traveller has no code, no plan, or
- * chatbot-be can't be reached — the Builder then shows its usual "Start this
- * itinerary" chooser, as before.
+ * picker appears. This is the Builder's ONE Tara entry point, shown the same way
+ * for every traveller with an access code: a button when Tara has a plan, a quiet
+ * "no itinerary from Tara yet" line when she doesn't. It renders nothing only when
+ * there is no code or chatbot-be can't be reached, and while Tara's itinerary is
+ * already on screen (the Builder header's "← Back" takes over then). After a
+ * "← Back" the button becomes "Return to Tara's itinerary" and restores the parked
+ * itinerary with its edits.
  * ===========================================================================*/
 import { useEffect, useState } from "react";
 import { getTaraPlan } from "../../services/api";
@@ -30,15 +34,17 @@ type PlanSummary = { planId: string; title?: string; updatedAt?: number; url?: s
 const fmtUpdated = (ms?: number) =>
   ms ? new Date(ms).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "";
 
-export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry }: any) {
+export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }: any) {
   const code = memberCode(member);
-  const { itinerariesByEnquiry, loadTaraItinerary } = useWorkbench();
+  const { itinerariesByEnquiry, loadTaraItinerary, parkedItineraries, resumeParkedItinerary } = useWorkbench();
+  const parked = !!(selEnqId && parkedItineraries[selEnqId]);
   // Plans are stored with the code they were fetched for, so switching traveller
   // shows nothing (not the previous traveller's plans) until the new list arrives.
-  const [loaded, setLoaded] = useState<{ code: string; plans: PlanSummary[] }>({ code: "", plans: [] });
+  const [loaded, setLoaded] = useState<{ code: string; plans: PlanSummary[] } | null>(null);
   const [pick, setPick] = useState<string>("");
   const [opening, setOpening] = useState(false);
-  const plans = code && loaded.code === code ? loaded.plans : [];
+  const checked = !!(code && loaded && loaded.code === code);
+  const plans = checked && loaded ? loaded.plans : [];
 
   useEffect(() => {
     if (!code) return;
@@ -51,11 +57,21 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry }: any) {
     return () => { cancelled = true; };
   }, [code]);
 
-  if (!plans.length) return null;
+  if (hidden || !checked) return null;
+  if (!plans.length && !parked) {
+    return <div style={{ marginBottom: 10, fontSize: 12.5, color: "#9098A8" }}>Tara hasn&apos;t built an itinerary for this traveller yet.</div>;
+  }
   const chosen = plans.find((p) => p.planId === pick) || plans[0];
 
   const open = async () => {
     if (opening) return;
+    if (parked && selEnqId) {
+      const current = itinerariesByEnquiry[selEnqId];
+      const inUse = !!(current && Array.isArray(current.days) && current.days.length);
+      if (inUse && !window.confirm("Replace the itinerary in the Builder with the Tara itinerary you set aside?")) return;
+      resumeParkedItinerary(selEnqId);
+      return;
+    }
     // Fetch at click time — Tara may have revised the plan since the list loaded.
     setOpening(true);
     try {
@@ -80,9 +96,9 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry }: any) {
   return (
     <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <button type="button" className="taw-btn taw-btn--sm" onClick={open} disabled={opening}>
-        <Icon name="sparkle" size={13} /> {opening ? "Opening…" : "Open Tara’s itinerary"}
+        <Icon name="sparkle" size={13} /> {opening ? "Opening…" : parked ? "Return to Tara’s itinerary" : "Open Tara’s itinerary"}
       </button>
-      {plans.length > 1 ? (
+      {plans.length > 1 && !parked ? (
         <select
           className="taw-select-plain"
           aria-label="Which of Tara's plans"
@@ -96,7 +112,7 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry }: any) {
           ))}
         </select>
       ) : null}
-      {chosen.url ? (
+      {chosen && chosen.url ? (
         <a href={chosen.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12 }}>
           Tara&apos;s page
         </a>

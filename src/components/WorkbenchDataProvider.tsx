@@ -88,6 +88,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // latency, no longer instant mock cloning — see initItinerary below),
   // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
   // real loading state while that's in flight.
+  // parkedItineraries — Tara's itinerary set aside by "← Back" (see parkTaraItinerary), keyed by enquiry id.
+  const [parkedItineraries, setParkedItineraries] = useState<Record<string, any>>({});
   const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
   const [retryingSearch, setRetryingSearch] = useState<Record<string, boolean>>({});
   // pipelineStatusByEnquiry (real backend, GET /enquiries/pipeline-status) —
@@ -457,7 +459,34 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // outright. Same "Building" signal as the scratch path: a real itinerary now exists.
   function loadTaraItinerary(enquiryId: string, itinerary: any) {
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: itinerary }));
+    setParkedItineraries((p) => {
+      if (!p[enquiryId]) return p;
+      const { [enquiryId]: _dropped, ...rest } = p;
+      return rest;
+    });
     enquiryItineraryStarted(enquiryId).catch(() => {});
+  }
+
+  // "← Back" from Tara's itinerary: the itinerary (with any edits) is parked, not discarded,
+  // so the Builder shows its usual Generate / Start-from-scratch chooser, and "Return to
+  // Tara's itinerary" puts the parked one back exactly as it was.
+  function parkTaraItinerary(enquiryId: string) {
+    const current = itinerariesByEnquiry[enquiryId];
+    if (!current) return;
+    setParkedItineraries((p) => ({ ...p, [enquiryId]: current }));
+    setItinerariesByEnquiry((m) => {
+      const { [enquiryId]: _dropped, ...rest } = m;
+      return rest;
+    });
+  }
+  function resumeParkedItinerary(enquiryId: string) {
+    const parked = parkedItineraries[enquiryId];
+    if (!parked) return;
+    setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: parked }));
+    setParkedItineraries((p) => {
+      const { [enquiryId]: _dropped, ...rest } = p;
+      return rest;
+    });
   }
 
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
@@ -544,6 +573,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         retryItinerarySearch,
         initItinerary,
         loadTaraItinerary,
+        parkedItineraries,
+        parkTaraItinerary,
+        resumeParkedItinerary,
         updateItineraryData,
         addSearchItemToItinerary,
         pipelineStatusByEnquiry,
