@@ -370,8 +370,7 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, setSummaryDismissedFor, backToSummaryFor, setBackToSummaryFor } = useWorkbench();
-  const router = useRouter();
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -399,10 +398,8 @@ export function WorkbenchTab(props: any) {
   // own in-flight state to show instead of nothing.
   const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
-  // backToSummaryFor — set by the Itinerary Builder's "← Back" so the summary view can come
-  // back even while an itinerary exists or is generating (both of which otherwise force the
-  // Builder card). The itinerary itself lives in itinerariesByEnquiry, so nothing is lost; the
-  // summary's own "Generate Itinerary" sets summaryDismissedFor again and returns to it.
+  // backToSummaryFor — was set by the Itinerary Builder's "← Back" (removed 2026-10-20, replaced
+  // by the "Tara Itinerary" header button), so nothing sets it from this card now.
 
   // Conversation panel (2026-10-09, direct request): whenever a customer is
   // selected (from the Traveller Profile list) without an active enquiry, the
@@ -496,21 +493,18 @@ export function WorkbenchTab(props: any) {
         icon={<Icon name="sliders" size={20} />}
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          selectedEnquiry ? (
-            // Back (2026-10-10, direct request; widened 2026-10-12 to the whole flow — chooser,
-            // Drafting… and the generated itinerary) — short, in the header row next to the title.
-            // Returns to the key-requirements/summary view for this enquiry. Any itinerary or
-            // in-flight generation is kept in state, not discarded.
+          selectedEnquiry || convoMember ? (
+            // Tara Itinerary (2026-10-20, direct request) — replaces the old "← Back" button in
+            // this header. Same action as the chooser's "Generate AI Itinerary" (startItinerary
+            // "ai"), which is a no-op once an itinerary exists or is generating, so the button is
+            // disabled in those states instead of silently doing nothing.
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              onClick={() => {
-                setSummaryDismissedFor(null);
-                setBackToSummaryFor(selEnqId);
-                router.push("/console/conversation");
-              }}
+              disabled={generating || !!itineraryData}
+              onClick={() => startItinerary("ai")}
             >
-              ← Back
+              Tara Itinerary
             </button>
           ) : null
         }
