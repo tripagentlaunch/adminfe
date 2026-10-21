@@ -69,6 +69,7 @@ import { ItineraryView } from "./ItineraryView";
 import { TaraItineraryLink } from "./TaraItineraryLink";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
+import { tripDatesFor } from "../../lib/itineraryFromCart";
 
 // ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
 // request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
@@ -552,6 +553,7 @@ export function WorkbenchTab(props: any) {
         key={selEnqId + (askReady ? ":ask" : "")}
         member={member}
         enquiry={selectedEnquiryWithAsk}
+        tripDates={tripDatesFor(itineraryData, selectedEnquiryWithAsk.ask)}
         advisorId={advisorId}
         onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiryWithAsk)}
       />
