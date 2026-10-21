@@ -472,8 +472,11 @@ export function WorkbenchTab(props: any) {
                 (2026-09-11 investigation: a real multi-city trip takes
                 40s-2min, not seconds) — an advisor watching a spinner that
                 broke its own promise is exactly what tempts a reload/
-                retry mid-request. Copy now sets real expectations instead. */}
-            <div className="message">Aanya&apos;s AI is searching real flights and hotels city by city for this trip — a multi-city itinerary can take a minute or two. No need to refresh or click again.</div>
+                retry mid-request. Copy now sets real expectations instead.
+                Updated 2026-10-21: the spinner now covers only the Claude draft (~10s, measured);
+                the real flight/hotel search runs afterwards via /generate-itinerary/refresh while
+                the draft is already on screen, so the copy says that instead. */}
+            <div className="message">Aanya&apos;s AI is drafting your day-by-day plan — this takes about 10 seconds. Real flights and hotels are then searched city by city and fill in on their own in the background (a multi-city trip can take a minute or two more). No need to refresh or click again.</div>
           </div>
   ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,

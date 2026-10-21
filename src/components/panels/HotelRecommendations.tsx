@@ -49,11 +49,15 @@ export function HotelRecommendations({
   ask,
   onAdd,
   addedHotelKeys,
+  searchPending = false,
 }: {
   data: any;
   ask: any;
   onAdd: (hotel: any, base: HotelBase) => void;
   addedHotelKeys: Set<string>;
+  /** The itinerary's own real flight/hotel search (/refresh) is still running: wait for it
+   *  instead of starting a second, identical hotel search alongside it. */
+  searchPending?: boolean;
 }) {
   const bases = hotelBasesFromItinerary(data);
   const basesSig = bases.map(baseKey).join(",");
@@ -71,7 +75,10 @@ export function HotelRecommendations({
   const budgetTotal = typeof ask?.budgetCap === "number" ? ask.budgetCap : undefined;
 
   useEffect(() => {
-    if (!bases.length) return;
+    // While the itinerary's own search runs, don't fire a duplicate. When it lands: if it found a
+    // hotel this panel unmounts; if it found none, searchPending flips to false, this effect runs
+    // and the recommendations search starts (the backend's listing cache makes it quick).
+    if (!bases.length || searchPending) return;
     let cancelled = false;
     bases.forEach((base) => {
       const key = baseKey(base);
@@ -104,7 +111,7 @@ export function HotelRecommendations({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basesSig, starMin, adults, budgetTotal, retryNonce]);
+  }, [basesSig, starMin, adults, budgetTotal, retryNonce, searchPending]);
 
   if (!bases.length) {
     // No real per-day date/city signal at all yet (e.g. a brand-new
@@ -132,7 +139,11 @@ export function HotelRecommendations({
               </div>
             ) : null}
 
-            {state.status === "loading" ? (
+            {searchPending && !byBase[key] ? (
+              <div className="taw-hotelrec-loading">
+                <Spinner /> Waiting for the flight &amp; hotel search to finish…
+              </div>
+            ) : state.status === "loading" ? (
               <div className="taw-hotelrec-loading">
                 <Spinner /> Searching real hotels in {base.city}…
               </div>

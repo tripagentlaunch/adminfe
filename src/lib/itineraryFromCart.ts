@@ -535,3 +535,74 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
     })),
   };
 }
+
+// mergeRefreshedItinerary (2026-10-21) — folds a /generate-itinerary/refresh result into the
+// itinerary the advisor has been editing while the refresh ran, instead of replacing it.
+//   baseline  - the itinerary as it was when the refresh started (the draft)
+//   current   - the itinerary now (null if it was removed)
+//   refreshed - what the refresh returned
+// An item (matched by day id + item id) counts as touched when it differs from baseline in
+// `current`: edited, added or removed by the advisor. Touched items keep the advisor's version
+// (a removed one stays removed); untouched items take the refreshed version. Days and top-level
+// fields follow the same rule; alerts always come from the refresh; totals take the advisor's
+// change since baseline as a delta on the refreshed totals. With no edits at all this returns
+// `refreshed` unchanged, which is the old behaviour.
+export function mergeRefreshedItinerary(baseline: any, current: any, refreshed: any): any {
+  if (!current) return current;
+  if (!baseline || current === baseline) return refreshed;
+  const same = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
+  const byId = (list: any[]) => new Map((list || []).map((x: any) => [x.id, x] as [string, any]));
+  const bDays = byId(baseline.days);
+  const cDays = byId(current.days);
+
+  const days: any[] = [];
+  for (const rDay of refreshed.days || []) {
+    const bDay = bDays.get(rDay.id);
+    const cDay = cDays.get(rDay.id);
+    if (bDay && !cDay) continue; // the advisor removed this day
+    if (!cDay) {
+      days.push(rDay);
+      continue;
+    }
+    const bItems = byId(bDay?.items);
+    const cItems = byId(cDay.items);
+    const rIds = new Set((rDay.items || []).map((i: any) => i.id));
+    const items: any[] = [];
+    for (const rItem of rDay.items || []) {
+      const b = bItems.get(rItem.id);
+      const c = cItems.get(rItem.id);
+      if (same(b, c)) items.push(rItem); // untouched: the refreshed version
+      else if (c) items.push(c); // edited or added by the advisor
+      // else the advisor removed it: stays removed
+    }
+    for (const c of cDay.items || []) {
+      if (!rIds.has(c.id) && !bItems.has(c.id)) items.push(c); // added by the advisor, unknown to the refresh
+    }
+    const day: any = { ...rDay, items };
+    for (const key of Object.keys(cDay)) {
+      if (key !== "items" && key !== "subtotal" && bDay && !same(bDay[key], cDay[key])) day[key] = cDay[key];
+    }
+    days.push(day);
+  }
+  let addedDay = false;
+  for (const cDay of current.days || []) {
+    if (!bDays.has(cDay.id) && !(refreshed.days || []).some((d: any) => d.id === cDay.id)) {
+      days.push(cDay); // a day the advisor created
+      addedDay = true;
+    }
+  }
+
+  const out: any = { ...refreshed, days: addedDay ? resortDays(days) : days };
+  for (const key of Object.keys(current)) {
+    if (key === "days" || key === "totals" || key === "alerts") continue;
+    if (!same(baseline[key], current[key])) out[key] = current[key];
+  }
+  if (baseline.totals && current.totals && refreshed.totals) {
+    const totals: any = { ...refreshed.totals };
+    for (const k of Object.keys(totals)) {
+      if (typeof totals[k] === "number") totals[k] += (Number(current.totals[k]) || 0) - (Number(baseline.totals[k]) || 0);
+    }
+    out.totals = totals;
+  }
+  return out;
+}

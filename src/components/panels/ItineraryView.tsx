@@ -47,7 +47,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
 import { inr } from "../../services/api";
-import { Empty, Icon, SleekScroll } from "../ui";
+import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary } from "../../lib/itineraryFromCart";
@@ -389,6 +389,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   const attentionCount =
     data.days.reduce((n: number, d: any) => n + d.items.filter((it: any) => tierOf(it.status) === "attention").length, 0) +
     (data.visa && tierOf(data.visa.status) === "attention" ? 1 : 0);
+  // searchPending — the real flight/hotel search (/generate-itinerary/refresh, or a "Retry search")
+  // is still running. realSearchPending comes from the backend on the draft and is cleared when the
+  // refresh lands or fails (WorkbenchDataProvider).
+  const searchPending = !!data.realSearchPending || !!retryingSearch[enquiryId];
+
 
   // Days filtered to the active tab (2026-09-03) — pulled out of the
   // render so the empty-state check below (visibleDays.length === 0)
@@ -508,6 +513,12 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {attentionCount > 0 ? (
         <div className="taw-itin-alerts">
           <button className="taw-itin-alerts-h" onClick={() => setAlertsOpen(!alertsOpen)} aria-expanded={alertsOpen}>
+      {searchPending ? (
+        <div role="status" className="taw-muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, margin: "0 0 8px" }}>
+          <Spinner /> Searching flights &amp; hotels…
+        </div>
+      ) : null}
+
             <Icon name="alert" size={14} />
             {attentionCount} item{attentionCount === 1 ? "" : "s"} need attention
             <Icon name="chevron" size={13} className="taw-itin-alerts-chevron" style={{ transform: alertsOpen ? "rotate(0deg)" : "rotate(-90deg)" }} />
@@ -617,7 +628,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           genuinely empty) — this flow is itinerary-driven, not something
           to surface unprompted in a mixed view. */}
       {category === "hotels" && visibleDays.length === 0 ? (
-        <HotelRecommendations data={data} ask={ask} onAdd={addRecommendedHotel} addedHotelKeys={addedHotelKeys} />
+        <HotelRecommendations data={data} ask={ask} onAdd={addRecommendedHotel} addedHotelKeys={addedHotelKeys} searchPending={searchPending} />
       ) : category !== "visa" && visibleDays.length === 0 ? (
         <Empty icon={<Icon name={category === "hotels" ? "hotel" : "flight"} size={26} />}>
           Nothing added from the {category === "all" ? "Flights or Hotels desks" : category === "hotels" ? "Hotels desk" : "Flights desk"} yet.
