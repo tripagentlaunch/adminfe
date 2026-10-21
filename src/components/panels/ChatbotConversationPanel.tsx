@@ -100,7 +100,8 @@ interface ConvoState {
   olderLoading: boolean;
   olderError: string | null;
 }
-interface HandoffState { code: string; mode: Mode; status: "ready" | "error" }
+// "no_phone": the traveller has no WhatsApp number on file, so there is no thread to read or take over.
+interface HandoffState { code: string; mode: Mode; status: "ready" | "error" | "no_phone" }
 
 const NO_MESSAGES: ConvoMessage[] = [];
 const POLL_MS = 5000;
@@ -250,7 +251,7 @@ export function ChatbotConversationPanel({ member }: any) {
   const [handoffTick, setHandoffTick] = useState(0);
   const handoffCur = handoff && handoff.code === code ? handoff : null;
   const mode: Mode = handoffCur ? handoffCur.mode : "tara";
-  const handoffStatus: "loading" | "ready" | "error" = !code ? "ready" : handoffCur ? handoffCur.status : "loading";
+  const handoffStatus: "loading" | "ready" | "error" | "no_phone" = !code ? "ready" : handoffCur ? handoffCur.status : "loading";
   const [modeSaving, setModeSaving] = useState(false);
   const [pendingMode, setPendingMode] = useState<Mode | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -421,7 +422,7 @@ export function ChatbotConversationPanel({ member }: any) {
     if (!code) return;
     let cancelled = false;
     getConversationHandoff(code)
-      .then((d: any) => { if (!cancelled) setHandoff({ code, mode: d && d.paused ? "advisor" : "tara", status: "ready" }); })
+      .then((d: any) => { if (!cancelled) setHandoff({ code, mode: d && d.paused ? "advisor" : "tara", status: d && d.no_phone ? "no_phone" : "ready" }); })
       .catch(() => { if (!cancelled) setHandoff({ code, mode: "tara", status: "error" }); });
     return () => { cancelled = true; };
   }, [code, handoffTick]);
@@ -430,7 +431,7 @@ export function ChatbotConversationPanel({ member }: any) {
   // "Let Tara reply" and "Both" leave Tara active (paused=false).
   function chooseMode(next: Mode) {
     if (next === mode || modeSaving || !code || handoffStatus === "loading") return;
-    const prev: HandoffState = { code, mode, status: handoffStatus === "error" ? "error" : "ready" };
+    const prev: HandoffState = { code, mode, status: handoffStatus };
     // Optimistic: switch the UI (and reveal the message input) right away; the
     // handoff call runs in the background with a spinner on the buttons only.
     setHandoff({ code, mode: next, status: "ready" });
@@ -561,7 +562,9 @@ export function ChatbotConversationPanel({ member }: any) {
               </div>
             ) : messages.length === 0 ? (
               <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>
-                No conversation with Tara yet.
+                {handoffStatus === "no_phone"
+                  ? "No WhatsApp number on file for this traveller, so there is no thread to show. Add a phone number to their member record."
+                  : "No conversation with Tara yet."}
               </div>
             ) : (
               <Virtuoso
@@ -638,6 +641,10 @@ export function ChatbotConversationPanel({ member }: any) {
             </div>
             {handoffStatus === "loading" ? (
               <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>Checking who is replying…</div>
+            ) : handoffStatus === "no_phone" ? (
+              <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>
+                No WhatsApp number on file for this traveller, so Tara can&apos;t be paused or replaced here until one is added.
+              </div>
             ) : handoffStatus === "error" ? (
               <div role="alert" style={{ fontSize: 11.5, color: "#B03434", marginBottom: 8 }}>
                 Couldn&apos;t check whether Tara is paused for this traveller; the choice below may not match.{" "}
