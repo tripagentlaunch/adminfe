@@ -389,6 +389,13 @@ function AccessRequestsSection() {
         // manually", regardless of what actually happened. Phase 5 sends
         // for real now, and the backend already returns result.email_sent
         // — read it instead of hardcoding a stale claim.
+        // One person, one code (2026-10-22): someone who already has a code
+        // (same phone or email) keeps it; no second code is issued.
+        if (result && result.already_member) {
+          toast(row.full_name + " is already a member — existing code " + result.code + " (same " + (result.matched_on || "details") + "). No new code issued.", "success");
+          load();
+          return;
+        }
         toast(
           result && result.email_sent
             ? "Approved " + row.full_name + " — invitation email sent to " + row.email
@@ -451,10 +458,10 @@ function AccessRequestsSection() {
             {Object.entries(justApproved).map(([id, a]: [string, any]) => (
               <div key={id} className="taw-banner" style={{ position: "relative", paddingRight: 40 }}>
                 <div>
-                  <Icon name={a.email_sent ? "check" : "alert"} size={14} />
+                  <Icon name={a.email_sent || a.already_member ? "check" : "alert"} size={14} />
                   <b>{a.full_name}</b> ({a.email}) — approved.{" "}
-                  <span className={cx("taw-status", "taw-status--" + (a.email_sent ? "success" : "danger"))}>
-                    {a.email_sent ? "Invitation email sent" : "Email failed to send"}
+                  <span className={cx("taw-status", "taw-status--" + (a.email_sent || a.already_member ? "success" : "danger"))}>
+                    {a.already_member ? "Already a member — no new code" : a.email_sent ? "Invitation email sent" : "Email failed to send"}
                   </span>
                 </div>
                 <div style={{ marginTop: 6 }}>
@@ -465,7 +472,9 @@ function AccessRequestsSection() {
                       — <a href={a.link} target="_blank" rel="noreferrer">{a.link}</a>
                     </>
                   ) : null}
-                  {!a.email_sent ? " — share this code with them directly." : ""}
+                  {a.already_member
+                    ? ` — their existing code (same ${a.matched_on || "details"}); they sign in with it.`
+                    : !a.email_sent ? " — share this code with them directly." : ""}
                 </div>
                 <button
                   className="taw-btn taw-btn--ghost taw-btn--sm"
