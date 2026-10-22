@@ -2432,6 +2432,7 @@ export {
   getRealWhatsAppMessages,
   getConversationHandoff,
   setConversationHandoff,
+  getMemberCode,
   sendChatbotReply,
   getDestinationPhoto,
 
@@ -2714,6 +2715,25 @@ function conversationHandoffCall(code, method, body) {
   });
 }
 function getConversationHandoff(code) { return conversationHandoffCall(code, "GET"); }
+
+// getMemberCode(phone, email) — the Tara access code for a customer known only
+// by phone/email (a CRM record with no code), via GET /admin/member-code.
+// Resolves to the code or "" (2026-10-22).
+function getMemberCode(phone, email) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  var q = new URLSearchParams();
+  if (phone) q.set("phone", String(phone));
+  if (email) q.set("email", String(email));
+  if (!q.toString()) return Promise.resolve("");
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/member-code?" + q.toString(), { headers: { Authorization: "Bearer " + jwt } },
+    CONVERSATION_READ_TIMEOUT_MS, "Looking up the access code timed out.").then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (b) {
+      if (!res.ok) throw new ApiError((b && b.detail) || "Could not look up the access code.", { status: res.status, body: b });
+      return (b && b.code) || "";
+    });
+  });
+}
 function setConversationHandoff(code, paused) { return conversationHandoffCall(code, "POST", { paused: !!paused }); }
 
 // sendChatbotReply(code, text, clientMsgId?) — send an advisor reply into a

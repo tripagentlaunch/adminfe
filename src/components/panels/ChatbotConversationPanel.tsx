@@ -23,7 +23,7 @@
  * ===========================================================================*/
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, setConversationHandoff } from "../../services/api";
+import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 
 interface ConvoMessage {
@@ -211,6 +211,9 @@ export function ChatbotConversationPanel({ member }: any) {
   const memberId = member ? member.id : undefined;
   const memberAltId = member ? member.member_id : undefined;
   const memberKey = String(memberId || memberAltId || "");
+  const memberPhone = member ? member.phone : undefined;
+  const memberWaPhone = member ? member.wa_phone : undefined;
+  const memberEmail = member ? member.email : undefined;
   useEffect(() => {
     if (baseCode) return;
     let cancelled = false;
@@ -229,9 +232,15 @@ export function ChatbotConversationPanel({ member }: any) {
           } catch { /* column may not exist / not allowed — try the next */ }
         }
       }
+      // A CRM record (enquiry / queue) with no code and no site_members row: the
+      // code from the customer's phone or email (2026-10-22).
+      try {
+        const c = await getMemberCode(memberPhone || memberWaPhone, memberEmail);
+        if (c && !cancelled) setFallback({ key: memberKey, code: String(c) });
+      } catch { /* no code found: the panel says so */ }
     })();
     return () => { cancelled = true; };
-  }, [baseCode, memberKey, memberId, memberAltId]);
+  }, [baseCode, memberKey, memberId, memberAltId, memberPhone, memberWaPhone, memberEmail]);
   const code = baseCode || (fallback.key === memberKey ? fallback.code : "");
   const digits = waDigits(member && member.phone);
   const waLink = digits ? "https://wa.me/" + digits : null;
