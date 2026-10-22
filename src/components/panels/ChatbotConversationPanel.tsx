@@ -36,7 +36,15 @@ interface ConvoMessage {
   tara?: boolean; // Tara's AI reply (vs a human advisor)
   real?: boolean; // true = raw WhatsApp message (not Tara's)
   parts?: string[] | null;
+  channel?: string; // "web" (the website), "whatsapp", "advisor" (a desk reply) — the caption above the bubble
 }
+
+// The small caption above each message: where it was sent from or to (2026-10-22).
+const CHANNEL_CAPTION: Record<string, { label: string; dot: string }> = {
+  web: { label: "Website", dot: "#3B6FD8" },
+  whatsapp: { label: "WhatsApp", dot: "#25A85A" },
+  advisor: { label: "Desk", dot: "#B7862F" },
+};
 
 interface Usage {
   spentUsd: number;
@@ -125,6 +133,7 @@ function mapReal(m: any): ConvoMessage {
     tara: m.sender_type === "tara",
     content: m.message, real: true, sender: m.sender_name,
     at: m.created_at ? new Date(m.created_at).getTime() : null,
+    channel: typeof m.channel === "string" ? m.channel : undefined,
   };
 }
 
@@ -587,8 +596,23 @@ export function ChatbotConversationPanel({ member }: any) {
                 components={{ Header: ConvoListHeader }}
                 itemContent={(_i, m) => {
                   const isCustomer = m.role === "user" || m.role === "customer";
+                  const caption = m.channel ? CHANNEL_CAPTION[m.channel] : undefined;
                   return (
                     <div style={{ display: "flex", flexDirection: "column", paddingBottom: 10 }}>
+                      {caption ? (
+                        <div
+                          title={`Sent ${isCustomer ? "from" : "on"} ${caption.label}`}
+                          style={{
+                            alignSelf: isCustomer ? "flex-start" : "flex-end",
+                            display: "inline-flex", alignItems: "center", gap: 5,
+                            fontSize: 9.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase",
+                            color: "#8A8070", margin: "0 4px 3px",
+                          }}
+                        >
+                          <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: caption.dot }} />
+                          {caption.label}
+                        </div>
+                      ) : null}
                       <div
                         style={{
                           alignSelf: isCustomer ? "flex-start" : "flex-end",
