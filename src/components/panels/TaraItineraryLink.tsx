@@ -22,8 +22,8 @@
  * "← Back" the button becomes "Return to Tara's itinerary" and restores the parked
  * itinerary with its edits.
  * ===========================================================================*/
-import { useEffect, useState } from "react";
-import { getTaraPlan } from "../../services/api";
+import { useEffect, useRef, useState } from "react";
+import { getMemberCode, getTaraPlan } from "../../services/api";
 import { errText, toast } from "../../lib/advisorHelpers";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { Icon } from "../ui";
@@ -34,8 +34,28 @@ type PlanSummary = { planId: string; title?: string; updatedAt?: number; url?: s
 const fmtUpdated = (ms?: number) =>
   ms ? new Date(ms).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "";
 
+// Tara's newest plan opens in the Builder by itself (2026-10-22) when the Builder
+// is empty for this traveller: no click needed. Never over an itinerary already
+// there (the advisor's work), nor after "← Back" set Tara's aside. The plan list
+// is checked again every minute, so a plan Tara builds while the panel is open
+// appears too. A traveller whose record carries no code is found by phone/email.
+const PLANS_EVERY_MS = 60000;
+
 export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }: any) {
-  const code = memberCode(member);
+  const baseCode = memberCode(member);
+  const memberKey = String((member && (member.id || member.member_id)) || "");
+  const [found, setFound] = useState<{ key: string; code: string } | null>(null);
+  const phone = member ? member.phone || member.wa_phone : undefined;
+  const email = member ? member.email : undefined;
+  useEffect(() => {
+    if (baseCode || !member || !(phone || email)) return;
+    let cancelled = false;
+    getMemberCode(phone, email)
+      .then((c: string) => { if (!cancelled) setFound({ key: memberKey, code: c || "" }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [baseCode, memberKey, phone, email]);
+  const code = baseCode || (found && found.key === memberKey ? found.code : "");
   const { itinerariesByEnquiry, loadTaraItinerary, parkedItineraries, resumeParkedItinerary } = useWorkbench();
   const parked = !!(selEnqId && parkedItineraries[selEnqId]);
   // Plans are stored with the code they were fetched for, so switching traveller
@@ -49,13 +69,35 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
   useEffect(() => {
     if (!code) return;
     let cancelled = false;
-    getTaraPlan(code)
-      .then((d: any) => {
-        if (!cancelled) setLoaded({ code, plans: Array.isArray(d && d.plans) ? d.plans : [] });
-      })
-      .catch(() => { /* chatbot-be unavailable / no plans route: just no button */ });
-    return () => { cancelled = true; };
+    const refresh = () =>
+      getTaraPlan(code)
+        .then((d: any) => {
+          if (!cancelled) setLoaded({ code, plans: Array.isArray(d && d.plans) ? d.plans : [] });
+        })
+        .catch(() => { /* chatbot-be unavailable / no plans route: just no button */ });
+    refresh();
+    const iv = window.setInterval(refresh, PLANS_EVERY_MS);
+    return () => { cancelled = true; window.clearInterval(iv); };
   }, [code]);
+
+  // Open the newest plan by itself, once per plan version, into an empty Builder.
+  const autoTried = useRef<Set<string>>(new Set());
+  const latest = plans[0];
+  useEffect(() => {
+    if (!checked || !latest || parked) return;
+    const existing = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
+    if (existing && Array.isArray(existing.days) && existing.days.length) return;
+    const tryKey = `${code}:${latest.planId}:${latest.updatedAt || ""}`;
+    if (autoTried.current.has(tryKey)) return;
+    autoTried.current.add(tryKey);
+    (async () => {
+      const d: any = await getTaraPlan(code, latest.planId);
+      if (!d || !d.itinerary) return;
+      const enquiryId = selEnqId || (onEnsureEnquiry && member ? (await onEnsureEnquiry(member)).id : null);
+      if (enquiryId) loadTaraItinerary(enquiryId, d.itinerary);
+    })().catch(() => { /* the button below still works */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checked, latest && latest.planId, latest && latest.updatedAt, selEnqId, parked, code]);
 
   if (hidden || !checked) return null;
   if (!plans.length && !parked) {
