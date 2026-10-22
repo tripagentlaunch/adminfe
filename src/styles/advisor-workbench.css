@@ -151,6 +151,12 @@ background:var(--champagne);border:1px solid var(--line2);}
    plugin's own page canvas doesn't exactly fill the iframe box now
    blends into an identical neighbor instead of a mismatched tone. */
 .taw-pdf-preview{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#282828;}
+/* The new HTML proposal preview (ProposalPreviewPage's .pv-page) sits in this flex row. With no flex/width
+   rule it shrank to its 900px column and hugged the left edge, so the pane's dark #282828 showed as a black
+   gap down the right side (2026-10-21). Grow it across the pane (and stretch to the full height) so its own
+   ivory background fills; the 900px reading column inside (.pv-shell) stays centred. Scoped so the public
+   proposal page, which renders .pv-page outside this container, is unaffected. */
+.taw-pdf-preview>.pv-page{flex:1 1 auto;align-self:stretch;min-width:0;}
 /* "Full screen" (2026-09-08) — an in-page maximize (fixed overlay filling
    the browser viewport, z-index above the app chrome), not the browser's
    native Fullscreen API. requestFullscreen() isolates its element into

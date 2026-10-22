@@ -12,7 +12,7 @@ import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelD
 import { AutosuggestInput } from "../AutosuggestInput";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
-import { boundFromDateRange } from "../../lib/itineraryFromCart";
+import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 
@@ -653,10 +653,15 @@ export function HotelDesk(props: any) {
   // enquiry is selected yet or its dates can't be parsed.
   // pax defaults to 1, not 2 (2026-09-03) — TripAgent's scope is solo
   // trips only (the cardholder is always the traveller).
+  const trip = props.tripDates && props.tripDates.startIso ? props.tripDates : boundFromDateRange(ask && ask.dateRange);
+  const startDefault = (trip && trip.startIso) || todayISO(21);
+  const endDefault = (trip && trip.endIso) || (trip && trip.startIso ? addDaysIso(trip.startIso, 4) : todayISO(25));
   const [form, setForm] = useState({
     city: (ask && ask.destinations && ask.destinations[0]) || "Dubai",
-    checkIn: boundFromDateRange(ask && ask.dateRange, 2026)?.startIso || todayISO(21),
-    checkOut: boundFromDateRange(ask && ask.dateRange, 2026)?.endIso || todayISO(25),
+    // Trip dates (2026-10-21): the itinerary's own dates (props.tripDates, see tripDatesFor) first, then
+    // the enquiry's date text, else today+21 / +25. A known start with no end gets a 4-night stay.
+    checkIn: startDefault,
+    checkOut: endDefault,
     rooms: 1,
     pax: 1,
   });
@@ -683,9 +688,22 @@ export function HotelDesk(props: any) {
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
   }
+  // Fields the advisor has typed into — the trip dates below only fill the others (see FlightDesk).
+  const touched = useRef<Record<string, boolean>>({});
   function set(k: string, v: any) {
+    touched.current[k] = true;
     setForm((f) => ({ ...f, [k]: v }));
   }
+  const tripStart = props.tripDates && props.tripDates.startIso;
+  const tripEnd = props.tripDates && props.tripDates.endIso;
+  useEffect(() => {
+    if (!tripStart) return;
+    setForm((f) => ({
+      ...f,
+      checkIn: touched.current.checkIn ? f.checkIn : tripStart,
+      checkOut: touched.current.checkOut ? f.checkOut : tripEnd || addDaysIso(tripStart, 4),
+    }));
+  }, [tripStart, tripEnd]);
 
   function runReal(signal?: AbortSignal) {
     const city = form.city.trim();

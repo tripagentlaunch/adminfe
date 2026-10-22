@@ -2116,6 +2116,13 @@ function enquiryCreate(payload) {
   return fastapiEnquiryCall("/enquiries", { method: "POST", body: payload });
 }
 
+// enquiryEnsureMember({ email, name?, phone? }) — POST /enquiries/ensure-member. The CRM `members`
+// row (what enquiries attach to) for a traveller who signed up on the site but has none yet:
+// reused by email, created otherwise. Idempotent. Returns { member }.
+function enquiryEnsureMember(payload) {
+  return fastapiEnquiryCall("/enquiries/ensure-member", { method: "POST", body: payload });
+}
+
 // enquiryTravellerProfile(enquiryId) — GET /enquiries/{id}/traveller-profile.
 // Replaces the Traveller Profile panel's old mock/db()-merged member+enquiry
 // with a real, backend-shaped {member, enquiry} pair — see
@@ -2455,6 +2462,7 @@ export {
 
   // Enquiries (advisor-initiated only — see enquiry_service.py)
   enquiryCreate,
+  enquiryEnsureMember,
   enquiryTravellerProfile,
   enquiryExtractTripDetails,
   enquiryGenerateItinerary,

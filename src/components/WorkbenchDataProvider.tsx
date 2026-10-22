@@ -24,6 +24,7 @@ import {
   enquiries as fetchEnquiries,
   createOrder as apiCreateOrder,
   enquiryCreate,
+  enquiryEnsureMember,
   enquiryTravellerProfile,
   enquiryExtractTripDetails,
   enquiryGenerateItinerary,
@@ -35,7 +36,7 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative } from "../lib/itineraryFromCart";
+import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
   const router = useRouter();
@@ -87,6 +88,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // latency, no longer instant mock cloning — see initItinerary below),
   // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
   // real loading state while that's in flight.
+  // parkedItineraries — Tara's itinerary set aside by "← Back" (see parkTaraItinerary), keyed by enquiry id.
+  const [parkedItineraries, setParkedItineraries] = useState<Record<string, any>>({});
   const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
   const [retryingSearch, setRetryingSearch] = useState<Record<string, boolean>>({});
   // pipelineStatusByEnquiry (real backend, GET /enquiries/pipeline-status) —
@@ -225,10 +228,28 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   function ensureEnquiryForMember(m: any): Promise<any> {
     const crmMemberId = (m && m.member && m.member.id) || (m && m.id);
     if (!crmMemberId) {
-      toast("Can't build an itinerary — this traveller has no linked account yet.", "error");
-      return Promise.reject(new Error("no_crm_member"));
+      // A site signup with no CRM `members` row yet (the backend now creates one on approval/
+      // redemption, but older signups may lack it): have the backend link or create it by email,
+      // then carry on exactly as for any other traveller.
+      const email = ((m && m.email) || (m && m.member && m.member.email) || "").trim();
+      if (!email) {
+        toast("Can't build an itinerary — this traveller has no email on file to link an account.", "error");
+        return Promise.reject(new Error("no_crm_member"));
+      }
+      return enquiryEnsureMember({ email, name: m.name, phone: m.phone })
+        .then((r: any) => {
+          reloadInbox(); // so the Traveller list now shows this traveller as linked
+          return startEnquiryFor(r.member.id, r.member);
+        })
+        .catch((e: any) => {
+          toast("Couldn't link this traveller's account: " + errText(e), "error");
+          throw e;
+        });
     }
-    const crmMember = (m && m.member) || m;
+    return startEnquiryFor(crmMemberId, (m && m.member) || m);
+  }
+
+  function startEnquiryFor(crmMemberId: string, crmMember: any): Promise<any> {
     const existing = enquiries.find(
       (e: any) => e.member_id === crmMemberId && (e.status || "open") !== "closed"
     );
@@ -387,18 +408,22 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         // while this runs; realSearchPending on the itinerary object lets
         // the UI show a small "searching real flights & hotels…" hint
         // per day if it wants to (data.realSearchPending === true here).
+        // `data` is the baseline the merge compares against: anything the advisor changed
+        // since (edited, added, removed) is kept; only untouched items take the refreshed version.
         enquiryRefreshItinerary(enquiryId)
           .then((refreshed: any) => {
             setItinerariesByEnquiry((m) => {
-              // Only merge if the advisor hasn't since edited/replaced
-              // this itinerary out from under us.
               if (!m[enquiryId]) return m;
-              return { ...m, [enquiryId]: refreshed };
+              return { ...m, [enquiryId]: mergeRefreshedItinerary(data, m[enquiryId], refreshed) };
             });
           })
           .catch((e: any) => {
             // Real search failing doesn't invalidate the draft the advisor
-            // is already looking at — just surface it, don't clear anything.
+            // is already looking at — just surface it, don't clear anything,
+            // and drop the "searching" indicator (the refresh is no longer running).
+            setItinerariesByEnquiry((m) =>
+              m[enquiryId] && m[enquiryId].realSearchPending ? { ...m, [enquiryId]: { ...m[enquiryId], realSearchPending: false } } : m
+            );
             toast("Real flight/hotel search didn't complete: " + errText(e), "error");
           });
       })
@@ -411,16 +436,18 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // "Retry search" on the tripsure-unavailable alert. generate-itinerary
   // first (re-seeds the backend's in-memory draft cache — refresh alone
   // 409s after a restart), then refresh for the real TripSure search; the
-  // refreshed itinerary replaces the current one, clearing the unresolved
+  // refreshed itinerary is merged into the current one, clearing the unresolved
   // placeholders. Any items the advisor added/edited by hand since are
-  // overwritten, same as the original refresh merge.
+  // kept (mergeRefreshedItinerary), same as the original refresh merge.
   function retryItinerarySearch(enquiryId: string) {
     if (retryingSearch[enquiryId]) return;
     setRetryingSearch((r) => ({ ...r, [enquiryId]: true }));
+    const baseline = itinerariesByEnquiry[enquiryId];
     enquiryGenerateItinerary(enquiryId)
       .then(() => enquiryRefreshItinerary(enquiryId))
       .then((refreshed: any) => {
-        setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: refreshed }));
+        // Same merge as the first refresh: edits made while the retry ran are kept.
+        setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: m[enquiryId] ? mergeRefreshedItinerary(baseline, m[enquiryId], refreshed) : refreshed }));
         const stillDown = (refreshed?.alerts || []).some((a: any) => a.id === "tripsure-unavailable" || a.id === "tripsure-rejected" || a.id === "dates-in-past");
         toast(stillDown ? "TripSure search still failed — see the alert in the Itinerary Builder for the cause" : "Real flight/hotel search complete", stillDown ? "error" : "success");
       })
@@ -432,7 +459,34 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // outright. Same "Building" signal as the scratch path: a real itinerary now exists.
   function loadTaraItinerary(enquiryId: string, itinerary: any) {
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: itinerary }));
+    setParkedItineraries((p) => {
+      if (!p[enquiryId]) return p;
+      const { [enquiryId]: _dropped, ...rest } = p;
+      return rest;
+    });
     enquiryItineraryStarted(enquiryId).catch(() => {});
+  }
+
+  // "← Back" from Tara's itinerary: the itinerary (with any edits) is parked, not discarded,
+  // so the Builder shows its usual Generate / Start-from-scratch chooser, and "Return to
+  // Tara's itinerary" puts the parked one back exactly as it was.
+  function parkTaraItinerary(enquiryId: string) {
+    const current = itinerariesByEnquiry[enquiryId];
+    if (!current) return;
+    setParkedItineraries((p) => ({ ...p, [enquiryId]: current }));
+    setItinerariesByEnquiry((m) => {
+      const { [enquiryId]: _dropped, ...rest } = m;
+      return rest;
+    });
+  }
+  function resumeParkedItinerary(enquiryId: string) {
+    const parked = parkedItineraries[enquiryId];
+    if (!parked) return;
+    setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: parked }));
+    setParkedItineraries((p) => {
+      const { [enquiryId]: _dropped, ...rest } = p;
+      return rest;
+    });
   }
 
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
@@ -519,6 +573,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         retryItinerarySearch,
         initItinerary,
         loadTaraItinerary,
+        parkedItineraries,
+        parkTaraItinerary,
+        resumeParkedItinerary,
         updateItineraryData,
         addSearchItemToItinerary,
         pipelineStatusByEnquiry,

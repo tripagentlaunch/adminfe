@@ -62,13 +62,14 @@ import { useRouter } from "next/navigation";
 import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
 
 import { Card, Empty, Icon, Spinner } from "../ui";
-import { ChatbotConversationPanel } from "./ChatbotConversationPanel";
+import { ChatbotConversationPanel, memberCode } from "./ChatbotConversationPanel";
 import { QueueProfileAccordion } from "./QueueProfileAccordion";
 import { SearchDesksPanel } from "./SearchDesksPanel";
 import { ItineraryView } from "./ItineraryView";
 import { TaraItineraryLink } from "./TaraItineraryLink";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
+import { tripDatesFor } from "../../lib/itineraryFromCart";
 
 // ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
 // request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
@@ -370,8 +371,7 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, setSummaryDismissedFor, backToSummaryFor, setBackToSummaryFor } = useWorkbench();
-  const router = useRouter();
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, parkTaraItinerary } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -399,10 +399,8 @@ export function WorkbenchTab(props: any) {
   // own in-flight state to show instead of nothing.
   const generating = selEnqId ? !!generatingItinerary[selEnqId] : false;
 
-  // backToSummaryFor — set by the Itinerary Builder's "← Back" so the summary view can come
-  // back even while an itinerary exists or is generating (both of which otherwise force the
-  // Builder card). The itinerary itself lives in itinerariesByEnquiry, so nothing is lost; the
-  // summary's own "Generate Itinerary" sets summaryDismissedFor again and returns to it.
+  // backToSummaryFor — was set by the Itinerary Builder's old "← Back" (removed 2026-10-20), so
+  // nothing sets it from this card. The header's "← Back" now only leaves Tara's itinerary.
 
   // Conversation panel (2026-10-09, direct request): whenever a customer is
   // selected (from the Traveller Profile list) without an active enquiry, the
@@ -446,8 +444,11 @@ export function WorkbenchTab(props: any) {
                 (2026-09-11 investigation: a real multi-city trip takes
                 40s-2min, not seconds) — an advisor watching a spinner that
                 broke its own promise is exactly what tempts a reload/
-                retry mid-request. Copy now sets real expectations instead. */}
-            <div className="message">Aanya&apos;s AI is searching real flights and hotels city by city for this trip — a multi-city itinerary can take a minute or two. No need to refresh or click again.</div>
+                retry mid-request. Copy now sets real expectations instead.
+                Updated 2026-10-21: the spinner now covers only the Claude draft (~10s, measured);
+                the real flight/hotel search runs afterwards via /generate-itinerary/refresh while
+                the draft is already on screen, so the copy says that instead. */}
+            <div className="message">Aanya&apos;s AI is drafting your day-by-day plan — this takes about 10 seconds. Real flights and hotels are then searched city by city and fill in on their own in the background (a multi-city trip can take a minute or two more). No need to refresh or click again.</div>
           </div>
   ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,
@@ -469,6 +470,16 @@ export function WorkbenchTab(props: any) {
             </button>
           </div>
   );
+
+  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
+  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
+  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
+  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
+  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
+  const taraMember =
+    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
+  // Tara's itinerary is the one on screen (the converted plan carries `taraPlan`).
+  const taraShowing = !!(selEnqId && itineraryData && itineraryData.taraPlan);
 
   const profileColumn = (
       <QueueProfileAccordion
@@ -496,26 +507,23 @@ export function WorkbenchTab(props: any) {
         icon={<Icon name="sliders" size={20} />}
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          selectedEnquiry ? (
-            // Back (2026-10-10, direct request; widened 2026-10-12 to the whole flow — chooser,
-            // Drafting… and the generated itinerary) — short, in the header row next to the title.
-            // Returns to the key-requirements/summary view for this enquiry. Any itinerary or
-            // in-flight generation is kept in state, not discarded.
+          // "← Back" (2026-10-21) — only while Tara's itinerary is the one showing. It sets that
+          // itinerary aside (edits kept) and returns to the Generate / Start-from-scratch chooser;
+          // the inline Tara link then offers "Return to Tara's itinerary". This replaces the
+          // header's old "Tara Itinerary" button, which only repeated "Generate AI Itinerary".
+          taraShowing ? (
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              onClick={() => {
-                setSummaryDismissedFor(null);
-                setBackToSummaryFor(selEnqId);
-                router.push("/console/conversation");
-              }}
+              title="Back to Generate AI Itinerary / Start from scratch — Tara's itinerary is kept and can be reopened"
+              onClick={() => parkTaraItinerary(selEnqId as string)}
             >
               ← Back
             </button>
           ) : null
         }
       >
-        <TaraItineraryLink member={convoMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} />
+        <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} />
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (
@@ -545,6 +553,7 @@ export function WorkbenchTab(props: any) {
         key={selEnqId + (askReady ? ":ask" : "")}
         member={member}
         enquiry={selectedEnquiryWithAsk}
+        tripDates={tripDatesFor(itineraryData, selectedEnquiryWithAsk.ask)}
         advisorId={advisorId}
         onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiryWithAsk)}
       />

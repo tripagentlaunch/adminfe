@@ -101,6 +101,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
   const [offers, setOffers] = useState<any[] | null>(null);
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  // Only the latest search may touch results/err: a slow earlier response must not land after a newer one.
+  const searchSeq = useRef(0);
 
   const airportSuggestions = (q: string) => airportAutosuggest(q, 8);
   // Real Tripsure autosuggest fields only: airport_name, airport_code, city, country.
@@ -127,17 +129,20 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     if (form.from === form.to) { setErr("From and To must differ."); return; }
     if (!form.date) { setErr("Pick a departure date."); return; }
     setSearching(true);
+    const seq = ++searchSeq.current;
     fastapiFlightSearch({
       originCode: form.from, destCode: form.to,
       date: form.date, pax: form.adults, cabin: form.cabin,
     })
       .then((r: any) => {
+        if (seq !== searchSeq.current) return;
+        setErr(null);
         setOffers((r.offers || []).slice().sort((a: any, b: any) => a.base_net - b.base_net));
         setPartialErrors(r.errors || []);
         setStep("results");
       })
-      .catch((e: any) => setErr(errText(e)))
-      .finally(() => setSearching(false));
+      .catch((e: any) => { if (seq === searchSeq.current) setErr(errText(e)); })
+      .finally(() => { if (seq === searchSeq.current) setSearching(false); });
   }
 
   // ── Step 3: select fare ───────────────────────────────────────────────────
@@ -206,7 +211,12 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
   async function goToSeats(offer: any) {
     const cached = getTripsureFlightOffer(offer.id);
     if (!cached || !customer) { setErr("This search has expired — search again."); return; }
-    const traceIds = Object.values(cached.supplierTraceIds || {}) as string[];
+    // supplierTraceIds is keyed by provider id ("1", "2"): send the trace id of THIS
+    // fare's provider. (Provider 1 fares are rejected without it.) Only when the
+    // search returned a single supplier is that one id unambiguous without a match.
+    const traceMap = (cached.supplierTraceIds || {}) as Record<string, string>;
+    const traceId: string | null =
+      traceMap[String(cached.providerId)] || (Object.keys(traceMap).length === 1 ? Object.values(traceMap)[0] : null) || null;
     const raw = cached.raw || {};
     const price = (raw.PriceSummaries || raw.priceSummaries || [])[0] || {};
     const segments = raw.segments || [];
@@ -220,7 +230,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
         offer: {
           fareSourceCode: cached.fareSourceCode,
           providerId: cached.providerId,
-          traceId: traceIds.length === 1 ? traceIds[0] : null,
+          traceId,
         },
         snapshot: {
           segments: segments.map((s: any) => ({
@@ -519,7 +529,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
               <span className="ow-sub">
                 {form.fromCity || form.from} → {form.toCity || form.to} · {fmtDay(form.date)} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
-              <button type="button" className="taw-btn taw-btn--sm" onClick={() => setStep("search")}>Change search</button>
+              <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
             </div>
             {partialErrors.length ? (
               <div className="taw-banner taw-banner--info">Some suppliers failed — results may be partial.</div>

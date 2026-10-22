@@ -47,7 +47,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
 import { inr } from "../../services/api";
-import { Empty, Icon, SleekScroll } from "../ui";
+import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary } from "../../lib/itineraryFromCart";
@@ -231,14 +231,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // side effects until they commit.
   const [summaryOpen, setSummaryOpen] = useState(false);
   function sendToProposal() {
-    // Defense-in-depth (2026-09-13) — the modal's own Continue button is
-    // already disabled for this same condition (see
-    // ItinerarySummaryModal.tsx), but this function is the actual
-    // handoff, so it refuses too rather than trusting the button alone.
-    if (hasDraftHotel(data)) {
-      toast("Search and add a real hotel for every stay before sending to proposal.", "error");
-      return;
-    }
+    // No longer refuses a draft hotel (2026-10-21, direct request): the summary modal still warns
+    // about it (hasDraftHotel), but the advisor may continue to the Proposal Composer anyway.
     sendItineraryToProposal(enquiryId, member, data);
     setSummaryOpen(false);
     router.push("/console/proposal-composer");
@@ -380,11 +374,25 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // leg switcher in flight search (.taw-leg-switch/.taw-leg-tab), reused
   // here instead of a new component since it's the exact same
   // "exactly one of a few mutually-exclusive views" shape.
-  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">("flights");
+  // A plan loaded from Tara has one note per day and flights/hotels only on a few days, so the
+  // Flights tab would show just those days: open it on "All" (re-applied when another Tara plan is
+  // loaded into this already-mounted view).
+  const taraPlanId = data.taraPlan ? String(data.taraPlan.planId || "tara") : null;
+  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">(taraPlanId ? "all" : "flights");
+  const [seenTaraPlanId, setSeenTaraPlanId] = useState(taraPlanId);
+  if (taraPlanId !== seenTaraPlanId) {
+    setSeenTaraPlanId(taraPlanId);
+    if (taraPlanId) setCategory("all");
+  }
   // alertsOpen (2026-09-04, direct request) — the "N items need
   // attention" banner is now collapsible, defaulting open so nothing
   // regresses for anyone who's never touched it.
   const [alertsOpen, setAlertsOpen] = useState(true);
+
+  // searchPending — the real flight/hotel search (/generate-itinerary/refresh, or a "Retry search")
+  // is still running. realSearchPending comes from the backend on the draft and is cleared when the
+  // refresh lands or fails (WorkbenchDataProvider).
+  const searchPending = !!data.realSearchPending || !!retryingSearch[enquiryId];
 
   const attentionCount =
     data.days.reduce((n: number, d: any) => n + d.items.filter((it: any) => tierOf(it.status) === "attention").length, 0) +
@@ -505,6 +513,12 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         </div>
       </div>
 
+      {searchPending ? (
+        <div role="status" className="taw-muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, margin: "0 0 8px" }}>
+          <Spinner /> Searching flights &amp; hotels…
+        </div>
+      ) : null}
+
       {attentionCount > 0 ? (
         <div className="taw-itin-alerts">
           <button className="taw-itin-alerts-h" onClick={() => setAlertsOpen(!alertsOpen)} aria-expanded={alertsOpen}>
@@ -617,7 +631,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           genuinely empty) — this flow is itinerary-driven, not something
           to surface unprompted in a mixed view. */}
       {category === "hotels" && visibleDays.length === 0 ? (
-        <HotelRecommendations data={data} ask={ask} onAdd={addRecommendedHotel} addedHotelKeys={addedHotelKeys} />
+        <HotelRecommendations data={data} ask={ask} onAdd={addRecommendedHotel} addedHotelKeys={addedHotelKeys} searchPending={searchPending} />
       ) : category !== "visa" && visibleDays.length === 0 ? (
         <Empty icon={<Icon name={category === "hotels" ? "hotel" : "flight"} size={26} />}>
           Nothing added from the {category === "all" ? "Flights or Hotels desks" : category === "hotels" ? "Hotels desk" : "Flights desk"} yet.

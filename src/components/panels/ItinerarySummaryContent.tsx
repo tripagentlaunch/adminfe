@@ -19,15 +19,11 @@ import { inr } from "../../services/api";
 import { Icon } from "../ui";
 import { STATUS_META, tierOf } from "../../lib/mockItinerary";
 
-// hasDraftHotel (2026-09-13) — the hard gate for Send to Proposal: a
-// "draft" hotel item is an AI-guessed placeholder (no real hotelKey/photo —
-// see itinerary_service.py's now-removed hotel-guess fallback) that must
-// never reach a customer-facing proposal. As of this date the AI
-// generation path no longer PRODUCES these for new itineraries — this
-// only still fires for an itinerary generated before that fix, or any
-// other future path that leaves a hotel item unsearched. Scoped to hotels
-// only (not the similarly-shaped flight/note "draft" items), matching the
-// direct request this addresses.
+// hasDraftHotel (2026-09-13) — true when an itinerary has a "draft" hotel item: an AI-drafted or
+// AI-suggested placeholder (no real hotelKey, TripSure never searched). It was the hard gate for
+// Send to Proposal; since 2026-10-21 it only drives the warning in the summary (and the button's
+// tooltip) — the advisor can continue to the Proposal Composer anyway. Scoped to hotels only (not
+// the similarly-shaped flight/note "draft" items).
 export function hasDraftHotel(data: any): boolean {
   return (data.days || []).some((d: any) => (d.items || []).some((it: any) => it.type === "hotel" && it.status === "draft"));
 }
@@ -90,7 +86,7 @@ export function ItinerarySummaryContent({ data }: { data: any }) {
       {hasDraftHotel(data) ? (
         <div className="taw-itinsum-flag taw-itinsum-flag--danger">
           <Icon name="alert" size={13} />
-          This itinerary still has an AI-drafted placeholder hotel — Search and add a real property for every stay before sending to a customer.
+          This itinerary still has an AI-drafted placeholder hotel — not a verified TripSure result. Search and add a real property for every stay before sending to a customer, or continue anyway.
         </div>
       ) : attentionDays > 0 ? (
         <div className="taw-itinsum-flag">

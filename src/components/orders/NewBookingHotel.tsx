@@ -76,8 +76,10 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
+// No .catch here: a failed request must reject so AutosuggestInput shows "Couldn't load suggestions"
+// instead of "No matches." (which means the provider answered with nothing).
 const citySuggestions = (q: string) =>
-  q ? hotelAutosuggestV2(q).then((r: any) => rankLocationSuggestions(q, (r && r.locationSuggestions) || [])).catch(() => []) : Promise.resolve([]);
+  q ? hotelAutosuggestV2(q).then((r: any) => rankLocationSuggestions(q, (r && r.locationSuggestions) || [])) : Promise.resolve([]);
 
 export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdded, onError }: {
   customer: Customer;

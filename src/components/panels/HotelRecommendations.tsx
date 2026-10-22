@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import { hotelRecommendations, inr } from "../../services/api";
 import { hotelBasesFromItinerary, type HotelBase } from "../../lib/itineraryFromCart";
 import { errText, toast } from "../../lib/advisorHelpers";
+import { roomCountFromAsk } from "../../lib/tripFields";
 import { Empty, Icon, Spinner } from "../ui";
 
 const RECOMMENDATION_LABELS: Record<string, string> = {
@@ -49,11 +50,15 @@ export function HotelRecommendations({
   ask,
   onAdd,
   addedHotelKeys,
+  searchPending = false,
 }: {
   data: any;
   ask: any;
   onAdd: (hotel: any, base: HotelBase) => void;
   addedHotelKeys: Set<string>;
+  /** The itinerary's own real flight/hotel search (/refresh) is still running: wait for it
+   *  instead of starting a second, identical hotel search alongside it. */
+  searchPending?: boolean;
 }) {
   const bases = hotelBasesFromItinerary(data);
   const basesSig = bases.map(baseKey).join(",");
@@ -69,9 +74,14 @@ export function HotelRecommendations({
   const starMin = ask?.hotel?.stars?.state === "value" ? Number(ask.hotel.stars.value) || undefined : undefined;
   const adults = (ask?.persons || []).length || data?.pax || 2;
   const budgetTotal = typeof ask?.budgetCap === "number" ? ask.budgetCap : undefined;
+  // "2 rooms for 2 couples" in the enquiry -> 2 rooms; otherwise the whole party in 1.
+  const rooms = roomCountFromAsk(ask, adults);
 
   useEffect(() => {
-    if (!bases.length) return;
+    // While the itinerary's own search runs, don't fire a duplicate. When it lands: if it found a
+    // hotel this panel unmounts; if it found none, searchPending flips to false, this effect runs
+    // and the recommendations search starts (the backend's listing cache makes it quick).
+    if (!bases.length || searchPending) return;
     let cancelled = false;
     bases.forEach((base) => {
       const key = baseKey(base);
@@ -83,7 +93,7 @@ export function HotelRecommendations({
         checkIn: base.checkIn,
         checkOut: base.checkOut,
         adults,
-        rooms: 1,
+        rooms,
         starMin,
         budgetTotal,
       })
@@ -104,7 +114,7 @@ export function HotelRecommendations({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [basesSig, starMin, adults, budgetTotal, retryNonce]);
+  }, [basesSig, starMin, adults, rooms, budgetTotal, retryNonce, searchPending]);
 
   if (!bases.length) {
     // No real per-day date/city signal at all yet (e.g. a brand-new
@@ -132,7 +142,11 @@ export function HotelRecommendations({
               </div>
             ) : null}
 
-            {state.status === "loading" ? (
+            {searchPending && !byBase[key] ? (
+              <div className="taw-hotelrec-loading">
+                <Spinner /> Waiting for the flight &amp; hotel search to finish…
+              </div>
+            ) : state.status === "loading" ? (
               <div className="taw-hotelrec-loading">
                 <Spinner /> Searching real hotels in {base.city}…
               </div>

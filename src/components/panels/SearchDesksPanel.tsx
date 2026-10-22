@@ -71,7 +71,7 @@ const DESKS = [
 ];
 
 export function SearchDesksPanel(props: any) {
-  const { member, enquiry, advisorId, onAdd } = props;
+  const { member, enquiry, advisorId, onAdd, tripDates } = props;
   const [desk, setDesk] = useState("flights");
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<any>(null);
@@ -122,10 +122,10 @@ export function SearchDesksPanel(props: any) {
     >
       <div className="taw-search-stack">
         {desk === "flights" ? (
-          <FlightDesk member={member} enquiry={enquiry} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
+          <FlightDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
         ) : null}
         {desk === "hotels" ? (
-          <HotelDesk member={member} enquiry={enquiry} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
+          <HotelDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
         ) : null}
         {desk === "visas" ? <VisaDesk member={member} enquiry={enquiry} advisorId={advisorId} onAdd={onAdd} /> : null}
       </div>

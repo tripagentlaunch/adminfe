@@ -56,8 +56,6 @@ export function fmtDayDate(iso: string) {
   }
 }
 
-const MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-
 // boundFromDateRange (2026-09-04) — best-effort parse of an enquiry's
 // ask.dateRange display string ("18 – 22 Nov") into real ISO start/end
 // bounds, so an itinerary has a real committed date range to check new
@@ -83,7 +81,7 @@ const MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep
 // and TypeScript.
 const ISO_DATE_RE = /\b(\d{4}-\d{2}-\d{2})\b/g;
 
-export function boundFromDateRange(rangeStr: string | undefined, year: number) {
+export function boundFromDateRange(rangeStr: string | undefined, _year?: number) {
   if (!rangeStr) return null;
 
   const isoDates = rangeStr.match(ISO_DATE_RE);
@@ -102,30 +100,77 @@ export function boundFromDateRange(rangeStr: string | undefined, year: number) {
     }
   }
 
-  // Bug fix (2026-10-12): the old regex `(\d{1,2})\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)`
-  // had no left boundary on the first \d{1,2}, so on a string like
-  // "23 Jan 2027 – 01 Feb 2027" it matched the TRAIL digits of the year
-  // ("27" from "2027") as the start day, producing startIso/endIso one
-  // day/month off and always using the hardcoded fallback `year` param
-  // even when the string itself names a real year (e.g. 2027) — this
-  // showed up as flight search pre-filling 27/02/2026 for a trip that was
-  // actually 23 Jan – 01 Feb 2027. (?<!\d) blocks matching mid-number, and
-  // an optional trailing \s*(\d{4})? on each side captures a real year
-  // when present, used in place of the fallback `year` param.
-  const m = rangeStr.match(/(?<!\d)(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?\s*[–-]\s*(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?/);
-  if (!m) return null;
-  const startMonthIdx = MONTH_ABBR.indexOf(m[2].slice(0, 3).toLowerCase());
-  const endMonthIdx = MONTH_ABBR.indexOf(m[5].slice(0, 3).toLowerCase());
-  if (startMonthIdx < 0 || endMonthIdx < 0) return null;
-  const startYear = m[3] || m[6] || String(year);
-  const endYear = m[6] || m[3] || String(year);
-  const pad = (n: string) => n.padStart(2, "0");
-  const startMm = String(startMonthIdx + 1).padStart(2, "0");
-  const endMm = String(endMonthIdx + 1).padStart(2, "0");
-  return {
-    startIso: `${startYear}-${startMm}-${pad(m[1])}`,
-    endIso: `${endYear}-${endMm}-${pad(m[4])}`,
-  };
+  // "D Mon to D Mon", "26 Dec – 1 Jan", "18 – 22 Nov", "26 Dec 2026 to 1 Jan 2027" (rewritten 2026-10-21).
+  // Mirrors _guess_date_bounds in backend/app/services/itinerary_service.py. The separator may be
+  // "to"/"until"/"till" or a dash (it used to be a dash only, so "26 Dec to 1 Jan" returned null and
+  // the Search panel fell back to today+21 / an empty return date). The first month is optional
+  // ("18 – 22 Nov" is one month). (?<!\d) stops a match starting inside a year ("2027"). A year on
+  // either side is used; with none, the NEXT occurrence of the start date (so a trip in 2027 is not
+  // given 2026), and an end that falls before the start rolls into the following year
+  // ("26 Dec to 1 Jan" = 26 Dec -> 1 Jan of the next year). `_year` is kept for the old call sites.
+  const m = rangeStr.match(
+    /(?<!\d)(\d{1,2})(?:st|nd|rd|th)?\s*([A-Za-z]{3,9})?\.?(?:,?\s+(\d{4}))?\s*(?:to|until|till|[–—-])\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?(?:,?\s+(\d{4}))?/i
+  );
+  if (!m) return single(rangeStr);
+  const endMonth = monthIndex(m[5]);
+  const startMonth = m[2] ? monthIndex(m[2]) : endMonth;
+  if (startMonth < 0 || endMonth < 0) return single(rangeStr);
+  const d1 = Number(m[1]);
+  const d2 = Number(m[4]);
+  let startYear: number;
+  if (m[3] || m[6]) {
+    startYear = Number(m[3] || m[6]);
+  } else {
+    const now = new Date();
+    const todayKey = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+    startYear = now.getFullYear() * 10000 + (startMonth + 1) * 100 + d1 >= todayKey ? now.getFullYear() : now.getFullYear() + 1;
+  }
+  let endYear = m[6] ? Number(m[6]) : startYear;
+  if (!m[6] && (endMonth + 1) * 100 + d2 < (startMonth + 1) * 100 + d1) endYear = startYear + 1;
+  if (m[6] && !m[3] && endYear * 10000 + (endMonth + 1) * 100 + d2 < startYear * 10000 + (startMonth + 1) * 100 + d1) startYear = endYear - 1;
+  const iso = (y: number, mo: number, d: number) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const startIso = iso(startYear, startMonth, d1);
+  const endIso = iso(endYear, endMonth, d2);
+  // A day that doesn't exist in its month ("31 Feb") is not a date.
+  if (isNaN(new Date(startIso).getTime()) || isNaN(new Date(endIso).getTime()) || new Date(startIso).getUTCDate() !== d1 || new Date(endIso).getUTCDate() !== d2) return null;
+  return { startIso, endIso };
+}
+
+// single — one exact day with no range ("10 November", "Nov 10", "10 Nov 2026"): a real start date,
+// end unknown (null), same as a lone ISO date. Mirrors the backend's _SINGLE_DAY_MONTH_RE branch.
+function single(rangeStr: string): { startIso: string; endIso: string | null } | null {
+  const a = rangeStr.match(/(?<!\d)(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3,9})\.?(?:,?\s+(\d{4}))?\b/i);
+  const b = a ? null : rangeStr.match(/\b([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(\d{4}))?\b/i);
+  const monthName = a ? a[2] : b ? b[1] : "";
+  const day = a ? Number(a[1]) : b ? Number(b[2]) : 0;
+  const yearStr = a ? a[3] : b ? b[3] : undefined;
+  const month = monthIndex(monthName);
+  if (month < 0 || !day) return null;
+  const now = new Date();
+  const todayKey = now.getFullYear() * 10000 + (now.getMonth() + 1) * 100 + now.getDate();
+  const year = yearStr ? Number(yearStr) : now.getFullYear() * 10000 + (month + 1) * 100 + day >= todayKey ? now.getFullYear() : now.getFullYear() + 1;
+  const startIso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  if (isNaN(new Date(startIso).getTime()) || new Date(startIso).getUTCDate() !== day) return null;
+  return { startIso, endIso: null };
+}
+
+// monthIndex — "Dec", "december", "Sept" -> 0-11; -1 for anything that is not a month name
+// (so "days" or "decide" never read as a month).
+const MONTH_FULL = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+function monthIndex(name: string): number {
+  const n = (name || "").trim().toLowerCase().replace(/\.$/, "");
+  if (n.length < 3) return -1;
+  if (n === "sept") return 8;
+  return MONTH_FULL.findIndex((full) => full.startsWith(n));
+}
+
+// tripDatesFor — the dates the Search panel should pre-fill: the itinerary's own real dates when it
+// has them (the backend parsed them; or Tara's plan, or Search-first), else whatever the enquiry's
+// own date text parses to. null when neither is known. `endIso` is null for a single known date.
+export function tripDatesFor(itinerary: any, ask: any): { startIso: string; endIso: string | null } | null {
+  if (itinerary && itinerary.startIso) return { startIso: itinerary.startIso, endIso: itinerary.endIso || null };
+  const b = boundFromDateRange(ask && ask.dateRange, new Date().getFullYear());
+  return b && b.startIso ? { startIso: b.startIso, endIso: b.endIso || null } : null;
 }
 
 // fmtDateRangeIso — the same "D – D Mon" shape as above (or "D Mon – D
@@ -287,7 +332,7 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
   return { ...base, days: nextDays, totals: { ...base.totals, grand: base.totals.grand + cartItem.baseNet, held: base.totals.held + cartItem.baseNet } };
 }
 
-function addDaysIso(iso: string, n: number) {
+export function addDaysIso(iso: string, n: number) {
   // UTC end to end: new Date("yyyy-MM-dd") parses as UTC midnight, so mixing
   // in local-time setDate() shifts the result a day across a DST change in
   // the browser's timezone (checkOut one day short).
@@ -534,4 +579,75 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
       }),
     })),
   };
+}
+
+// mergeRefreshedItinerary (2026-10-21) — folds a /generate-itinerary/refresh result into the
+// itinerary the advisor has been editing while the refresh ran, instead of replacing it.
+//   baseline  - the itinerary as it was when the refresh started (the draft)
+//   current   - the itinerary now (null if it was removed)
+//   refreshed - what the refresh returned
+// An item (matched by day id + item id) counts as touched when it differs from baseline in
+// `current`: edited, added or removed by the advisor. Touched items keep the advisor's version
+// (a removed one stays removed); untouched items take the refreshed version. Days and top-level
+// fields follow the same rule; alerts always come from the refresh; totals take the advisor's
+// change since baseline as a delta on the refreshed totals. With no edits at all this returns
+// `refreshed` unchanged, which is the old behaviour.
+export function mergeRefreshedItinerary(baseline: any, current: any, refreshed: any): any {
+  if (!current) return current;
+  if (!baseline || current === baseline) return refreshed;
+  const same = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
+  const byId = (list: any[]) => new Map((list || []).map((x: any) => [x.id, x] as [string, any]));
+  const bDays = byId(baseline.days);
+  const cDays = byId(current.days);
+
+  const days: any[] = [];
+  for (const rDay of refreshed.days || []) {
+    const bDay = bDays.get(rDay.id);
+    const cDay = cDays.get(rDay.id);
+    if (bDay && !cDay) continue; // the advisor removed this day
+    if (!cDay) {
+      days.push(rDay);
+      continue;
+    }
+    const bItems = byId(bDay?.items);
+    const cItems = byId(cDay.items);
+    const rIds = new Set((rDay.items || []).map((i: any) => i.id));
+    const items: any[] = [];
+    for (const rItem of rDay.items || []) {
+      const b = bItems.get(rItem.id);
+      const c = cItems.get(rItem.id);
+      if (same(b, c)) items.push(rItem); // untouched: the refreshed version
+      else if (c) items.push(c); // edited or added by the advisor
+      // else the advisor removed it: stays removed
+    }
+    for (const c of cDay.items || []) {
+      if (!rIds.has(c.id) && !bItems.has(c.id)) items.push(c); // added by the advisor, unknown to the refresh
+    }
+    const day: any = { ...rDay, items };
+    for (const key of Object.keys(cDay)) {
+      if (key !== "items" && key !== "subtotal" && bDay && !same(bDay[key], cDay[key])) day[key] = cDay[key];
+    }
+    days.push(day);
+  }
+  let addedDay = false;
+  for (const cDay of current.days || []) {
+    if (!bDays.has(cDay.id) && !(refreshed.days || []).some((d: any) => d.id === cDay.id)) {
+      days.push(cDay); // a day the advisor created
+      addedDay = true;
+    }
+  }
+
+  const out: any = { ...refreshed, days: addedDay ? resortDays(days) : days };
+  for (const key of Object.keys(current)) {
+    if (key === "days" || key === "totals" || key === "alerts") continue;
+    if (!same(baseline[key], current[key])) out[key] = current[key];
+  }
+  if (baseline.totals && current.totals && refreshed.totals) {
+    const totals: any = { ...refreshed.totals };
+    for (const k of Object.keys(totals)) {
+      if (typeof totals[k] === "number") totals[k] += (Number(current.totals[k]) || 0) - (Number(baseline.totals[k]) || 0);
+    }
+    out.totals = totals;
+  }
+  return out;
 }

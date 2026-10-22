@@ -411,14 +411,16 @@ export function FlightDesk(props: any) {
     // actually store, not just v1's "D – D Mon" shape. Falls back to the
     // original today+21/one-way defaults whenever ask.dateRange is
     // missing or genuinely unparseable, same as before.
-    date: boundFromDateRange(ask && ask.dateRange, 2026)?.startIso || todayISO(21),
+    // Trip dates (2026-10-21): the itinerary's own dates (props.tripDates, see tripDatesFor) first, then
+    // whatever the enquiry's date text parses to, else today+21 / no return date.
+    date: (props.tripDates && props.tripDates.startIso) || boundFromDateRange(ask && ask.dateRange)?.startIso || todayISO(21),
     // returnDate (2026-09-02) — round-trip support: EMPTY by default,
     // one-way. Whether a search is round-trip or one-way is decided
     // purely by whether this field has a value in it AT THE MOMENT
     // Search is clicked (see run()) — not a separate toggle. Now seeded
     // from the enquiry's real end date when boundFromDateRange resolved
     // one (see date, above) — still empty/one-way whenever it didn't.
-    returnDate: boundFromDateRange(ask && ask.dateRange, 2026)?.endIso || "",
+    returnDate: (props.tripDates && props.tripDates.startIso ? props.tripDates.endIso : boundFromDateRange(ask && ask.dateRange)?.endIso) || "",
     // pax (2026-09-10, fixed) — used to default from member.preferences.pax,
     // a member-level field that doesn't exist for a real member; confirmed
     // live as a real bug, not the "solo trips only" scope this comment used
@@ -478,9 +480,24 @@ export function FlightDesk(props: any) {
     return legName === "outbound" ? form.date : form.returnDate;
   }
 
+  // Fields the advisor has typed into. The trip dates below only ever fill the ones they have not,
+  // so a late-arriving itinerary (just generated, or loaded from Tara) updates Departure/Arrival
+  // without clobbering a date they chose themselves.
+  const touched = useRef<Record<string, boolean>>({});
   function set(k: string, v: any) {
+    touched.current[k] = true;
     setForm((f) => ({ ...f, [k]: v }));
   }
+  const tripStart = props.tripDates && props.tripDates.startIso;
+  const tripEnd = props.tripDates && props.tripDates.endIso;
+  useEffect(() => {
+    if (!tripStart) return;
+    setForm((f) => ({
+      ...f,
+      date: touched.current.date ? f.date : tripStart,
+      returnDate: touched.current.returnDate ? f.returnDate : tripEnd || f.returnDate,
+    }));
+  }, [tripStart, tripEnd]);
 
   // Real destination-code resolution (2026-09-06) — resolves destCode
   // against the SAME real /flights/autosuggest endpoint the From/To

@@ -170,3 +170,24 @@ export function buildRequirementRows(ask: any): RequirementRow[] {
 export function emptyLabel(field: TripField): string {
   return field.key === "special" ? "None" : "—";
 }
+
+
+// Rooms to search for, read the same way as the backend's _rooms_from_detail (itinerary_service.py):
+// an explicit "N rooms" in the enquiry's special requests / stay style ("2 rooms for 2 couples" -> 2),
+// never more than there are travellers, else 1. "2 bedroom apartment" is not a room count.
+const ROOM_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+const ROOMS_RE = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight)\s+(?:separate\s+|hotel\s+|adjoining\s+|connecting\s+|double\s+|twin\s+)?rooms?\b/i;
+
+export function roomCountFromAsk(ask: any, travellers: number): number {
+  const a = ask || {};
+  const texts = [a.specialRequests, a.hotel && a.hotel.style, a.mustHaves, a.purpose];
+  for (const t of texts) {
+    const m = typeof t === "string" ? ROOMS_RE.exec(t) : null;
+    if (m) {
+      const raw = m[1].toLowerCase();
+      const n = /^\d+$/.test(raw) ? parseInt(raw, 10) : ROOM_WORDS[raw];
+      return Math.max(1, Math.min(n, Math.max(1, travellers)));
+    }
+  }
+  return 1;
+}
