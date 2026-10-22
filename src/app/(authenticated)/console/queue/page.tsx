@@ -32,7 +32,7 @@ function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ code: string; emailSent: boolean; emailError: string } | null>(null);
+  const [result, setResult] = useState<{ code: string; emailSent: boolean; emailError: string; note: string } | null>(null);
   const [err, setErr] = useState("");
 
   async function submit() {
@@ -48,7 +48,9 @@ function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
         customer_email: email.trim(),
         customer_phone: phone.trim(),
       });
-      setResult({ code: data.code, emailSent: data.email_sent !== false, emailError: data.email_error || "" });
+      // A repeat (invited minutes ago) or a member sends no email on purpose; the backend says why.
+      const note = data.repeat || data.already_member ? data.message || "" : "";
+      setResult({ code: data.code, emailSent: data.email_sent !== false, emailError: data.email_error || "", note });
       onInvited();
     } catch (e: any) {
       setErr(errText(e) || "Something went wrong — please try again.");
@@ -156,7 +158,7 @@ function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
                     <button type="button" className="invite-cancel" onClick={reset}>
                       Cancel
                     </button>
-                    <button type="button" className="invite-send" onClick={submit} disabled={submitting}>
+                    <button type="button" className="invite-send" onClick={submit} disabled={submitting || !!result}>
                       <span>◇</span>
                       {submitting ? "Sending…" : "Send invitation"}
                     </button>
@@ -164,7 +166,9 @@ function InviteSomeoneButton({ onInvited }: { onInvited: () => void }) {
                 </>
               ) : (
                 <>
-                  {result.emailSent ? (
+                  {result.note ? (
+                    <p className="invite-description">{result.note}</p>
+                  ) : result.emailSent ? (
                     <p className="invite-description">
                       Invitation sent to <strong>{email}</strong>. Their code:
                     </p>
