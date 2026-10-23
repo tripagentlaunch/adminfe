@@ -411,12 +411,12 @@ function AccessRequestsSection() {
   }
 
   function deny(row: any) {
-    const declineReason = window.prompt("Reason for declining " + row.full_name + "'s request (optional):", "") || undefined;
+    const declineReason = window.prompt("Reason for declining " + row.full_name + "'s request (optional). They cannot send another request for 24 hours:", "") || undefined;
     setBusyId(row.id);
     siteDenyAccessRequest(row.id, declineReason)
       .then(() => {
         setBusyId(null);
-        toast("Declined " + row.full_name + "'s request", "success");
+        toast("Declined " + row.full_name + "'s request. They can apply again after 24 hours.", "success");
         load();
       })
       .catch((e: any) => {
