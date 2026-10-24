@@ -42,6 +42,150 @@ function Chip({ label }: { label: string }) {
   return <span className="pv-recgroup-eyebrow">{label}</span>;
 }
 
+// --- Day photos (Days tab) -----------------------------------------------------------------------------
+// One stock/catalogue photo per day from the day's own `photoQuery` (a landmark or place the draft named),
+// through the same lookup the Traveller Profile hero uses: GET /enquiries/destination-photo (Google Places,
+// then Pexels). Never a hotel image. Lazy: a day only asks once it is near the viewport, requests are
+// de-duplicated by query and capped at a few in flight, and the day's title and description render
+// immediately — the photo slot shows a skeleton until it resolves and disappears if there is no photo.
+type DayPhotoResult = { url: string; credit: string | null; creditUrl: string | null } | null;
+const dayPhotoCache = new Map<string, Promise<DayPhotoResult>>();
+const MAX_PHOTO_REQUESTS = 3;
+let photoInFlight = 0;
+const photoWaiting: Array<() => void> = [];
+
+function acquirePhotoSlot(): Promise<void> {
+  if (photoInFlight < MAX_PHOTO_REQUESTS) {
+    photoInFlight++;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => photoWaiting.push(() => { photoInFlight++; resolve(); }));
+}
+function releasePhotoSlot() {
+  photoInFlight--;
+  const next = photoWaiting.shift();
+  if (next) next();
+}
+
+function loadDayPhoto(query: string): Promise<DayPhotoResult> {
+  const key = query.trim().toLowerCase();
+  let hit = dayPhotoCache.get(key);
+  if (!hit) {
+    hit = acquirePhotoSlot().then(() =>
+      getDestinationPhoto(query)
+        .then((r: any) => (r && r.url ? { url: r.url as string, credit: r.photographer || null, creditUrl: r.photographerUrl || null } : null))
+        .catch(() => null)
+        .finally(releasePhotoSlot)
+    );
+    dayPhotoCache.set(key, hit);
+    // A miss or a failure is not remembered, so a transient error does not hide the photo for the session.
+    hit.then((r) => { if (!r && dayPhotoCache.get(key) === hit) dayPhotoCache.delete(key); });
+  }
+  return hit;
+}
+
+function DayPhoto({ query }: { query: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [near, setNear] = useState(false);
+  const [photo, setPhoto] = useState<DayPhotoResult | undefined>(undefined); // undefined = loading, null = none
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setNear(true);
+      return;
+    }
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setNear(true);
+        io.disconnect();
+      }
+    }, { rootMargin: "200px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!near) return;
+    let cancelled = false;
+    loadDayPhoto(query).then((r) => { if (!cancelled) setPhoto(r); });
+    return () => { cancelled = true; };
+  }, [near, query]);
+
+  if (photo === null || failed) return null; // nothing found / failed to load: the day reads fine without it
+  return (
+    <div className="pv-day-photo" ref={ref}>
+      {photo ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photo.url} alt="" loading="lazy" onError={() => setFailed(true)} />
+          {photo.credit ? (
+            <span className="pv-day-photo-credit">
+              {photo.creditUrl ? (
+                <a href={photo.creditUrl} target="_blank" rel="noreferrer">{photo.credit}</a>
+              ) : (
+                photo.credit
+              )}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <div className="pv-day-photo-skeleton" aria-hidden="true" />
+      )}
+    </div>
+  );
+}
+
+const stopsText = (n: number) => (n === 0 ? "Non-stop" : `${n} stop${n > 1 ? "s" : ""}`);
+
+function EstimateBadge() {
+  return <span className="pv-chip pv-chip--estimate" title="From the AI's general knowledge — not a TripSure rate. Replace with a real search result before quoting.">AI estimate</span>;
+}
+
+// A flight leg's chosen flight with its alternatives and Swap (generated itineraries only; a leg without
+// alternatives renders exactly as before). Alternatives are addressed by position.
+function FlightGroup({ f, onSwap }: { f: any; onSwap?: (flightId: string, altIndex: number) => void }) {
+  const alts: any[] = f.alternatives || [];
+  return (
+    <div className="pv-recgroup">
+      <RecommendedFlightRow f={f} />
+      <div className="pv-option-price" style={{ margin: "6px 0 10px" }}>
+        {inr(f.price)}
+        {f.isOriginalChoice === false ? " · Selected" : ""}
+      </div>
+      {alts.length ? (
+        <details className="pv-otheroptions" open>
+          <summary>Other flights</summary>
+          <div className="pv-alt-stack">
+            {alts.map((a: any, i: number) => (
+              <div className="pv-option" key={`${a.flightNo}-${a.depTime}`}>
+                <div className="pv-option-body">
+                  <span className="pv-option-name pv-option-name--block">
+                    {a.carrier} {a.flightNo}
+                  </span>
+                  <div className="pv-option-detail">
+                    {[a.depTime && a.arrTime ? `${a.depTime} → ${a.arrTime}` : null, a.detail].filter(Boolean).join(" · ")}
+                  </div>
+                </div>
+                <div className="pv-option-side">
+                  <div className="pv-option-price">{inr(a.price)}</div>
+                  {onSwap && f.id ? (
+                    <button type="button" className="pv-swap-btn" onClick={() => onSwap(f.id, i)}>
+                      Swap
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function RecommendedFlightRow({ f }: { f: any }) {
   return (
     <div className="pv-recflight">
@@ -54,10 +198,10 @@ function RecommendedFlightRow({ f }: { f: any }) {
           {f.depCity ? <div className="pv-recflight-city">{f.depCity}</div> : null}
         </div>
         <div className="pv-recflight-mid">
-          <div className="pv-recflight-nos">{(f.segments || []).map((s: any) => s.flightNo).filter(Boolean).join(" · ")}</div>
+          <div className="pv-recflight-nos">{(f.segments || []).map((s: any) => s.flightNo).filter(Boolean).join(" · ") || f.flightNo || ""}</div>
           <div className="pv-recflight-line" />
           <div className="pv-recflight-sub">
-            {f.duration}
+            {f.duration || (f.stops != null ? stopsText(f.stops) : "")}
             {f.cabin ? ` · ${f.cabin}` : ""}
           </div>
         </div>
@@ -100,6 +244,7 @@ function RecommendedStayRow({ st }: { st: any }) {
         ) : null}
         <div className="pv-option-price pv-option-price--hotel" style={{ marginTop: 10 }}>
           {inr(st.price)}
+          {st.priceIsEstimate ? <EstimateBadge /> : null}
         </div>
       </div>
       {st.image ? (
@@ -159,6 +304,7 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         ) : null}
         <div className="pv-option-price pv-option-price--hotel" style={{ marginTop: 10 }}>
           {inr(st.price)}
+          {st.priceIsEstimate ? <EstimateBadge /> : null}
         </div>
       </div>
     </div>
@@ -210,10 +356,12 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
 export function ProposalPreviewPage({
   data,
   onSwapHotel,
+  onSwapFlight,
   onDownload,
 }: {
   data: any;
   onSwapHotel?: (stayId: string, hotelKey: string) => void;
+  onSwapFlight?: (flightId: string, altIndex: number) => void;
   onDownload?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("Plan");
@@ -379,7 +527,9 @@ export function ProposalPreviewPage({
                   {data.flights?.length ? (
                     <>
                       <h2 className="pv-section-title">Getting there</h2>
-                      {data.flights.map((f: any, i: number) => (f.depTime ? <RecommendedFlightRow key={i} f={f} /> : <PendingFlightRow key={i} f={f} />))}
+                      {data.flights.map((f: any, i: number) =>
+                        f.depTime ? (f.alternatives?.length ? <FlightGroup key={i} f={f} onSwap={onSwapFlight} /> : <RecommendedFlightRow key={i} f={f} />) : <PendingFlightRow key={i} f={f} />
+                      )}
                     </>
                   ) : null}
 
@@ -389,12 +539,43 @@ export function ProposalPreviewPage({
                       {enrichedData.stays.map((st: any, i: number) => (
                         <div className="pv-recgroup" key={i}>
                           <div className="pv-recgroup-head">
-                            <span className="pv-recgroup-title">{st.city}</span>
+                            <span className="pv-recgroup-title">{st.area ? `${st.city} · ${st.area}` : st.city}</span>
                             {st.dateRange ? <span className="pv-recgroup-sub">{st.dateRange}</span> : null}
                           </div>
                           {st.alternatives?.length ? <StayGroup st={st} onSwap={onSwapHotel} /> : <RecommendedStayRow st={st} />}
                         </div>
                       ))}
+                    </>
+                  ) : null}
+
+                  {data.costRange && data.costRange.lines.length ? (
+                    <>
+                      <h2 className="pv-section-title">What it costs</h2>
+                      <div className="pv-costtable">
+                        {data.costRange.lines.map((ln: any) => (
+                          <div className="pv-costrow" key={ln.id}>
+                            <span>
+                              {ln.label}
+                              {ln.estimate ? <EstimateBadge /> : null}
+                            </span>
+                            <span>{ln.low === ln.high ? inr(ln.recommended) : `${inr(ln.low)} – ${inr(ln.high)}`}</span>
+                          </div>
+                        ))}
+                        <div className="pv-costrow pv-costrow--total">
+                          <span>Flights + stays</span>
+                          <span>{data.costRange.low === data.costRange.high ? inr(data.costRange.recommended) : `${inr(data.costRange.low)} – ${inr(data.costRange.high)}`}</span>
+                        </div>
+                      </div>
+                      <div className="pv-costrange-note">
+                        As chosen: {inr(data.costRange.recommended)}.
+                        {data.costRange.budgetCap
+                          ? data.costRange.withinBudget
+                            ? ` Within the ${inr(data.costRange.budgetCap)} budget.`
+                            : ` Above the ${inr(data.costRange.budgetCap)} budget — swap to a lower option or confirm the budget with the traveller.`
+                          : ""}
+                        {data.costRange.unpriced.length ? ` Not yet priced, so left out: ${data.costRange.unpriced.join(", ")}.` : ""}
+                        {data.costRange.estimateLabels.length ? " Lines marked AI estimate are not TripSure rates." : ""}
+                      </div>
                     </>
                   ) : null}
 
@@ -427,6 +608,30 @@ export function ProposalPreviewPage({
                   <h2 className="pv-section-title">
                     {data.calendarDays?.length ? `${data.calendarDays.length} days, at a glance` : "Your days"}
                   </h2>
+                  {data.dayPlan?.length ? (
+                    <>
+                      <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+                        AI-drafted day plan — suggestions only, not checked against availability or booked.
+                      </div>
+                      <div className="pv-days">
+                        {data.dayPlan.map((d: any, i: number) => (
+                          <div className="pv-day" key={i}>
+                            <div className="pv-day-num">{i + 1}</div>
+                            <div className="pv-day-main">
+                              <div className="pv-day-text">
+                                <div className="pv-day-head">
+                                  {d.title || d.label}
+                                  {d.date ? ` · ${d.date}` : ""}
+                                </div>
+                                {d.description ? <div className="pv-day-body">{d.description}</div> : null}
+                              </div>
+                              {d.photoQuery ? <DayPhoto query={d.photoQuery} /> : null}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
                   <div className="pv-days">
                     {(data.calendarBlocks || []).map((b: any, i: number) => (
                       <div className="pv-day" key={i}>
