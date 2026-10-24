@@ -67,6 +67,18 @@ const CITY_AIRPORT_CODES: Record<string, string> = {
   goa: "GOI",
   dubai: "DXB",
 };
+// originFromAsk (2026-10-22) — the FROM code for an enquiry. A real enquiry's `ask.from` is its stored
+// origin_city as typed or extracted ("Blr", "Bengaluru", "Mumbai (BOM)"), which codeFromAsk alone cannot
+// read, so the desk fell back to DEL for a Bengaluru traveller. Bare three letters are taken as the airport
+// code itself; anything else still unresolved is looked up live by the effect in FlightDesk. "" = to be
+// resolved; null = the enquiry names no origin at all.
+function originFromAsk(from: any): string | null {
+  const text = String(from || "").trim();
+  if (!text) return null;
+  const known = codeFromAsk(text);
+  if (known) return known;
+  return /^[A-Za-z]{3}$/.test(text) ? text.toUpperCase() : "";
+}
 function codeFromAsk(text: any): string | null {
   if (!text) return null;
   const paren = String(text).match(/\(([A-Z]{3})\)/);
@@ -390,7 +402,7 @@ export function FlightDesk(props: any) {
     // assumption (Indian UHNI audience, Delhi as the default hub — see
     // CLAUDE.md), same one itinerary_service.py's flight draft uses when
     // origin is unknown, not a silent guess unique to this component.
-    originCode: (ask && codeFromAsk(ask.from)) || "DEL",
+    originCode: ask ? originFromAsk(ask.from) ?? "DEL" : "DEL",
     // destCode (2026-09-06, fixed) — used to default to hardcoded "DXB"
     // whenever codeFromAsk() couldn't resolve a code synchronously (which
     // was EVERY real enquiry: its CITY_AIRPORT_CODES dict only ever
@@ -524,6 +536,27 @@ export function FlightDesk(props: any) {
         // No real code found — destCode stays blank rather than a
         // fabricated/wrong guess; the advisor can still type one in.
       });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Real origin-code resolution (2026-10-22) — the From counterpart of the destination effect above, for an
+  // origin_city that is a name rather than a code ("Bengaluru"). Never overwrites a value the advisor has
+  // since typed, and leaves the field blank rather than guessing when nothing matches.
+  useEffect(() => {
+    const fromName = ask && String(ask.from || "").trim();
+    if (!fromName || originFromAsk(fromName) !== "") return;
+    let cancelled = false;
+    liveAirports(fromName, 5)
+      .then((live) => live || searchAirports(fromName, 5))
+      .then((rows: any[]) => {
+        if (cancelled || !rows || !rows.length) return;
+        const best = rows.reduce((a: any, b: any) => ((b.popularity_score || 0) > (a.popularity_score || 0) ? b : a));
+        if (best && best.airport_code) setForm((f) => (f.originCode ? f : { ...f, originCode: best.airport_code }));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };

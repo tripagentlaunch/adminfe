@@ -16,6 +16,7 @@
  * needed for those after all.
  * ===========================================================================*/
 
+import { computeCostRange } from "./tripCostRange";
 import type { HotelEnrichment } from "./useHotelWebsites";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
@@ -248,7 +249,17 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         city,
         name: it.title,
         roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
-        dateRange: it.sub?.match(/In (.+?), out (.+)$/) ? it.sub.replace(/^.*In /, "").replace(", out", " – ") : "",
+        // Cart-built hotels carry "In X, out Y" in `sub`; generated ones (backend blocks) don't, so the
+        // dates come from the day the stay starts plus its nights.
+        dateRange: it.sub?.match(/In (.+?), out (.+)$/)
+          ? it.sub.replace(/^.*In /, "").replace(", out", " – ")
+          : it._dayIso
+          ? `${dayIsoLabel(it._dayIso)} – ${dayIsoLabel(addDaysIso(it._dayIso, parseNights(it.duration)))}`
+          : "",
+        // area + AI-estimate flag (itinerary_service blocks / suggested hotels): an estimated price is
+        // never shown as a TripSure rate.
+        area: it.area || null,
+        priceIsEstimate: !!it.priceIsEstimate,
         price: it.price || 0,
         status: it.status,
         // Routed through OUR OWN backend (2026-09-15 fix, real "Bombay
@@ -324,8 +335,19 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // real arrival date, or nothing if we can't compute one (no
         // confirmed departure time yet — see `status` below).
         arrivalDate: arrivalIso ? (arrivalIso === it._dayIso ? "Same day" : dayIsoLabel(arrivalIso)) : null,
-        arrivalTime: lastSegmentArrival(it.segments),
+        arrivalTime: lastSegmentArrival(it.segments) || it.arrTime || null,
         duration: it.duration,
+        // id/alternatives — the generated itinerary's other real flights for this leg (Swap acts on `id`,
+        // by position). `stops`/`flightNo` cover generated items, which have no `segments`.
+        id: it.id,
+        flightNo: it.flightNo || null,
+        stops: it.stops ?? null,
+        price: it.price || 0,
+        isOriginalChoice: !it.originalFlightNo || it.originalFlightNo === it.flightNo,
+        alternatives: (it.alternatives || []).map((a: any) => ({
+          carrier: a.carrier, flightNo: a.flightNo, depTime: a.depTime, arrTime: a.arrTime, stops: a.stops ?? 0,
+          price: a.price || 0, detail: a.detail || null,
+        })),
         cabin: it.cabin,
         segments: it.segments || [],
         title: it.title,
@@ -527,6 +549,13 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     calendarBlocks,
     calendarCaptions,
     costLines: enrichedCostLines,
+    // Range across the chosen options and their alternatives (follows Swap); budgetCap comes from the
+    // backend's cost summary for the first generation.
+    costRange: computeCostRange(days, data.pax || 1, data.costSummary?.budgetCap),
+    // Day-by-day narrative of a generated itinerary — AI-drafted, unverified. Empty for cart-built ones.
+    dayPlan: days
+      .filter((d: any) => d.title || d.description)
+      .map((d: any) => ({ label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null })),
     stays,
     flights,
     visa: visa

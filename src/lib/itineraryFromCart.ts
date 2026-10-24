@@ -581,6 +581,55 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
   };
 }
 
+// swapFlightAlternative (2026-10-22) — the flight counterpart of swapHotelAlternative: makes alternative
+// `altIndex` the chosen flight for this leg and moves the previous choice into that slot. Pure. Flight
+// alternatives carry no key, so they are addressed by position. The comparison line on every alternative is
+// rewritten against the NEW choice's fare, so it never describes the wrong baseline.
+const stopsLabel = (n: number) => (n === 0 ? "Non-stop" : `${n} stop${n > 1 ? "s" : ""}`);
+export function swapFlightAlternative(data: any, itemId: string, altIndex: number): any {
+  if (!data || !Array.isArray(data.days)) return data;
+  return {
+    ...data,
+    days: data.days.map((day: any) => ({
+      ...day,
+      items: (day.items || []).map((it: any) => {
+        if (it.id !== itemId || it.type !== "flight") return it;
+        const alts: any[] = it.alternatives || [];
+        const alt = alts[altIndex];
+        if (!alt) return it;
+        const route = String(it.title || "").split("·").pop() || "";
+        const [origin, dest] = route.split("→").map((x) => x.trim());
+        const demoted = {
+          carrier: it.carrier, flightNo: it.flightNo, origin: origin || alt.origin, dest: dest || alt.dest,
+          depTime: it.time ?? null, arrTime: it.arrTime ?? null, arrDayOffset: it.arrDayOffset ?? 0,
+          stops: it.stops ?? 0, price: it.price, baggageKg: it.baggageKg ?? null, refundable: it.refundable ?? null,
+        };
+        const rest = alts.map((a, i) => (i === altIndex ? demoted : a)).map((a) => {
+          const gap = a.price - alt.price;
+          const versus = Math.round(gap) === 0 ? "same fare as the selected" : `₹${Math.abs(Math.round(gap)).toLocaleString("en-IN")} ${gap > 0 ? "more" : "less"} than the selected fare`;
+          return { ...a, detail: `${stopsLabel(a.stops ?? 0)} · ${versus}` };
+        });
+        return {
+          ...it,
+          originalFlightNo: it.originalFlightNo || it.flightNo,
+          title: `${alt.carrier} ${alt.flightNo} · ${alt.origin} → ${alt.dest}`,
+          time: alt.depTime,
+          arrTime: alt.arrTime,
+          arrDayOffset: alt.arrDayOffset ?? 0,
+          carrier: alt.carrier,
+          flightNo: alt.flightNo,
+          stops: alt.stops,
+          price: alt.price,
+          baggageKg: alt.baggageKg ?? null,
+          refundable: alt.refundable ?? null,
+          sub: `${alt.origin} ${alt.depTime || ""} → ${alt.dest} ${alt.arrTime || ""} · ${stopsLabel(alt.stops ?? 0)}`,
+          alternatives: rest,
+        };
+      }),
+    })),
+  };
+}
+
 // mergeRefreshedItinerary (2026-10-21) — folds a /generate-itinerary/refresh result into the
 // itinerary the advisor has been editing while the refresh ran, instead of replacing it.
 //   baseline  - the itinerary as it was when the refresh started (the draft)
