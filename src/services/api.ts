@@ -1439,6 +1439,13 @@ function siteAccessRequestsMissingCode() {
   return adminbeAccessRequestCall("?status=missing-code", "GET");
 }
 
+// siteAccessRequestsApproved() -> approved requests, each with claim_status:
+// "claimed" | "pending" (a live unclaimed code) | "expired" | "no_code", plus the
+// code, who approved it and when.
+function siteAccessRequestsApproved() {
+  return adminbeAccessRequestCall("/approved-status", "GET");
+}
+
 // siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
@@ -2559,6 +2566,7 @@ export {
   // admin-only, role re-checked server-side (see adminbeAccessRequestCall).
   siteAccessRequestsPending,
   siteAccessRequestsMissingCode,
+  siteAccessRequestsApproved,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 
