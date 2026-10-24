@@ -23,6 +23,7 @@ import {
   siteAccessRequestsMissingCode,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
+  siteAccessRequestsApproved,
   inr,
 } from "../../services/api";
 import { cx } from "../../lib/cx";
@@ -323,6 +324,64 @@ function EnquiryAssignSection(props: any) {
   );
 }
 
+// ApprovedRequestsList: requests an advisor approved, each with whether the person has
+// claimed their code yet: Claimed (with the date), Pending (code sent, not yet used,
+// with its expiry), Expired (the code ran out unclaimed) or No code.
+function ApprovedRequestsList({ rows, loading }: { rows: any[]; loading: boolean }) {
+  const claimed = rows.filter((r) => r.claim_status === "claimed").length;
+  const waiting = rows.filter((r) => r.claim_status === "pending").length;
+  const badge = (r: any) => {
+    if (r.claim_status === "claimed")
+      return { cls: "success", text: "Claimed" + (r.claimed_at ? " " + fmtDate(r.claimed_at) : "") };
+    if (r.claim_status === "pending")
+      return { cls: "warn", text: "Pending" + (r.expires_at ? ", code expires " + fmtDate(r.expires_at) : "") };
+    if (r.claim_status === "expired") return { cls: "danger", text: "Code expired, not claimed" };
+    return { cls: "info", text: "No code issued" };
+  };
+  if (loading && !rows.length) return <div className="taw-skel" style={{ height: 96 }} />;
+  if (!rows.length) return <Empty icon={<Icon name="inbox" size={28} />}>No approved requests yet.</Empty>;
+  return (
+    <>
+      <div style={{ fontSize: 12.5, color: "var(--taupe)", marginBottom: 10 }}>
+        {claimed} claimed · {waiting} waiting to claim · {rows.length} approved
+      </div>
+      <div className="taw-qlist">
+        {rows.map((r: any) => {
+          const b = badge(r);
+          return (
+            <div key={r.id} className="taw-qrow" style={{ display: "block" }}>
+              <div className="taw-qrow-top">
+                <span className="taw-qtype taw-icrow">
+                  <Icon name="user" size={13} />
+                  {r.name}
+                </span>
+                <span className={cx("taw-status", "taw-status--" + b.cls)}>{b.text}</span>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
+                {r.email} · {r.phone}
+                {r.city ? " · " + r.city : ""}
+              </div>
+              {r.destination || r.travel_date ? (
+                <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 5 }}>
+                  {r.destination ? "Wants to go: " + r.destination : ""}
+                  {r.destination && r.travel_date ? " · " : ""}
+                  {r.travel_date ? "When: " + r.travel_date : ""}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 5 }}>
+                Approved{r.approved_by ? " by " + r.approved_by : ""}
+                {r.approved_at ? " on " + fmtDate(r.approved_at) + " " + fmtTime(r.approved_at) : ""}
+                {r.code ? " · Code " : ""}
+                {r.code ? <b style={{ fontFamily: "monospace" }}>{r.code}</b> : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 // AccessRequestsSection (Phase C, 2026-09-16) — reviews site_access_requests
 // (strangers applying via the site's Request Access form). Reads and decides
 // through adminbe's admin-only /admin/access-requests endpoints (services/
@@ -334,6 +393,9 @@ function AccessRequestsSection() {
   // noCode — approved before approval minted a code, so they can't sign in
   // (and their WhatsApp itinerary links can't open). approve() issues one.
   const [noCode, setNoCode] = useState<any[]>([]);
+  // Pending | Approved tabs; `approved` is every approved request with its claim state.
+  const [tab, setTab] = useState<"pending" | "approved">("pending");
+  const [approved, setApproved] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<any>(null);
   const [busyId, setBusyId] = useState<any>(null);
@@ -375,6 +437,9 @@ function AccessRequestsSection() {
     siteAccessRequestsMissingCode()
       .then((list: any) => setNoCode(Array.isArray(list) ? list : []))
       .catch(() => setNoCode([]));
+    siteAccessRequestsApproved()
+      .then((list: any) => setApproved(Array.isArray(list) ? list : []))
+      .catch(() => setApproved([]));
   }
   useEffect(load, []);
 
@@ -445,6 +510,14 @@ function AccessRequestsSection() {
             {err}
           </div>
         ) : null}
+        <div className="taw-tabs" role="tablist" style={{ marginBottom: 12, padding: 0 }}>
+          <button className={cx("taw-tab", tab === "pending" && "is-active")} role="tab" aria-selected={tab === "pending"} onClick={() => setTab("pending")}>
+            Pending <span className="pill">{pending.length}</span>
+          </button>
+          <button className={cx("taw-tab", tab === "approved" && "is-active")} role="tab" aria-selected={tab === "approved"} onClick={() => setTab("approved")}>
+            Approved requests <span className="pill">{approved.length}</span>
+          </button>
+        </div>
         {/* FIXED (2026-09-17, direct request): rendered here, independent
             of `pending` — the old version of this lived inside
             pending.map(...) and could only show for a row still in that
@@ -488,6 +561,8 @@ function AccessRequestsSection() {
             ))}
           </div>
         ) : null}
+        {tab === "pending" ? (
+          <>
         {loading && rows == null ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {[0, 1, 2].map((i) => (
@@ -572,6 +647,10 @@ function AccessRequestsSection() {
             </div>
           </div>
         ) : null}
+          </>
+        ) : (
+          <ApprovedRequestsList rows={approved} loading={loading} />
+        )}
       </div>
     </Card>
   );
