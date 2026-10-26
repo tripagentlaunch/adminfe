@@ -1446,6 +1446,34 @@ function siteAccessRequestsApproved() {
   return adminbeAccessRequestCall("/approved-status", "GET");
 }
 
+// Super keys: one fixed code that anyone can enter, with no approval. adminbe's
+// /admin/super-keys lists each key with its total entries and the latest entries
+// (the visitor's place when they allowed location); the switch turns a key off.
+function adminbeSuperKeyCall(path, method, body?) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/super-keys" + path, {
+    method: method,
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
+      }
+      return data;
+    });
+  });
+}
+
+function siteSuperKeys() {
+  return adminbeSuperKeyCall("", "GET");
+}
+
+function siteSetSuperKeyActive(code, active) {
+  return adminbeSuperKeyCall("/" + encodeURIComponent(code) + "/active", "POST", { active: !!active });
+}
+
 // siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
@@ -2567,6 +2595,8 @@ export {
   siteAccessRequestsPending,
   siteAccessRequestsMissingCode,
   siteAccessRequestsApproved,
+  siteSuperKeys,
+  siteSetSuperKeyActive,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 
