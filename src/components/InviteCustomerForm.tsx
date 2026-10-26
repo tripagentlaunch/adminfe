@@ -27,7 +27,7 @@ export function InviteCustomerForm({ onClose }: { onClose: () => void }) {
   const [form, setForm] = useState({ name: "", email: "", phone: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState<{ code: string; emailSent: boolean; emailError: string } | null>(null);
+  const [success, setSuccess] = useState<{ code: string; emailSent: boolean; emailError: string; note: string } | null>(null);
 
   // Same rule as the website's Request Access form: 10 digits, starting 6-9.
   const phoneOk = /^[6-9]\d{9}$/.test(form.phone);
@@ -44,7 +44,9 @@ export function InviteCustomerForm({ onClose }: { onClose: () => void }) {
     inviteCustomerNamedCode({ customer_name: form.name.trim(), customer_email: form.email.trim(), customer_phone: "+91" + form.phone })
       .then((data: any) => {
         setBusy(false);
-        setSuccess({ code: data.code, emailSent: data.email_sent !== false, emailError: data.email_error || "" });
+        // A repeat (invited minutes ago) or a member sends no email on purpose; the backend says why.
+        const note = data.repeat || data.already_member ? data.message || "" : "";
+        setSuccess({ code: data.code, emailSent: data.email_sent !== false || !!note, emailError: data.email_error || "", note });
       })
       .catch((e: any) => {
         setBusy(false);
@@ -66,7 +68,9 @@ export function InviteCustomerForm({ onClose }: { onClose: () => void }) {
           <>
             <div className={success.emailSent ? "taw-banner taw-banner--info" : "taw-banner taw-banner--err"}>
               <Icon name={success.emailSent ? "check" : "alert"} size={16} />
-              {success.emailSent
+              {success.note
+                ? success.note
+                : success.emailSent
                 ? "Invitation sent to " + form.email + "."
                 : "Code issued, but the email to " + form.email + " didn't send" + (success.emailError ? " (" + success.emailError + ")" : "") + " — share the code directly."}
             </div>

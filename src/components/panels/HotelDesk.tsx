@@ -10,6 +10,7 @@ import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
+import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
@@ -69,7 +70,9 @@ const DEFAULT_CITY_SUGGESTIONS = [
 // above for why.
 function cityLocationSuggestions(query: string) {
   if (!query) return Promise.resolve(DEFAULT_CITY_SUGGESTIONS);
-  return hotelAutosuggestV2(query).then((r: any) => rankLocationSuggestions(query, (r && r.locationSuggestions) || []));
+  // Instant from the built-in directory for 1 letter; live TripSure results win when they
+  // answer within 2.5s, else the directory fills in (see lib/citySuggest.ts, same as flights).
+  return citySuggest(query, rankLocationSuggestions);
 }
 
 function renderCityLocationSuggestion(loc: any) {

@@ -36,7 +36,7 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
+import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
 
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
   const router = useRouter();
@@ -343,6 +343,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   function swapProposalHotel(enquiryId: string, itemId: string, hotelKey: string) {
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapHotelAlternative(e.data, itemId, hotelKey) } : e)));
   }
+  function swapProposalFlight(enquiryId: string, itemId: string, altIndex: number) {
+    setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapFlightAlternative(e.data, itemId, altIndex) } : e)));
+  }
   function setProposalOutcome(enquiryId: string, outcome: ProposalOutcome) {
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, outcome } : e)));
     if (outcome === "awaiting") return; // never a real PATCH target — see enquiryProposalOutcome's own note
@@ -570,6 +573,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         selectedProposalEnqId,
         sendItineraryToProposal,
         swapProposalHotel,
+        swapProposalFlight,
         selectProposal,
         setProposalOutcome,
         itinerariesByEnquiry,

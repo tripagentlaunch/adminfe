@@ -73,6 +73,8 @@ export interface WorkbenchContextValue {
   // swapProposalHotel — Proposal Composer's "Swap": makes an alternative the chosen hotel in
   // this enquiry's proposal itinerary (see swapHotelAlternative), so PDF/web link follow.
   swapProposalHotel: (enquiryId: string, itemId: string, hotelKey: string) => void;
+  // swapProposalFlight — same for a flight leg's alternatives (addressed by position).
+  swapProposalFlight: (enquiryId: string, itemId: string, altIndex: number) => void;
   selectProposal: (enquiryId: string) => void;
   // setProposalOutcome (2026-09-08) — the Pipeline tab's "Accepted" /
   // "Revision Requested" / "Rejected" stages need SOME record of what
