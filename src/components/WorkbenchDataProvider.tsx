@@ -433,18 +433,23 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       });
   }
 
-  // "Retry search" on the tripsure-unavailable alert. generate-itinerary
-  // first (re-seeds the backend's in-memory draft cache — refresh alone
-  // 409s after a restart), then refresh for the real TripSure search; the
-  // refreshed itinerary is merged into the current one, clearing the unresolved
-  // placeholders. Any items the advisor added/edited by hand since are
-  // kept (mergeRefreshedItinerary), same as the original refresh merge.
+  // "Retry search" on the tripsure-unavailable alert. Refresh first: the backend still holds the
+  // draft in memory, so only the real TripSure search re-runs (no new AI draft, no extra tokens).
+  // A 409 means this server process has no draft for the enquiry (restart / sleep / another
+  // instance) — only then generate-itinerary re-seeds it before refreshing again. The refreshed
+  // itinerary is merged into the current one, clearing the unresolved placeholders. Any items
+  // the advisor added/edited by hand since are kept (mergeRefreshedItinerary), same as the
+  // original refresh merge.
   function retryItinerarySearch(enquiryId: string) {
     if (retryingSearch[enquiryId]) return;
     setRetryingSearch((r) => ({ ...r, [enquiryId]: true }));
     const baseline = itinerariesByEnquiry[enquiryId];
-    enquiryGenerateItinerary(enquiryId)
-      .then(() => enquiryRefreshItinerary(enquiryId))
+    enquiryRefreshItinerary(enquiryId)
+      .catch((e: any) =>
+        e && e.status === 409
+          ? enquiryGenerateItinerary(enquiryId).then(() => enquiryRefreshItinerary(enquiryId))
+          : Promise.reject(e)
+      )
       .then((refreshed: any) => {
         // Same merge as the first refresh: edits made while the retry ran are kept.
         setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: m[enquiryId] ? mergeRefreshedItinerary(baseline, m[enquiryId], refreshed) : refreshed }));
