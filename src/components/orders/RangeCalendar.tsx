@@ -54,10 +54,14 @@ function Month({ y, m, min, start, end, hover, onPick, onHover }: {
   );
 }
 
-export function RangeCalendar({ checkIn, checkOut, min, onChange, onDone }: {
+export function RangeCalendar({ checkIn, checkOut, min, onChange, onDone, labels = ["Check-in", "Check-out"], showNights = true }: {
   checkIn: string; checkOut: string; min: string;
   onChange: (checkIn: string, checkOut: string) => void;
   onDone?: () => void;
+  /** Pill captions: hotels say Check-in/Check-out, flights Depart/Return. */
+  labels?: [string, string];
+  /** Hotels show "N nights" between the pills; flights have no such count. */
+  showNights?: boolean;
 }) {
   const base = parse(checkIn || min);
   const [view, setView] = useState({ y: base.y, m: base.m });
@@ -79,9 +83,9 @@ export function RangeCalendar({ checkIn, checkOut, min, onChange, onDone }: {
   return (
     <div className="ow-cal">
       <div className="ow-cal-pills">
-        <div className={`ow-cal-pill${!checkOut ? " on" : ""}`}><small>Check-in</small><b>{fmtPill(checkIn)}</b></div>
-        <span className="ow-cal-nights">{nights ? `${nights} night${nights === 1 ? "" : "s"}` : "→"}</span>
-        <div className={`ow-cal-pill${checkIn && !checkOut ? " on" : ""}`}><small>Check-out</small><b>{fmtPill(checkOut)}</b></div>
+        <div className={`ow-cal-pill${!checkOut ? " on" : ""}`}><small>{labels[0]}</small><b>{fmtPill(checkIn)}</b></div>
+        <span className="ow-cal-nights">{showNights && nights ? `${nights} night${nights === 1 ? "" : "s"}` : "→"}</span>
+        <div className={`ow-cal-pill${checkIn && !checkOut ? " on" : ""}`}><small>{labels[1]}</small><b>{fmtPill(checkOut)}</b></div>
       </div>
       <div className="ow-cal-nav">
         <button type="button" className="ow-cal-arrow" onClick={() => shift(-1)} disabled={prevDisabled} aria-label="Previous month">
