@@ -1806,6 +1806,9 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
 
   return {
     id: id,
+    // Which side of a ROUND_TRIP search this fare came from ("ONWARD" / "RETURN");
+    // always "ONWARD" for a one-way search.
+    leg: ctx.leg || "ONWARD",
     international: !_isDomesticRoute(first.departureAirport, last.arrivalAirport),
     base_net: Number(price.totalFare) || 0,
     detail: {
@@ -1847,6 +1850,7 @@ function mapTripSureSearchResponse(searchResponse, ctx) {
           supplierTraceIds: searchResponse.supplierTraceIds,
           cabin: ctx.cabin,
           pax: ctx.pax,
+          leg: leg,
         })
       );
     });
@@ -1859,17 +1863,23 @@ function mapTripSureSearchResponse(searchResponse, ctx) {
 // searchFlights(), mapped into FastAPI's ONE_WAY/segments[] shape and back
 // out into the old {count, offers} shape via mapTripSureSearchResponse()
 // above. No children/infants in the current search form — both default 0.
+//
+// With params.returnDate set it is ONE ROUND_TRIP search (outbound + return
+// segment), whose result carries both sides — offers come back tagged
+// leg "ONWARD" / "RETURN" and share one searchKey, which is what lets the
+// two picked fares be locked together in a single itinerary. FlightDesk
+// never passes returnDate (it runs one one-way search per leg), so it is
+// unaffected.
 function fastapiFlightSearch(params) {
   params = params || {};
+  var origin = String(params.originCode || "").toUpperCase();
+  var dest = String(params.destCode || "").toUpperCase();
+  var roundTrip = !!params.returnDate;
+  var segments = [{ origin: origin, destination: dest, departure_date: params.date }];
+  if (roundTrip) segments.push({ origin: dest, destination: origin, departure_date: params.returnDate });
   var body = {
-    trip_type: "ONE_WAY",
-    segments: [
-      {
-        origin: String(params.originCode || "").toUpperCase(),
-        destination: String(params.destCode || "").toUpperCase(),
-        departure_date: params.date,
-      },
-    ],
+    trip_type: roundTrip ? "ROUND_TRIP" : "ONE_WAY",
+    segments: segments,
     adults: Number(params.pax) || 1,
     children: 0,
     infants: 0,

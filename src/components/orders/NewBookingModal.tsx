@@ -11,7 +11,7 @@ import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
-import { SingleCalendar } from "./RangeCalendar";
+import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 
 type Customer = { member_id: string | null; name: string; email: string };
 type Step = "customer" | "search" | "results" | "seats" | "flightDone" | "hotel";
@@ -94,11 +94,26 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
   // ── Step 2: search ────────────────────────────────────────────────────────
   const [form, setForm] = useState({
     from: "", to: "", fromCity: "", toCity: "",
-    date: todayISO(), adults: 1, cabin: "economy",
+    date: todayISO(), returnDate: "", adults: 1, cabin: "economy",
   });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  // One way vs round trip. A round trip is ONE search whose offers come back tagged
+  // ONWARD / RETURN: the advisor picks a fare on each side and both are locked
+  // together as a single itinerary (see goToSeats).
+  const [tripType, setTripType] = useState<"oneway" | "round">("oneway");
   const [searching, setSearching] = useState(false);
-  const [offers, setOffers] = useState<any[] | null>(null);
+  const [allOffers, setAllOffers] = useState<any[] | null>(null);
+  // Whether the results on screen came from a round-trip search (the form can't change
+  // while results show, but this keeps the results self-describing).
+  const [resultsRound, setResultsRound] = useState(false);
+  const [activeLeg, setActiveLeg] = useState<"ONWARD" | "RETURN">("ONWARD");
+  const [picked, setPicked] = useState<{ ONWARD: any | null; RETURN: any | null }>({ ONWARD: null, RETURN: null });
+  // The list the filters / sorts / cards work on: the whole result for a one-way search,
+  // only the active side for a round trip.
+  const offers = useMemo(
+    () => (allOffers && resultsRound ? allOffers.filter((o) => (o.leg || "ONWARD") === activeLeg) : allOffers),
+    [allOffers, resultsRound, activeLeg],
+  );
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   // Only the latest search may touch results/err: a slow earlier response must not land after a newer one.
@@ -119,6 +134,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
   const swapAirports = () =>
     setForm((f) => ({ ...f, from: f.to, to: f.from, fromCity: f.toCity, toCity: f.fromCity }));
+  // Switching trip type: round trip opens the date picker so the return gets chosen
+  // straight away; back to one way drops the return date.
+  function goRound() {
+    setTripType("round");
+    setErr(null);
+    setPanel("date");
+  }
+  function goOneWay() {
+    setTripType("oneway");
+    setForm((f) => ({ ...f, returnDate: "" }));
+    setPanel((p) => (p === "date" ? null : p));
+  }
   const cabinLabel = (CABINS.find((c) => c.key === form.cabin) || CABINS[0]).label;
 
   function runSearch() {
@@ -128,16 +155,22 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     }
     if (form.from === form.to) { setErr("From and To must differ."); return; }
     if (!form.date) { setErr("Pick a departure date."); return; }
+    const round = tripType === "round";
+    if (round && !form.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
+    if (round && form.returnDate < form.date) { setErr("The return can't be before the departure."); return; }
     setSearching(true);
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
       originCode: form.from, destCode: form.to,
-      date: form.date, pax: form.adults, cabin: form.cabin,
+      date: form.date, returnDate: round ? form.returnDate : undefined, pax: form.adults, cabin: form.cabin,
     })
       .then((r: any) => {
         if (seq !== searchSeq.current) return;
         setErr(null);
-        setOffers((r.offers || []).slice().sort((a: any, b: any) => a.base_net - b.base_net));
+        setAllOffers((r.offers || []).slice().sort((a: any, b: any) => a.base_net - b.base_net));
+        setResultsRound(round);
+        setActiveLeg("ONWARD");
+        setPicked({ ONWARD: null, RETURN: null });
         setPartialErrors(r.errors || []);
         setStep("results");
       })
@@ -147,6 +180,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
   // ── Step 3: select fare ───────────────────────────────────────────────────
   const [selectedOffer, setSelectedOffer] = useState<any | null>(null);
+  // Round trip: the RETURN fare locked together with selectedOffer (the ONWARD one).
+  const [selectedReturn, setSelectedReturn] = useState<any | null>(null);
 
   // ── Step 3 filters / sort (client-side over the fetched offers) ───────────
   const [sortKey, setSortKey] = useState<(typeof SORTS)[number]["key"]>("cheapest");
@@ -208,18 +243,51 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     return d ? bookingDiscardFlightItinerary(d.itineraryId).then(() => undefined, () => undefined) : Promise.resolve();
   }
 
-  async function goToSeats(offer: any) {
+  // The identifiers Create Itinerary needs for one fare, from the search cache.
+  // supplierTraceIds is keyed by provider id ("1", "2"): send the trace id of THIS
+  // fare's provider. (Provider 1 fares are rejected without it.) Only when the
+  // search returned a single supplier is that one id unambiguous without a match.
+  function fareRef(offer: any) {
     const cached = getTripsureFlightOffer(offer.id);
-    if (!cached || !customer) { setErr("This search has expired — search again."); return; }
-    // supplierTraceIds is keyed by provider id ("1", "2"): send the trace id of THIS
-    // fare's provider. (Provider 1 fares are rejected without it.) Only when the
-    // search returned a single supplier is that one id unambiguous without a match.
+    if (!cached) return null;
     const traceMap = (cached.supplierTraceIds || {}) as Record<string, string>;
     const traceId: string | null =
       traceMap[String(cached.providerId)] || (Object.keys(traceMap).length === 1 ? Object.values(traceMap)[0] : null) || null;
     const raw = cached.raw || {};
     const price = (raw.PriceSummaries || raw.priceSummaries || [])[0] || {};
-    const segments = raw.segments || [];
+    const segments: any[] = raw.segments || [];
+    return {
+      offer: { fareSourceCode: cached.fareSourceCode, providerId: cached.providerId, traceId },
+      segments,
+      snapshot: {
+        segments: segments.map((s: any) => ({
+          departureAirport: s.departureAirport,
+          arrivalAirport: s.arrivalAirport,
+          departureDateTime: s.departureDateTime,
+          arrivalDateTime: s.arrivalDateTime,
+          airlineCode: s.airlineCode,
+          airlineName: s.airlineName,
+          flightNumber: s.flightNumber,
+          durationInMins: s.durationInMins,
+          stops: s.stops,
+        })),
+        bookingClass: price.bookingClass || null,
+        baggageKg: offer.detail.baggageKg,
+        refundable: offer.detail.refundable,
+      },
+    };
+  }
+
+  // Locks the fare as a hidden draft. A round trip passes the picked RETURN fare as
+  // well: both go to Tripsure in ONE Create Itinerary call (same search), so there is
+  // one draft, one combined fare and one SSR catalog covering both sectors.
+  async function goToSeats(offer: any, returnOffer?: any) {
+    const onward = fareRef(offer);
+    const back = returnOffer ? fareRef(returnOffer) : null;
+    if (!onward || !customer || (returnOffer && !back)) { setErr("This search has expired — search again."); return; }
+    // Onward segments first, then the return's: this is the segment_order the server
+    // records, and the order seat/baggage picks are sent back in.
+    const segments = [...onward.segments, ...(back ? back.segments : [])];
     setErr(null);
     setLockingId(offer.id);
     let created: { itineraryId: string; tripsureId: string } | null = null;
@@ -227,27 +295,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
       const r: any = await bookingCreateFlightItinerary({
         customer: { member_id: customer.member_id, name: customer.name, email: customer.email || null },
         order_id: addToOrder ? addToOrder.dbId : null,
-        offer: {
-          fareSourceCode: cached.fareSourceCode,
-          providerId: cached.providerId,
-          traceId,
-        },
-        snapshot: {
-          segments: segments.map((s: any) => ({
-            departureAirport: s.departureAirport,
-            arrivalAirport: s.arrivalAirport,
-            departureDateTime: s.departureDateTime,
-            arrivalDateTime: s.arrivalDateTime,
-            airlineCode: s.airlineCode,
-            airlineName: s.airlineName,
-            flightNumber: s.flightNumber,
-            durationInMins: s.durationInMins,
-            stops: s.stops,
-          })),
-          bookingClass: price.bookingClass || null,
-          baggageKg: offer.detail.baggageKg,
-          refundable: offer.detail.refundable,
-        },
+        offer: onward.offer,
+        snapshot: onward.snapshot,
+        ...(back ? { return_offer: back.offer, return_snapshot: back.snapshot } : {}),
         adults: form.adults, children: 0, infants: 0,
         cabin_class: form.cabin.toUpperCase(),
         origin_city: form.fromCity || null,
@@ -260,6 +310,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
       const catalog = await flightSsr(r.tripsure_itinerary_id);
       setSsr(catalog);
       setSelectedOffer(offer);
+      setSelectedReturn(returnOffer || null);
       setSel((segments.length ? segments : [null]).map(() => ({ seat: null, baggage: null })));
       setSeatSeg(0);
       setSeatTab("baggage");
@@ -270,6 +321,14 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     } finally {
       setLockingId(null);
     }
+  }
+
+  // Round trip: choose a fare on one side; once the first is chosen, jump to the other.
+  function pickLeg(o: any) {
+    const leg: "ONWARD" | "RETURN" = (o.leg || "ONWARD") === "RETURN" ? "RETURN" : "ONWARD";
+    const already = picked[leg]?.id === o.id;
+    setPicked((p) => ({ ...p, [leg]: already ? null : o }));
+    if (!already && !picked[leg === "ONWARD" ? "RETURN" : "ONWARD"]) setActiveLeg(leg === "ONWARD" ? "RETURN" : "ONWARD");
   }
 
   async function backToResults() {
@@ -419,8 +478,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
         {step === "search" ? (
           <>
             <div className="ow-trip" role="tablist" aria-label="Trip type">
-              <button type="button" role="tab" aria-selected="true" className="ow-trip-pill on">One way</button>
-              <button type="button" role="tab" aria-selected="false" className="ow-trip-pill" disabled title="Round trip isn't supported yet">Round trip</button>
+              <button type="button" role="tab" aria-selected={tripType === "oneway"} className={`ow-trip-pill${tripType === "oneway" ? " on" : ""}`} onClick={goOneWay}>One way</button>
+              <button type="button" role="tab" aria-selected={tripType === "round"} className={`ow-trip-pill${tripType === "round" ? " on" : ""}`} onClick={goRound}>Round trip</button>
             </div>
             <div className="ow-sbar ow-sbar--flight">
               <div className="ow-sbar-route">
@@ -465,9 +524,12 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                   <span>{fmtDay(form.date) || "Select date"}</span>
                 </button>
               </div>
-              <div className="ow-pill ow-pill--btn ow-pill--date ow-pill--disabled" title="Round trip isn't supported yet" aria-disabled="true">
+              <div className={`ow-pill ow-pill--btn ow-pill--date${tripType === "round" ? "" : " ow-pill--idle"}${panel === "date" && tripType === "round" ? " open" : ""}`}>
                 <span className="ow-pill-l">Return</span>
-                <span className="ow-pillbtn"><Icon name="calendar" size={14} /><span>Add return</span></span>
+                <button type="button" className="ow-pillbtn" aria-label="Choose return date" onClick={tripType === "round" ? () => setPanel(panel === "date" ? null : "date") : goRound}>
+                  <Icon name="calendar" size={14} />
+                  <span>{tripType === "round" ? (fmtDay(form.returnDate) || "Select date") : "Add return"}</span>
+                </button>
               </div>
               <div className={`ow-pill ow-pill--btn ow-pill--trav${panel === "trav" ? " open" : ""}`}>
                 <span className="ow-pill-l">Travellers &amp; Cabin</span>
@@ -484,7 +546,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
             </div>
 
             {panel === "date" ? (
-              <SingleCalendar value={form.date} min={todayISO()} onChange={(d) => set("date", d)} onDone={() => setPanel(null)} />
+              tripType === "round" ? (
+                <RangeCalendar
+                  checkIn={form.date} checkOut={form.returnDate} min={todayISO()}
+                  labels={["Depart", "Return"]} showNights={false}
+                  onChange={(dep, ret) => setForm((f) => ({ ...f, date: dep, returnDate: ret }))}
+                  onDone={() => setPanel(null)}
+                />
+              ) : (
+                <SingleCalendar value={form.date} min={todayISO()} onChange={(d) => set("date", d)} onDone={() => setPanel(null)} />
+              )
             ) : null}
 
             {panel === "trav" ? (
@@ -527,7 +598,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
-                {form.fromCity || form.from} → {form.toCity || form.to} · {fmtDay(form.date)} · {visible.length} of {offers ? offers.length : 0} flights
+                {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
               <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
             </div>
@@ -535,8 +606,26 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
               <div className="taw-banner taw-banner--info">Some suppliers failed — results may be partial.</div>
             ) : null}
 
+            {resultsRound ? (
+              <div className="ow-segpills" role="tablist" aria-label="Round trip legs" style={{ margin: "4px 0 10px" }}>
+                {([
+                  { leg: "ONWARD", from: form.from, to: form.to, date: form.date },
+                  { leg: "RETURN", from: form.to, to: form.from, date: form.returnDate },
+                ] as const).map((t) => {
+                  const n = (allOffers || []).filter((o) => (o.leg || "ONWARD") === t.leg).length;
+                  return (
+                    <button key={t.leg} type="button" role="tab" aria-selected={activeLeg === t.leg}
+                      className={`ow-segpill${activeLeg === t.leg ? " on" : ""}`} onClick={() => setActiveLeg(t.leg)}>
+                      {t.leg === "ONWARD" ? "Onward" : "Return"} · {t.from} → {t.to} · {fmtDay(t.date)} · {n} flight{n === 1 ? "" : "s"}
+                      {picked[t.leg] ? " ✓" : ""}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
             {offers && offers.length === 0 ? (
-              <Empty icon="flight" title="No flights found" message="Try another date or cabin." />
+              <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : "Try another date or cabin."} />
             ) : (
               <div className="ow-fl">
                 <aside className="ow-fl-side" aria-label="Filters">
@@ -625,7 +714,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                       const raw = (getTripsureFlightOffer(o.id) || {}).raw || {};
                       const first = (raw.segments || [])[0] || {};
                       return (
-                        <div className="ow-fcard" key={o.id}>
+                        <div className={`ow-fcard${resultsRound && picked[activeLeg]?.id === o.id ? " picked" : ""}`} key={o.id}>
                           <div className="ow-fcard-air">
                             <b>{d.airlineName || d.airline}</b>
                             <small>{d.flightNo}</small>
@@ -640,10 +729,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                             <div className="ow-city r"><div className="code">{d.arrTime}</div><div className="nm">{d.destCode}</div></div>
                           </div>
                           <div className="ow-fcard-buy">
-                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>total</small></div>
-                            <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => goToSeats(o)} disabled={!!lockingId}>
-                              {lockingId === o.id ? "Locking fare…" : "Select"}
-                            </button>
+                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") : "total"}</small></div>
+                            {resultsRound ? (
+                              <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => pickLeg(o)} disabled={!!lockingId}>
+                                {picked[activeLeg]?.id === o.id ? "Selected ✓" : "Select"}
+                              </button>
+                            ) : (
+                              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => goToSeats(o)} disabled={!!lockingId}>
+                                {lockingId === o.id ? "Locking fare…" : "Select"}
+                              </button>
+                            )}
                           </div>
                           <div className="ow-fcard-tags">
                             <span className="taw-chip taw-chip--dom">{d.cabin}</span>
@@ -657,6 +752,27 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 </div>
               </div>
             )}
+
+            {resultsRound ? (
+              <div className="ow-sticky-foot">
+                <div className="ow-total">
+                  <small>Round trip total</small>
+                  <b>{inr((picked.ONWARD?.base_net || 0) + (picked.RETURN?.base_net || 0))}</b>
+                  <small>
+                    {picked.ONWARD && picked.RETURN
+                      ? `${inr(picked.ONWARD.base_net)} onward + ${inr(picked.RETURN.base_net)} return`
+                      : !picked.ONWARD && !picked.RETURN ? "Choose an onward and a return flight"
+                      : picked.ONWARD ? "Now choose the return flight" : "Now choose the onward flight"}
+                  </small>
+                </div>
+                <div className="ow-sticky-btns">
+                  <button type="button" className="taw-btn taw-btn--primary" disabled={!picked.ONWARD || !picked.RETURN || !!lockingId}
+                    onClick={() => goToSeats(picked.ONWARD, picked.RETURN)}>
+                    {lockingId ? "Locking fare…" : "Continue"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </>
         ) : null}
 
@@ -689,8 +805,11 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
         {/* ── Step 4: Seats & Baggage (real SSR options) ── */}
         {step === "seats" && selectedOffer ? (() => {
-          const cached = getTripsureFlightOffer(selectedOffer.id);
-          const segments: any[] = cached?.raw?.segments || [];
+          // A round trip locks two fares as one itinerary: the onward segments come first,
+          // then the return's — the same order the server numbers them in.
+          const legs: any[] = [selectedOffer, ...(selectedReturn ? [selectedReturn] : [])];
+          const segments: any[] = legs.flatMap((o) => getTripsureFlightOffer(o.id)?.raw?.segments || []);
+          const fareTotal = legs.reduce((n, o) => n + o.base_net, 0);
           const d = selectedOffer.detail;
           const rows = segments.length > 0 ? segments : [null];
           const si = Math.min(seatSeg, rows.length - 1);
@@ -709,20 +828,26 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
           const busy = creating || leaving;
           return (
             <>
-              <div className="ow-seg" style={{ marginBottom: 12 }}>
-                <div className="ow-seg-top">
-                  <span>{d.airlineName || d.airline} · {d.flightNo}</span>
-                  <span><b>{inr(selectedOffer.base_net)}</b> total</span>
-                </div>
-                <div className="ow-route">
-                  <div className="ow-city"><div className="code">{d.originCode}</div><div className="time">{d.depTime}</div></div>
-                  <div className="ow-line">
-                    {durationLabel(d.durationMin)}<div className="bar" />
-                    {d.stops === 0 ? "Non-stop" : `${d.stops} stop${d.stops === 1 ? "" : "s"}`}
+              {legs.map((o: any, li: number) => {
+                const ld = o.detail;
+                const day = fmtDay((getTripsureFlightOffer(o.id)?.raw?.segments || [])[0]?.departureDateTime);
+                return (
+                  <div className="ow-seg" style={{ marginBottom: 12 }} key={o.id}>
+                    <div className="ow-seg-top">
+                      <span>{legs.length > 1 ? `${li === 0 ? "Onward" : "Return"} · ` : ""}{ld.airlineName || ld.airline} · {ld.flightNo}{legs.length > 1 && day ? ` · ${day}` : ""}</span>
+                      <span><b>{inr(o.base_net)}</b> {legs.length > 1 ? (li === 0 ? "onward" : "return") : "total"}</span>
+                    </div>
+                    <div className="ow-route">
+                      <div className="ow-city"><div className="code">{ld.originCode}</div><div className="time">{ld.depTime}</div></div>
+                      <div className="ow-line">
+                        {durationLabel(ld.durationMin)}<div className="bar" />
+                        {ld.stops === 0 ? "Non-stop" : `${ld.stops} stop${ld.stops === 1 ? "" : "s"}`}
+                      </div>
+                      <div className="ow-city r"><div className="code">{ld.destCode}</div><div className="time">{ld.arrTime}</div></div>
+                    </div>
                   </div>
-                  <div className="ow-city r"><div className="code">{d.destCode}</div><div className="time">{d.arrTime}</div></div>
-                </div>
-              </div>
+                );
+              })}
 
               <div className="ow-info">
                 <Icon name="shield" size={15} />
@@ -817,10 +942,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
               <div className="ow-sticky-foot">
                 <div className="ow-total">
                   <small>Total fare</small>
-                  <b>{inr(selectedOffer.base_net + extrasTotal)}</b>
+                  <b>{inr(fareTotal + extrasTotal)}</b>
                   <small>
                     {extrasTotal > 0
-                      ? `${inr(selectedOffer.base_net)} fare + ${inr(extrasTotal)} extras (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : ""].filter(Boolean).join(", ")})`
+                      ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} extras (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : ""].filter(Boolean).join(", ")})`
                       : "No extras selected"}
                   </small>
                 </div>

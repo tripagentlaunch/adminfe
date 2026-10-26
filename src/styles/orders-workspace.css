@@ -198,6 +198,7 @@
 .ow-sorttab-l{font-size:12px;font-weight:600;}
 .ow-sorttab-v{font-size:11.5px;color:var(--taupe);}
 .ow-fcard{display:grid;grid-template-columns:150px 1fr auto;gap:8px 18px;align-items:center;border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;background:var(--card);}
+.ow-fcard.picked{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold);}
 .ow-fcard:hover{border-color:var(--gold);}
 .ow-fcard-air{display:flex;flex-direction:column;gap:2px;font-size:13px;}
 .ow-fcard-air small{color:var(--taupe);font-size:11px;}
@@ -255,6 +256,8 @@
 .ow-sbar--hotel .ow-sbar-date{flex:1 1 110px;}
 .ow-sbar--hotel .ow-sbar-guests{flex:1.2 1 140px;}
 .ow-pill--disabled{opacity:.45;cursor:not-allowed;background:var(--bone,#F4EFE3);}
+.ow-pill--idle{opacity:.7;}
+.ow-pill--idle:hover{opacity:1;}
 .ow-pill--disabled .ow-pillbtn{cursor:not-allowed;}
 .ow-cabins{display:flex;gap:6px;flex-wrap:wrap;}
 @media (max-width:980px){.ow-sbar--flight,.ow-sbar--hotel{flex-wrap:wrap;border-radius:16px;}.ow-sbar--flight .ow-sbar-route{flex-basis:100%;}}
