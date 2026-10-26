@@ -24,6 +24,8 @@ import {
   siteApproveAccessRequest,
   siteDenyAccessRequest,
   siteAccessRequestsApproved,
+  siteSuperKeys,
+  siteSetSuperKeyActive,
   inr,
 } from "../../services/api";
 import { cx } from "../../lib/cx";
@@ -382,6 +384,68 @@ function ApprovedRequestsList({ rows, loading }: { rows: any[]; loading: boolean
   );
 }
 
+// SuperKeysList: fixed codes anyone can enter with no approval. Each shows how many
+// times it was used and the latest entries; an entry shows where the visitor came in from
+// when they pressed "Allow location" on the claim page. The switch turns a key off.
+function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loading: boolean; onToggle: (k: any) => void; busyCode: string | null }) {
+  if (loading && !keys.length) return <div className="taw-skel" style={{ height: 96 }} />;
+  if (!keys.length) return <Empty icon={<Icon name="shield" size={28} />}>No super keys yet.</Empty>;
+  const where = (e: any) => {
+    if (e.location_allowed === true) return e.place || "Location allowed (place not found)";
+    if (e.location_allowed === false) return "Location not shared";
+    return "Location not answered";
+  };
+  return (
+    <>
+      {keys.map((k: any) => (
+        <div key={k.code} style={{ marginBottom: 18 }}>
+          <div className="taw-qrow-top">
+            <span className="taw-qtype taw-icrow">
+              <Icon name="shield" size={13} />
+              <b style={{ fontFamily: "monospace" }}>{k.code}</b>
+              {k.label ? " · " + k.label : ""}
+            </span>
+            <span className={cx("taw-status", "taw-status--" + (k.active ? "success" : "danger"))}>{k.active ? "On" : "Off"}</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
+            Entered <b>{k.total_entries}</b> {k.total_entries === 1 ? "time" : "times"}
+            {k.last_entered_at ? " · last " + fmtDate(k.last_entered_at) + " " + fmtTime(k.last_entered_at) : ""}
+            {k.total_entries ? " · " + k.located_entries + " shared a location" : ""}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busyCode === k.code} onClick={() => onToggle(k)}>
+              {busyCode === k.code ? <Spinner /> : null}
+              {k.active ? "Turn key off" : "Turn key on"}
+            </button>
+          </div>
+          {k.entries.length ? (
+            <div className="taw-qlist" style={{ marginTop: 10 }}>
+              {k.entries.map((e: any) => (
+                <div key={e.id} className="taw-qrow" style={{ display: "block" }}>
+                  <div className="taw-qrow-top">
+                    <span className="taw-qtype taw-icrow">
+                      <Icon name="compass" size={13} />
+                      {where(e)}
+                    </span>
+                    <span style={{ fontSize: 12, color: "var(--taupe)" }}>
+                      {fmtDate(e.entered_at)} {fmtTime(e.entered_at)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {k.total_entries > k.entries.length ? (
+                <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 6 }}>Showing the latest {k.entries.length} of {k.total_entries}.</div>
+              ) : null}
+            </div>
+          ) : (
+            <div style={{ fontSize: 12.5, color: "var(--taupe)", marginTop: 10 }}>Nobody has used this key yet.</div>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // AccessRequestsSection (Phase C, 2026-09-16) — reviews site_access_requests
 // (strangers applying via the site's Request Access form). Reads and decides
 // through adminbe's admin-only /admin/access-requests endpoints (services/
@@ -394,8 +458,10 @@ function AccessRequestsSection() {
   // (and their WhatsApp itinerary links can't open). approve() issues one.
   const [noCode, setNoCode] = useState<any[]>([]);
   // Pending | Approved tabs; `approved` is every approved request with its claim state.
-  const [tab, setTab] = useState<"pending" | "approved">("pending");
+  const [tab, setTab] = useState<"pending" | "approved" | "superkey">("pending");
   const [approved, setApproved] = useState<any[]>([]);
+  const [superKeys, setSuperKeys] = useState<any[]>([]);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<any>(null);
   const [busyId, setBusyId] = useState<any>(null);
@@ -440,8 +506,25 @@ function AccessRequestsSection() {
     siteAccessRequestsApproved()
       .then((list: any) => setApproved(Array.isArray(list) ? list : []))
       .catch(() => setApproved([]));
+    siteSuperKeys()
+      .then((list: any) => setSuperKeys(Array.isArray(list) ? list : []))
+      .catch(() => setSuperKeys([]));
   }
   useEffect(load, []);
+
+  function toggleSuperKey(k: any) {
+    setBusyKey(k.code);
+    siteSetSuperKeyActive(k.code, !k.active)
+      .then(() => {
+        setBusyKey(null);
+        toast("Super key " + k.code + (k.active ? " turned off. Nobody can enter with it." : " turned on."), "success");
+        load();
+      })
+      .catch((e: any) => {
+        setBusyKey(null);
+        toast(errText(e), "error");
+      });
+  }
 
   function approve(row: any) {
     setBusyId(row.id);
@@ -516,6 +599,9 @@ function AccessRequestsSection() {
           </button>
           <button className={cx("taw-tab", tab === "approved" && "is-active")} role="tab" aria-selected={tab === "approved"} onClick={() => setTab("approved")}>
             Approved requests <span className="pill">{approved.length}</span>
+          </button>
+          <button className={cx("taw-tab", tab === "superkey" && "is-active")} role="tab" aria-selected={tab === "superkey"} onClick={() => setTab("superkey")}>
+            Super key <span className="pill">{superKeys.reduce((n: number, k: any) => n + (k.total_entries || 0), 0)}</span>
           </button>
         </div>
         {/* FIXED (2026-09-17, direct request): rendered here, independent
@@ -648,8 +734,10 @@ function AccessRequestsSection() {
           </div>
         ) : null}
           </>
-        ) : (
+        ) : tab === "approved" ? (
           <ApprovedRequestsList rows={approved} loading={loading} />
+        ) : (
+          <SuperKeysList keys={superKeys} loading={loading} onToggle={toggleSuperKey} busyCode={busyKey} />
         )}
       </div>
     </Card>
