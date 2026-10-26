@@ -108,13 +108,16 @@ interface ConvoState {
   olderLoading: boolean;
   olderError: string | null;
 }
-// "no_phone": the traveller has no WhatsApp number on file, so there is no thread to read or take over.
-interface HandoffState { code: string; mode: Mode; status: "ready" | "error" | "no_phone" }
+// websiteOnly: the traveller has no WhatsApp number on file; Tara can still be paused, and a reply goes to their website chat.
+interface HandoffState { code: string; mode: Mode; status: "ready" | "error"; websiteOnly?: boolean }
 
 const NO_MESSAGES: ConvoMessage[] = [];
-const POLL_MS = 5000;
+const POLL_MS = 2000; // a customer's message shows within a couple of seconds
+// Tara starts a reply this long after the customer's message (chatbot-be's TARA_REPLY_DELAY_SECONDS):
+// the time the advisor has to press "I'll reply" first.
+const TARA_DELAY_S = 5;
 const PAGE_SIZE = 30;
-const USAGE_EVERY = 6; // refresh the usage meter every 6th poll (~30s) — it needs chatbot-be's full history
+const USAGE_EVERY = 15; // refresh the usage meter every 15th poll (~30s) — it needs chatbot-be's full history
 const START_INDEX = 1000000; // Virtuoso needs a positive firstItemIndex that can only go down
 
 function emptyConvo(code: string): ConvoState {
@@ -269,7 +272,8 @@ export function ChatbotConversationPanel({ member }: any) {
   const [handoffTick, setHandoffTick] = useState(0);
   const handoffCur = handoff && handoff.code === code ? handoff : null;
   const mode: Mode = handoffCur ? handoffCur.mode : "tara";
-  const handoffStatus: "loading" | "ready" | "error" | "no_phone" = !code ? "ready" : handoffCur ? handoffCur.status : "loading";
+  const handoffStatus: "loading" | "ready" | "error" = !code ? "ready" : handoffCur ? handoffCur.status : "loading";
+  const websiteOnly = !!(handoffCur && handoffCur.websiteOnly);
   const [modeSaving, setModeSaving] = useState(false);
   const [pendingMode, setPendingMode] = useState<Mode | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -277,6 +281,25 @@ export function ChatbotConversationPanel({ member }: any) {
   // same text so a retry after a timeout can't send it to WhatsApp twice.
   const pendingSendRef = useRef<{ code: string; text: string; id: string } | null>(null);
   const takenOver = mode !== "tara";
+  // The newest message is the customer's and nobody has answered it yet: while Tara is
+  // about to reply the advisor sees a countdown and can press "I'll reply".
+  const lastMessage = messages.length ? messages[messages.length - 1] : null;
+  const awaitingReply = !!lastMessage && !!lastMessage.at && (lastMessage.role === "user" || lastMessage.role === "customer");
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!awaitingReply) return;
+    setNowMs(Date.now());
+    const t = setInterval(() => setNowMs(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [awaitingReply, lastMessage && lastMessage.id]);
+  const waitedS = awaitingReply && lastMessage && lastMessage.at ? (nowMs - (lastMessage.at < 1e12 ? lastMessage.at * 1000 : lastMessage.at)) / 1000 : 0;
+  let waitingLine = "";
+  if (awaitingReply && handoffStatus === "ready") {
+    if (mode === "advisor") waitingLine = "This customer is waiting for your reply";
+    else if (mode === "tara" && waitedS < TARA_DELAY_S) waitingLine = `Tara replies in ${Math.max(1, Math.ceil(TARA_DELAY_S - waitedS))}s`;
+    else if (mode === "tara" && waitedS < 60) waitingLine = "Tara is writing the reply…";
+    else if (mode === "tara") waitingLine = "This message has no reply yet";
+  }
   const listRef = useRef<VirtuosoHandle | null>(null);
   // Follow-the-bottom bookkeeping: true while the reader is at the end of the
   // thread (so new messages should keep scrolling them down). Fed by Virtuoso.
@@ -440,7 +463,7 @@ export function ChatbotConversationPanel({ member }: any) {
     if (!code) return;
     let cancelled = false;
     getConversationHandoff(code)
-      .then((d: any) => { if (!cancelled) setHandoff({ code, mode: d && d.paused ? "advisor" : "tara", status: d && d.no_phone ? "no_phone" : "ready" }); })
+      .then((d: any) => { if (!cancelled) setHandoff({ code, mode: d && d.paused ? "advisor" : "tara", status: "ready", websiteOnly: !!(d && d.no_phone) }); })
       .catch(() => { if (!cancelled) setHandoff({ code, mode: "tara", status: "error" }); });
     return () => { cancelled = true; };
   }, [code, handoffTick]);
@@ -449,10 +472,10 @@ export function ChatbotConversationPanel({ member }: any) {
   // "Let Tara reply" and "Both" leave Tara active (paused=false).
   function chooseMode(next: Mode) {
     if (next === mode || modeSaving || !code || handoffStatus === "loading") return;
-    const prev: HandoffState = { code, mode, status: handoffStatus };
+    const prev: HandoffState = { code, mode, status: handoffStatus, websiteOnly };
     // Optimistic: switch the UI (and reveal the message input) right away; the
     // handoff call runs in the background with a spinner on the buttons only.
-    setHandoff({ code, mode: next, status: "ready" });
+    setHandoff({ code, mode: next, status: "ready", websiteOnly });
     setPendingMode(next);
     setModeSaving(true);
     setConversationHandoff(code, next === "advisor")
@@ -580,9 +603,7 @@ export function ChatbotConversationPanel({ member }: any) {
               </div>
             ) : messages.length === 0 ? (
               <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>
-                {handoffStatus === "no_phone"
-                  ? "No WhatsApp number on file for this traveller, so there is no thread to show. Add a phone number to their member record."
-                  : "No conversation with Tara yet."}
+                No conversation with Tara yet.
               </div>
             ) : (
               <Virtuoso
@@ -674,10 +695,6 @@ export function ChatbotConversationPanel({ member }: any) {
             </div>
             {handoffStatus === "loading" ? (
               <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>Checking who is replying…</div>
-            ) : handoffStatus === "no_phone" ? (
-              <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>
-                No WhatsApp number on file for this traveller, so Tara can&apos;t be paused or replaced here until one is added.
-              </div>
             ) : handoffStatus === "error" ? (
               <div role="alert" style={{ fontSize: 11.5, color: "#B03434", marginBottom: 8 }}>
                 Couldn&apos;t check whether Tara is paused for this traveller; the choice below may not match.{" "}
@@ -687,10 +704,37 @@ export function ChatbotConversationPanel({ member }: any) {
                 </button>
               </div>
             ) : null}
+            {websiteOnly ? (
+              <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>
+                No WhatsApp number on file: your replies go to this traveller&apos;s website chat.
+              </div>
+            ) : null}
+            {waitingLine ? (
+              <div
+                role="status"
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                  border: "1px solid #E6D3A8", background: "#FDF6EC", borderRadius: 8, padding: "7px 10px", marginBottom: 8,
+                  fontSize: 12, color: "#8A5A2B", fontWeight: 600,
+                }}
+              >
+                <span>{waitingLine}</span>
+                {mode === "tara" ? (
+                  <button
+                    type="button"
+                    className="taw-btn taw-btn--sm"
+                    disabled={modeSaving || handoffStatus === "loading"}
+                    onClick={() => chooseMode("advisor")}
+                  >
+                    I&apos;ll reply
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
               {([
                 { id: "tara", icon: "sparkle", title: "Let Tara reply", sub: "Tara will respond to the customer" },
-                { id: "advisor", icon: "edit", title: "I'll reply", sub: "You send the message" },
+                { id: "advisor", icon: "edit", title: "I'll reply", sub: "Tara waits for you" },
                 { id: "both", icon: "people", title: "Both", sub: "You + Tara reply" },
               ] as const).map((o) => {
                 const active = mode === o.id;
