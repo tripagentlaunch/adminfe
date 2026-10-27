@@ -19,6 +19,7 @@ export type HotelView = {
   price: string; // "any" or "<min>:<max>" (either side may be empty)
   amenities: string[];
   stayType: string;
+  name?: string; // hotel-name search within the loaded results
 };
 
 export const DEFAULT_HOTEL_VIEW: HotelView = {
@@ -30,7 +31,15 @@ export const DEFAULT_HOTEL_VIEW: HotelView = {
   price: "any",
   amenities: [],
   stayType: "all",
+  name: "",
 };
+
+// Stars kept by a default (luxury) search: TripSure can't be asked for these
+// ratings, so lower-rated hotels are dropped as each page arrives (HotelDesk).
+export const LUXURY_MIN_STARS = 4;
+export function isLuxury(o: any): boolean {
+  return ((o && o.detail && o.detail.stars) || 0) >= LUXURY_MIN_STARS;
+}
 
 // The amenity flags TripSure sends (hotelInfo.amenity) worth filtering on, in the order offered.
 export const AMENITY_LABELS: Record<string, string> = {
@@ -119,10 +128,17 @@ function parsePrice(price: string): { min: number | null; max: number | null } |
   return { min: lo ? Number(lo) : null, max: hi ? Number(hi) : null };
 }
 
+const fold = (x: string) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
 export function filterHotels(offers: any[], view: HotelView): any[] {
   const range = parsePrice(view.price);
+  const words = fold(view.name || "").split(/\s+/).filter(Boolean);
   return offers.filter((o) => {
     const d = (o && o.detail) || {};
+    if (words.length) {
+      const hay = fold(String(d.hotelName || "") + " " + String(d.address || ""));
+      if (!words.every((w) => hay.includes(w))) return false;
+    }
     const stars = d.stars || 0;
     if (view.stars !== "any" && stars < Number(view.stars)) return false;
     if (view.refundable && !(d.refundable || d.freeCancellation)) return false;
@@ -170,7 +186,7 @@ export function sortHotels(offers: any[], view: HotelView): any[] {
 
 /** Changes whenever the advisor changes a filter or the sort, but not when more hotels arrive. */
 export function viewKey(view: HotelView): string {
-  return JSON.stringify([view.sort, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType]);
+  return JSON.stringify([view.sort, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType, view.name || ""]);
 }
 
 /** Number of filters switched on (the sort order is not a filter). */

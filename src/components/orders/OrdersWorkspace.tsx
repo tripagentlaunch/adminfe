@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dropdown, Empty, Icon } from "../ui";
 import { OrderDetail } from "./OrderDetail";
-import { NewBookingModal } from "./NewBookingModal";
+import { NewBookingModal, type BookingPreset } from "./NewBookingModal";
 import { bookingGetOrder, bookingListOrders } from "../../services/api";
 import { detailToOrder, summaryToOrder } from "../../lib/realOrders";
 import { statusClass } from "./orderUi";
@@ -40,17 +40,46 @@ function inTab(o: RealOrder, tab: Tab): boolean {
   return o.status !== "Cancelled" && o.paymentStatus === "Pending";
 }
 
+function presetFromUrl(): BookingPreset | null {
+  if (typeof window === "undefined") return null;
+  const q = new URLSearchParams(window.location.search);
+  if (q.get("book") !== "1" || !q.get("name")) return null;
+  const num = (k: string) => (q.get(k) ? Number(q.get(k)) || undefined : undefined);
+  return {
+    customer: {
+      member_id: q.get("member") || null, name: q.get("name") || "", email: q.get("email") || "",
+      phone: q.get("phone") || "", enquiry_id: q.get("enquiry") || null,
+    },
+    from: q.get("from") || undefined, fromCity: q.get("fromCity") || undefined,
+    to: q.get("to") || undefined, toCity: q.get("toCity") || undefined,
+    date: q.get("date") || undefined, returnDate: q.get("ret") || undefined,
+    adults: num("adults"), children: num("children"), infants: num("infants"),
+    requests: q.get("bag") || q.get("seat") || q.get("meal") || q.get("note")
+      ? { extraBaggageKg: num("bag") || 0, seat: q.get("seat") || "", meal: q.get("meal") || "", note: q.get("note") || "" }
+      : undefined,
+  };
+}
+
 export function OrdersWorkspace() {
   const [tab,        setTab]        = useState<Tab>("all");
   const [range,      setRange]      = useState("90");
   const [query,      setQuery]      = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showNew,    setShowNew]    = useState(false);
+  const [showNew,    setShowNew]    = useState(() => !!presetFromUrl());
   const [addTo,      setAddTo]      = useState<RealOrder | null>(null);
   const [orders,     setOrders]     = useState<RealOrder[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [liveError,  setLiveError]  = useState<string | null>(null);
   const [details,    setDetails]    = useState<Record<string, RealOrder>>({});
+  // "Book this trip" from an enquiry (Console / Pipeline) lands here as
+  // /orders?book=1&enquiry=…&name=…: open New Booking for that customer, with
+  // the route/dates/party they asked for, and tie the order to the enquiry.
+  // Read once on mount (this screen only renders client-side, after sign-in).
+  const [preset,     setPreset]     = useState<BookingPreset | null>(() => presetFromUrl());
+  useEffect(() => {
+    if (preset) window.history.replaceState(null, "", window.location.pathname); // a reload must not reopen it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadOrders = useCallback(() => {
     setLoading(true);
@@ -99,8 +128,16 @@ export function OrdersWorkspace() {
   const base = orders.find((o) => o.id === selectedId) || null;
   const selected = base ? details[base.id] || base : null;
 
+  // Opening an order loads its full detail (itineraries, travellers, booking progress).
   useEffect(() => {
+    if (base && !details[base.id]) loadDetail(base);
   }, [base, details, loadDetail]);
+
+  // After a fulfilment action: refresh this order and the list (status / paid badges).
+  const refreshSelected = useCallback(() => {
+    if (base) loadDetail(base);
+    loadOrders();
+  }, [base, loadDetail, loadOrders]);
 
   function handleCreated(orderId: string) {
     setShowNew(false);
@@ -176,7 +213,7 @@ export function OrdersWorkspace() {
               </div>
               <div className="ow-meta">
                 <span><Icon name="calendar" size={13} />{o.travelDates}</span>
-                <span><Icon name="user" size={13} />{o.travellers?.length ? o.travellers.length + " traveller" + (o.travellers.length === 1 ? "" : "s") : "Passengers pending"}</span>
+                <span><Icon name="user" size={13} />{o.travellers?.length ? o.travellers.length + " traveller" + (o.travellers.length === 1 ? "" : "s") : details[o.id] ? "Travellers pending" : "—"}</span>
               </div>
               <div className="ow-row-foot">
                 <span><span className="ow-amt">{fmtINR(o.amount)}</span>{" "}<span className={statusClass(o.paymentStatus)}>{o.paymentStatus}</span></span>
@@ -190,7 +227,8 @@ export function OrdersWorkspace() {
       <div className="ow-col">
         {selected ? (
           <OrderDetail key={selected.id + (details[selected.id] ? ":full" : "")} order={selected}
-            onAddFlight={selected.dbId ? () => setAddTo(selected) : undefined} />
+            onAddFlight={selected.dbId && selected.status !== "Cancelled" ? () => setAddTo(selected) : undefined}
+            onChanged={refreshSelected} />
         ) : (
           <Empty icon="luggage" title="Select an order" message="Pick an order on the left to see its details." />
         )}
@@ -198,9 +236,10 @@ export function OrdersWorkspace() {
 
       {(showNew || addTo) && (
         <NewBookingModal
-          onClose={() => { setShowNew(false); setAddTo(null); }}
-          onCreated={handleCreated}
+          onClose={() => { setShowNew(false); setAddTo(null); setPreset(null); }}
+          onCreated={(id) => { setPreset(null); handleCreated(id); }}
           addToOrder={addTo?.dbId ? { dbId: addTo.dbId, customerName: addTo.customerName, email: addTo.email } : undefined}
+          preset={addTo ? undefined : preset || undefined}
         />
       )}
     </div>

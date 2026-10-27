@@ -36,8 +36,11 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { blankItinerary, addCartItemToItinerary, boundFromDateRange, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
+import { blankItinerary, addCartItemToItinerary, addSwapOption, boundFromDateRange, replacesExisting, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
+import { useWorkspacePersistence } from "../lib/useWorkspacePersistence";
 
+// The enquiry open in the Console, so a reload reopens it (sessionStorage: per tab).
+const SELECTED_ENQUIRY_KEY = "taw.console.selectedEnquiry";
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
   const router = useRouter();
 
@@ -57,6 +60,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [focusOrderId, setFocusOrderId] = useState<string | null>(null);
   const [selEnqId, setSelEnqId] = useState<string | null>(null);
+  const restoredSelection = useRef(false);
   const [member, setMember] = useState<any>(null);
   // travellerProfile (Phase 2, real backend) — the Traveller Profile
   // panel's OWN data source now, fetched fresh per selected enquiry via
@@ -102,6 +106,11 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // proposal: { sent_at, outcome, decided_at } | null }.
   const [pipelineStatusByEnquiry, setPipelineStatusByEnquiry] = useState<Record<string, any>>({});
 
+  // Itineraries and the proposal queue are saved per enquiry on the server
+  // (GET/PUT /enquiries/{id}/workspace, db/150) and restored on load, so a
+  // reload no longer loses the advisor's work.
+  useWorkspacePersistence({ itinerariesByEnquiry, setItinerariesByEnquiry, proposalQueue, setProposalQueue });
+
   // reloadInbox (2026-10-09) — also called after "Invite someone", which
   // creates a member + open enquiry server-side, so the invitee shows up
   // in Queue and the Traveller Profile list without a page refresh.
@@ -131,6 +140,14 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       // applicants appear here.
       setEnquiries(enq || []);
       setInboxLoading(false);
+      // After a reload, reopen the enquiry the advisor was working on (this tab only).
+      if (!restoredSelection.current) {
+        restoredSelection.current = true;
+        let lastId: string | null = null;
+        try { lastId = window.sessionStorage.getItem(SELECTED_ENQUIRY_KEY); } catch { /* storage blocked */ }
+        const last = lastId ? (enq || []).find((e: any) => e.id === lastId) : null;
+        if (last) pickEnquiry(last, last.member_id ? byId[last.member_id] : undefined, true);
+      }
 
       const statusByEnquiry: Record<string, any> = {};
       ((pipeline && pipeline.statuses) || []).forEach((s: any) => {
@@ -145,10 +162,11 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function pickEnquiry(e: any, m?: any) {
+  function pickEnquiry(e: any, m?: any, quiet?: boolean) {
     setSelEnqId(e.id);
     setMember(m || (e.member_id ? membersById[e.member_id] : null));
-    toast("Loaded " + (m ? m.name : "lead") + " — Member 360 ready", "info");
+    try { window.sessionStorage.setItem(SELECTED_ENQUIRY_KEY, e.id); } catch { /* storage blocked */ }
+    if (!quiet) toast("Loaded " + (m ? m.name : "lead") + " — Member 360 ready", "info");
 
     setTravellerProfile(null);
     setTravellerProfileLoading(true);
@@ -207,6 +225,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   function pickMember(m: any) {
     setSelEnqId(null);
     setMember(m);
+    try { window.sessionStorage.removeItem(SELECTED_ENQUIRY_KEY); } catch { /* storage blocked */ }
     travellerProfileReqId.current = null;
     setTravellerProfile(null);
     setTravellerProfileLoading(false);
@@ -340,10 +359,14 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // DOES get surfaced via toast, unlike the fire-and-forget calls above —
   // this one has a visible caller (Proposal Composer's new outcome
   // control) that should know if the record didn't actually stick.
+  // A swap in the Proposal Composer changes the itinerary itself (the composer
+  // shows the live itinerary), and the sent copy in the queue with it.
   function swapProposalHotel(enquiryId: string, itemId: string, hotelKey: string) {
+    setItinerariesByEnquiry((m) => (m[enquiryId] ? { ...m, [enquiryId]: swapHotelAlternative(m[enquiryId], itemId, hotelKey) } : m));
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapHotelAlternative(e.data, itemId, hotelKey) } : e)));
   }
   function swapProposalFlight(enquiryId: string, itemId: string, altIndex: number) {
+    setItinerariesByEnquiry((m) => (m[enquiryId] ? { ...m, [enquiryId]: swapFlightAlternative(m[enquiryId], itemId, altIndex) } : m));
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapFlightAlternative(e.data, itemId, altIndex) } : e)));
   }
   function setProposalOutcome(enquiryId: string, outcome: ProposalOutcome) {
@@ -516,6 +539,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     // itinerary (see this function's own docblock above), so it needs the
     // same call initItinerary's "scratch" path makes.
     const isFirstItem = !itinerariesByEnquiry[enquiryId];
+    const replacing = replacesExisting(itinerariesByEnquiry[enquiryId], cartItem);
     setItinerariesByEnquiry((m) => {
       let base = m[enquiryId];
       if (!base) {
@@ -531,7 +555,16 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
       return { ...m, [enquiryId]: addCartItemToItinerary(base, cartItem) };
     });
     if (isFirstItem) enquiryItineraryStarted(enquiryId).catch(() => {});
-    toast((cartItem._title || cartItem.type) + " added to itinerary", "success");
+    toast((cartItem._title || cartItem.type) + (replacing ? " updated in the itinerary (replaced the earlier choice)" : " added to itinerary"), "success");
+  }
+
+  // "+ Swap option" on a Search result: attach it to the matching itinerary item
+  // (same route and day / same check-in) as one of the options the customer
+  // can switch to in the proposal. Says why when there's nothing to attach to.
+  function addSwapOptionToItinerary(enquiryId: string, cartItem: any) {
+    const r = addSwapOption(itinerariesByEnquiry[enquiryId], cartItem);
+    if (r.ok) setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: addSwapOption(m[enquiryId], cartItem).data }));
+    toast(r.message, r.ok ? "success" : "warn");
   }
 
   const currentAdvisor = advisors.filter((a) => a.id === advisorId)[0];
@@ -577,6 +610,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         selectProposal,
         setProposalOutcome,
         itinerariesByEnquiry,
+        addSwapOptionToItinerary,
         generatingItinerary,
         retryingSearch,
         retryItinerarySearch,

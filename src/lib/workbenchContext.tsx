@@ -124,6 +124,8 @@ export interface WorkbenchContextValue {
   resumeParkedItinerary: (enquiryId: string) => void;
   updateItineraryData: (enquiryId: string, updater: (d: any) => any) => void;
   addSearchItemToItinerary: (enquiryId: string, cartItem: any, enquiry?: any) => void;
+  // Attach a Search result as a swap option to the matching itinerary item.
+  addSwapOptionToItinerary: (enquiryId: string, cartItem: any) => void;
   // pipelineStatusByEnquiry (real backend, 2026-09-10) — GET /enquiries/
   // pipeline-status, fetched once on mount. The persisted counterpart to
   // itinerariesByEnquiry/proposalQueue above: survives a reload, visible to

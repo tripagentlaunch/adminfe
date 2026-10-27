@@ -11,6 +11,7 @@
  * behavior to the original — this is a port, not a rewrite.
  * ===========================================================================*/
 import { accessToken } from "./auth";
+import { AIRPORTS } from "../lib/airports";
 import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
 import { detailToText } from "../lib/errText";
 
@@ -1644,6 +1645,40 @@ function hotelPriceCheckV2(payload) {
   return fastapiHotelCall("/hotels/price-check", { method: "POST", body: payload });
 }
 
+// hotelFacts({hotelId, docKey, token, bookingCode?}) — POST /hotels/facts: the
+// specifics worth knowing about a stay (photo gallery, what the rate includes,
+// check-in window, must-read rules, cancellation, nearby), from TripSure via adminbe.
+function hotelFacts(payload) {
+  return fastapiHotelCall("/hotels/facts", { method: "POST", body: payload });
+}
+
+// hotelRates([{hotelId, docKey, token}]) — POST /hotels/rates: cheapest live rate
+// (price, roomTitle, board, refundable, images) per hotel, for up to 5 hotels
+// ({hotelId: {...} | null}). Prices the swap alternatives saved with a stay.
+function hotelRates(hotels) {
+  return fastapiHotelCall("/hotels/rates", { method: "POST", body: { hotels: hotels } });
+}
+
+// hotelPhoto(name, city) — GET /hotels/photo: a Google Places photo for a stay
+// with no TripSure image ({url} | {url: null}).
+function hotelPhoto(name, city) {
+  return fastapiHotelCall("/hotels/photo?name=" + encodeURIComponent(name) + (city ? "&city=" + encodeURIComponent(city) : ""), { method: "GET" });
+}
+
+// hotelPlaces(q, lat?, lng?) — GET /hotels/places: landmarks/addresses for the
+// hotel desk's "Distance from" box (Google Places, biased to the searched city).
+function hotelPlaces(q, lat, lng) {
+  var qs = "q=" + encodeURIComponent(q) + (lat != null && lng != null ? "&lat=" + lat + "&lng=" + lng : "");
+  return fastapiHotelCall("/hotels/places?" + qs, { method: "GET" });
+}
+
+// hotelDistances(placeId, hotels[{id, lat, lng}] (max 150)) — POST /hotels/distances:
+// drive time + road distance by car from that place to each hotel (Google Routes).
+// -> { origin: {label, lat, lng}, results: { id: {meters, seconds} | null } }
+function hotelDistances(placeId, hotels) {
+  return fastapiHotelCall("/hotels/distances", { method: "POST", body: { origin: { place_id: placeId }, hotels: hotels } });
+}
+
 // hotelRecommendations(payload) — POST /hotels/recommendations (2026-09-15,
 // hotel-suggestion flow). payload: { city, checkIn, checkOut, adults, rooms,
 // starMin?, budgetTotal? }. Real TripSure search, ranked into up to 3 real
@@ -1723,8 +1758,19 @@ var _INDIAN_AIRPORT_CODES = {
   GOI: 1, JAI: 1, LKO: 1, IXC: 1, PAT: 1, GAU: 1, TRV: 1, VNS: 1, IXR: 1,
   VTZ: 1, IDR: 1, BBI: 1, IXB: 1, ATQ: 1, SXR: 1, IXJ: 1, NAG: 1, RPR: 1,
 };
+// Indian airports from the full airport directory (lib/airports.ts), not just the
+// short list above: GOX (Goa Mopa), IXZ, TIR… were shown as "INTL" — and the
+// international flag also feeds the quote's GST/TCS rules.
+var _IN_AIRPORTS = null;
+function _isIndianAirport(code) {
+  if (!_IN_AIRPORTS) {
+    _IN_AIRPORTS = {};
+    AIRPORTS.forEach(function (a) { if (a.country_code === "IN") _IN_AIRPORTS[a.airport_code] = 1; });
+  }
+  return !!(_IN_AIRPORTS[code] || _INDIAN_AIRPORT_CODES[code]);
+}
 function _isDomesticRoute(origin, dest) {
-  return !!(_INDIAN_AIRPORT_CODES[origin] && _INDIAN_AIRPORT_CODES[dest]);
+  return _isIndianAirport(origin) && _isIndianAirport(dest);
 }
 
 // In-memory cache of composite-id -> the identifiers needed to drive a real
@@ -1750,6 +1796,24 @@ var _tripsureFlightOfferCache = new Map();
 // this cache says.
 export function getTripsureFlightOffer(id) {
   return _tripsureFlightOfferCache.get(id) || null;
+}
+
+// exportTripsureFlightOffers(ids) / importTripsureFlightOffers(map) — the
+// identifiers behind a set of offers, so a restored search (FlightDesk's saved
+// search, lib/deskMemory.ts) can still open fare details and be added after a
+// reload or a hot reload cleared this in-memory cache.
+export function exportTripsureFlightOffers(ids) {
+  var out = {};
+  (ids || []).forEach(function (id) {
+    var v = _tripsureFlightOfferCache.get(id);
+    if (v) out[id] = v;
+  });
+  return out;
+}
+export function importTripsureFlightOffers(map) {
+  Object.keys(map || {}).forEach(function (id) {
+    if (!_tripsureFlightOfferCache.has(id)) _tripsureFlightOfferCache.set(id, map[id]);
+  });
 }
 
 // mapTripSureFlightOffer(rawOffer, ctx) — reshapes one entry of FastAPI's
@@ -1839,6 +1903,19 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
       // flight number, not connections; segments.length - 1 is the
       // connection count the old UI's stop-count filter/display expects.
       stops: Math.max(0, segments.length - 1),
+      // Departure date and the legs, so an offer added to the Itinerary Builder
+      // lands on its real day and the proposal can show each flight number.
+      date: (first.departureDateTime || "").slice(0, 10) || null,
+      segments: segments.map(function (s) {
+        return {
+          flightNo: [s.airlineCode, s.flightNumber].filter(Boolean).join(" "),
+          from: s.departureAirport,
+          to: s.arrivalAirport,
+          depTime: (s.departureDateTime || "").slice(11, 16),
+          arrTime: (s.arrivalDateTime || "").slice(11, 16),
+          durationMin: s.durationInMins != null ? Number(s.durationInMins) : null,
+        };
+      }),
       baggageKg: baggage ? Number(baggage.Value) || null : null,
       refundable: _tripSureRefundable(price.refundStatus),
       cabin: String(ctx.cabin || "economy").toLowerCase(),
@@ -1894,8 +1971,9 @@ function fastapiFlightSearch(params) {
     trip_type: roundTrip ? "ROUND_TRIP" : "ONE_WAY",
     segments: segments,
     adults: Number(params.pax) || 1,
-    children: 0,
-    infants: 0,
+    // New Booking passes the whole group; FlightDesk still sends adults only.
+    children: Number(params.children) || 0,
+    infants: Number(params.infants) || 0,
     cabin_class: String(params.cabin || "economy").toUpperCase(),
   };
   return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
@@ -1975,9 +2053,40 @@ function bookingListOrders() {
   return fastapiBookingCall("/booking-orders", { method: "GET" });
 }
 
-// bookingGetOrder(id) — GET /booking-orders/{id}
+// bookingGetOrder(id) — GET /booking-orders/{id} (includes `fulfilment`)
 function bookingGetOrder(id) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(id), { method: "GET" });
+}
+
+// --- Booking fulfilment (booking_fulfilment_service.py): travellers ->
+// payment -> ticket / confirm. Each call answers with the order's fulfilment
+// checklist ({stage, next_action, travellers, payment, items[]}), or for the
+// ticket/confirm calls {ok, ..., fulfilment}.
+function bookingFulfilment(orderId) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/fulfilment", { method: "GET" });
+}
+function bookingSaveTravellers(orderId, payload) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/travellers", { method: "PUT", body: payload });
+}
+function bookingRecordPayment(orderId, payload) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/payments", { method: "POST", body: payload });
+}
+// Irreversible: attaches passengers, re-checks the fare, issues the ticket.
+function bookingIssueTicket(itineraryId, acceptFareChange) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
+    method: "POST", body: { accept_fare_change: !!acceptFareChange },
+  });
+}
+// Irreversible: TripSure booking/create for a locked room (one attempt only).
+function bookingConfirmHotel(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/confirm", { method: "POST" });
+}
+function bookingCheckHotel(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/check-status", { method: "POST" });
+}
+// kind: "flight" | "hotel" — after verifying with TripSure that nothing was booked.
+function bookingResetItem(kind, itemId) {
+  return fastapiBookingCall("/booking-orders/" + kind + "/" + encodeURIComponent(itemId) + "/reset", { method: "POST" });
 }
 
 // --- RFQ engine (real backend — backend/app/routers/rfq_router.py) --------
@@ -2274,6 +2383,29 @@ function enquiryProposalOutcome(enquiryId, outcome) {
 // this session's own itinerariesByEnquiry/proposalQueue local state.
 function enquiryPipelineStatus() {
   return fastapiEnquiryCall("/enquiries/pipeline-status", { method: "GET" });
+}
+
+// enquiryWorkspaceList() — GET /enquiries/workspaces: every recently saved
+// Console workspace ({workspaces: [{enquiry_id, itinerary, proposal, version}]}),
+// read once on load so a reload restores the Itinerary Builder and the
+// Proposal Composer queue.
+function enquiryWorkspaceList() {
+  return fastapiEnquiryCall("/enquiries/workspaces", { method: "GET", timeoutMs: 20000 });
+}
+
+// enquiryWorkspaceGet(enquiryId) — GET /enquiries/{id}/workspace: the saved
+// Itinerary Builder + Proposal Composer state ({itinerary, proposal, version};
+// itinerary null and version 0 when nothing is saved yet).
+function enquiryWorkspaceGet(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/workspace", { method: "GET", timeoutMs: 20000 });
+}
+
+// enquiryWorkspaceSave(enquiryId, { itinerary?, proposal?, base_version }) —
+// PUT, only the keys present are written. Rejects with status 409 and
+// err.body.detail.current (the newer saved row) when someone saved after
+// base_version.
+function enquiryWorkspaceSave(enquiryId, payload) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/workspace", { method: "PUT", body: payload, timeoutMs: 20000 });
 }
 
 // enquiryProposalShareCreate(enquiryId, snapshot) — POST /enquiries/{id}/
@@ -2596,6 +2728,11 @@ export {
   hotelListingMore,
   hotelDetailsV2,
   hotelPriceCheckV2,
+  hotelPlaces,
+  hotelDistances,
+  hotelFacts,
+  hotelRates,
+  hotelPhoto,
   hotelRecommendations,
   hotelSetWebsite,
   fastapiFlightSearch,
@@ -2609,6 +2746,16 @@ export {
   bookingLockHotelItinerary,
   bookingListOrders,
   bookingGetOrder,
+  bookingFulfilment,
+  bookingSaveTravellers,
+  bookingRecordPayment,
+  bookingIssueTicket,
+  bookingConfirmHotel,
+  bookingCheckHotel,
+  bookingResetItem,
+  enquiryWorkspaceList,
+  enquiryWorkspaceGet,
+  enquiryWorkspaceSave,
 
   // Admin oversight (admin-only; server re-checks role on every call)
   adminListAdvisors,

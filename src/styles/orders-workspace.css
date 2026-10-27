@@ -132,8 +132,9 @@
 .ow-sel-title{font-weight:600;font-size:14px;margin-bottom:10px;display:flex;flex-direction:column;gap:2px;}
 .ow-sel-title .ow-sub{font-weight:400;}
 .ow-cards{display:flex;flex-direction:column;gap:8px;max-height:clamp(180px,34vh,300px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px;}
-.ow-card{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);transition:border-color .15s,background .15s;}
-.ow-card.on{border-color:var(--gold);background:var(--gold-bg);}
+/* Scoped to the baggage list: unscoped, this turned every Order detail card into a flex row. */
+.ow-cards .ow-card{display:flex;align-items:center;gap:12px;padding:10px 12px;margin-bottom:0;border:1px solid var(--line);border-radius:10px;background:var(--card);transition:border-color .15s,background .15s;}
+.ow-cards .ow-card.on{border-color:var(--gold);background:var(--gold-bg);}
 .ow-card-ic{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--bone,#F4EFE3);flex:none;}
 .ow-card-main{flex:1;min-width:0;}
 .ow-card-t{font-size:13px;font-weight:600;}
@@ -372,3 +373,38 @@
 .ow-cal--single .ow-cal-day.is-today:not(.is-start){box-shadow:inset 0 0 0 1px var(--gold);border-radius:50%;}
 .ow-cal-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);}
 .ow-cal-foot .ow-link:disabled{opacity:.4;cursor:not-allowed;}
+
+/* Banner variants the Orders screens use (only --err/--info existed globally,
+   so booking errors rendered as unstyled text). */
+.taw-banner--danger{background:var(--danger-bg);border:1px solid rgba(178,85,47,.28);color:var(--terracotta);}
+.taw-banner--warn{background:var(--warn-bg);border:1px solid rgba(176,132,40,.28);color:var(--warn-ink);}
+
+/* Booking progress checklist (OrderFulfilment.tsx) */
+.ow-ful-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.ow-ful-steps{list-style:none;margin:12px 0 10px;padding:0;display:grid;gap:0;}
+.ow-ful-steps>li{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:10px 0;border-top:1px solid var(--line);}
+.ow-ful-dot{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:11.5px;font-weight:600;border:1px solid var(--line);color:var(--taupe);background:var(--card);}
+.ow-ful-steps>li.current .ow-ful-dot{border-color:var(--gold);color:var(--gold-ink,#785c12);background:var(--gold-bg);}
+.ow-ful-steps>li.done .ow-ful-dot{border-color:transparent;background:var(--success-bg);color:var(--success-ink);}
+.ow-ful-body{min-width:0;display:grid;gap:4px;}
+.ow-ful-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.ow-ful-pays,.ow-ful-items{list-style:none;margin:4px 0 0;padding:0;display:grid;gap:8px;}
+.ow-ful-pays li{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:12.5px;}
+.ow-ful-items>li{border:1px solid var(--line);border-radius:10px;padding:9px 11px;display:grid;gap:5px;}
+.ow-ful-item{display:flex;align-items:flex-start;gap:8px;min-width:0;}
+.ow-ful-item>svg{flex:none;margin-top:2px;color:var(--taupe);}
+.ow-ful-item b{display:block;font-size:13px;}
+.ow-ful-item small{display:block;color:var(--taupe);font-size:11px;}
+.ow-ful-ref{font-size:12.5px;}
+.ow-ful-err{font-size:12px;color:var(--terracotta);white-space:normal;}
+.ow-ful-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;}
+.ow-ful-confirm{border:1px solid var(--gold);background:var(--gold-bg);border-radius:9px;padding:9px 11px;font-size:12.5px;display:grid;gap:8px;}
+.ow-ful-form{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:6px;display:grid;gap:8px;background:var(--bone,#F4EFE3);}
+
+/* Travellers form (TravellersForm.tsx) */
+.ow-tf{display:grid;gap:12px;}
+.ow-tf-pax{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:10px;}
+.ow-tf-pax-head{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.ow-tf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
+.ow-tf-lead{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
+@media (max-width:720px){.ow-grid2{grid-template-columns:1fr;}}

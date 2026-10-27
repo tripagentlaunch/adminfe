@@ -21,6 +21,285 @@ New entries go at the **top**. Use this template:
 
 ---
 
+## 2026-10-27 — End-to-end QA run (enquiry → itinerary → proposal): fixes
+
+**What changed:** A QA run done as a real advisor on dev: a new enquiry from scratch, then Delhi ⇄ Goa for 2 adults + 1 child (8), 10–14 Dec, a 5★ stay 4 nights with distances from Calangute Beach, then the Proposal Composer and PDF. Fixed along the way:
+- **Reload kept the work but lost the screen:** the open enquiry is now remembered for the tab, so a reload reopens it with its itinerary.
+- **Hotels desk opened on "Dubai · 1 adult"** for an enquiry started from scratch: it now prefills the itinerary's city (airport code → city) and travellers (from the flight's fare mix). The desks also no longer save their untouched defaults, which had frozen them at the first-open values.
+- **Hotel list had no prices** (TripSure's listing sends none): the hotels on screen are priced live from their cheapest room (`/hotels/rates`, 5 per call, once per search): "from ₹X · 4 nights, net", or "No rooms for these dates".
+- **Per-night rate showed the whole stay** (TripSure's `perRoomPerNightTotal` equals the total): now total ÷ nights ÷ rooms.
+- **Property description showed raw JSON** (`GeneralDescription : {"HeadLine": …}`): now readable text.
+- **Swap alternatives were often unpriced** (sister listings TripSure can't find): ranked by live price, hotels with no rooms skipped, 5 candidates priced and the 3 priced ones kept.
+- **Same hotel or flight added twice duplicated it** (and doubled the total): it now replaces the earlier choice.
+- **Destination read "GOI", then "ARPORA":** the trip is named by the flight's city ("Goa"); localities sent in capitals are title-cased.
+- **"3 adults" for 2 adults + 1 child** in the summary and proposal: they show the party as "2 adults, 1 child".
+- **Proposal "What it costs" didn't add up:** the total included GST (and any planning fee / TCS) that wasn't listed; those are now rows.
+- **Overnight flights:** "Arrives Tue, 15 Dec" under a past-midnight arrival; the arrival date also no longer shifts a day in IST.
+- **Builder opened on the Flights tab** (an added hotel was invisible): it opens on All.
+- **Status text ran off the Search column** while hotels loaded: the header row wraps.
+- **GOX (Mopa) flights were tagged INTL** (affects GST/TCS): domestic/international uses the full airport directory.
+- **Traveller Profile:** "AI Collected" and "Hotel & Flight" only when the AI actually collected something; empty Travellers / Origin / Destination fall back to the itinerary; Nationality no longer disappears once an enquiry opens (backend now returns it).
+**Files touched:** `src/components/WorkbenchDataProvider.tsx`, `src/components/panels/{HotelDesk,FlightDesk,VisaDesk,ItineraryView,ItinerarySummaryContent,Member360}.tsx`, `src/components/proposal/{ProposalDocument,ProposalPreviewPage}.tsx`, `src/lib/{itineraryFromCart,proposalTemplateData}.ts`, `src/services/api.ts`; adminbe `app/services/enquiry_service.py`.
+**Data/API status:**
+- Real (already wired): all of the above uses existing adminbe endpoints (`/hotels/rates`, `/enquiries/{id}/traveller-profile`).
+- Needs backend attention: `db/150_booking_fulfilment.sql` still needs applying on dev (`/enquiries/workspaces` returns 503 until then; Console work is kept in the browser meanwhile).
+**Env vars added/changed:** none
+**Backend action needed:** apply db/150 on dev.
+
+## 2026-10-27 — Advisor-chosen swap options; swaps keep the right flight legs
+
+**What changed:**
+- **"+ Swap option"** on every flight and hotel result in the Console's Search attaches that result as a swap option to the matching itinerary item: the flight on the same route and day, or the stay with the same check-in. Hotels are priced live first (`/hotels/rates`). It's limited to 4 options per item, refuses duplicates and the main choice itself, and says clearly when there's no matching item yet. Together with × to remove, the advisor fully controls which alternatives the customer sees; the automatic picks are only a starting point.
+- **Fix:** swapping a flight now moves its legs with it. Before, the main flight showed the new number and times above the old flight's segment line.
+- **Fix:** the builder and proposal destination uses the stay's real city (`city` on the hotel item) instead of its description, which after a hotel swap starts with "5-star".
+
+**Files touched:** `src/lib/itineraryFromCart.ts` (`addSwapOption`, leg conversion), `src/components/WorkbenchDataProvider.tsx`, `src/lib/workbenchContext.tsx`, `src/components/panels/WorkbenchTab.tsx`, `SearchDesksPanel.tsx`, `FlightDesk.tsx`, `HotelDesk.tsx`.
+**Data/API status:** uses the existing `/hotels/rates`.
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Proposal: one cost table, priced alternatives, photo carousel, calendar day numbers, PDF fit
+
+**What changed:**
+- **One "What it costs".** The customer sees the priced quote (with markup and taxes) when there is one, with the budget / not-priced note under it. The as-chosen supplier prices (net cost) appear only until the quote is priced; before, both tables showed.
+- **Alternatives are priced.** Adding a room saves **three** same-star alternatives, each priced live through adminbe's new `POST /hotels/rates` (cheapest rate with room, board and photos, from TripSure details). Before, unpriced listings were saved at ₹0. Swapping brings the alternative's photos with it.
+- **Photo carousel.** The chosen hotel in the proposal has previous/next arrows over its gallery from `/hotels/facts`, plus the photo strip and "Good to know".
+- **Day numbers follow the calendar.**
+  - **Builder:** 17 Nov = Day 1 and 21 Nov = Day 5 (`resortDays` / `dayNumberOf`), with "Days 2–4 · Staying at <hotel>" between planned days.
+  - **Proposal "Days" tab:** shows "Days 1–4 · Mumbai" and "Day 5 · Travel day" (no more "Home"; a day without a stay is a Travel day or a Free day). The PDF matches.
+- **PDF view fit.** The PDF view measured its pane only on first render, when it wasn't shown yet, which left the PDF at a 100px "zoomed out" width. It now re-measures when shown.
+
+**Files touched:**
+- **adminfe:**
+  - `components/proposal/ProposalPreviewPage.tsx`, `components/proposal/ProposalDocument.tsx`, `styles/proposal-preview.css`
+  - `components/panels/HotelDesk.tsx`, `components/panels/ItineraryView.tsx`, `styles/advisor-workbench.css`
+  - `lib/itineraryFromCart.ts`, `lib/proposalTemplateData.ts`, `services/api.ts`
+  - `app/(authenticated)/console/proposal-composer/page.tsx`
+- **adminbe:** `app/services/hotel_facts_service.py` (`cheapest_rate`, `rates_for`), `app/routers/hotel_router.py` (`POST /hotels/rates`), `tests/test_hotel_facts.py`.
+
+**Data/API status:** real TripSure data via adminbe.
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Autofilled builder header; Proposal Composer opens on the current enquiry
+
+**What changed:**
+- **Itinerary Builder header** (destination · dates · nights · travellers) is derived from the items themselves (`withTripSummary`): add a flight for 17 Nov and a 4-night stay, and it reads "Mumbai · 17 – 21 Nov · 4 nights · 2 travellers" with nothing typed. A value set by the AI draft or the advisor still wins. The fake "0 adults" label became a real traveller count.
+- **Proposal Composer opens straight onto the enquiry selected in the Console**, built from its live itinerary, with no "Send to Proposal" step needed. It appears as a **Draft** until "Mark as sent" (which records it in the Pipeline). Sent proposals also show the live itinerary, so builder edits appear immediately.
+- **Swaps change the itinerary itself**, so the builder and the proposal never disagree.
+- **No more sample data:** removed the preview's built-in sample trip (Switzerland / Kabir Shah), which appeared whenever a proposal had no destination.
+
+**Files touched:** `src/components/panels/ItineraryView.tsx`, `src/components/WorkbenchDataProvider.tsx`, `src/app/(authenticated)/console/proposal-composer/page.tsx`.
+**Data/API status:** none.
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Proposal: real dates, flights, swaps and stay facts; searches kept all session; admin-only invites
+
+**What changed:**
+- **Proposal dates and flights.**
+  - **Cause:** flights added from Search had no departure date (TripSure's offer mapping kept only times), so they landed on an "unscheduled" day. Their legs weren't kept either. The proposal therefore showed empty Dates, "NOT YET SELECTED" and "New itinerary".
+  - **Fix:** offers now carry `date` and `segments`. A trip built from Search derives its destination, dates, nights and traveller count from its items (`withTripSummary`, recomputed as items change, never overriding values set by the AI or the advisor). The proposal applies the same rule to saved itineraries.
+- **Swaps.** Adding a flight or hotel attaches **two swap options automatically**: the closest fares on the same route and day, or same-star hotels with the closest price or location. They're stored in the shape Swap reads (they weren't before, so swapping to them couldn't work). The Itinerary Builder lists them under each item with a × to remove either one.
+- **Stay facts.** Adding a room now calls adminbe's new `POST /hotels/facts`. It pulls from TripSure's hotel details:
+  - the photo gallery;
+  - what the rate includes;
+  - room view, bed and size;
+  - the check-in window;
+  - cancellation rules;
+  - must-read rules and policies;
+  - nearby places and guest rating.
+
+  Basics such as Wi-Fi or a lift are dropped. The builder shows a compact line of these facts, and the proposal shows a photo strip (click to enlarge) plus a "Good to know" table per stay. Facts follow the hotel when swapped.
+- **Backend only.** Stay photos in the proposal preview now come from adminbe (`GET /hotels/photo`), not from customerbe called in the browser, which also fell back to prod customerbe. The unused `/api/parse-chat` Next.js route was removed: it called Anthropic from the frontend server and disabled TLS checks.
+- **Searches kept for the whole session.** Each desk's full state, results included, is stored in sessionStorage as well as memory, so it survives reloads and hot reloads for up to 12 hours. Flight fare references are kept too, so fare details and Add still work. "Refresh" is offered after 15 minutes. Booking always re-prices live.
+- **Invites and inspector.** "Invite someone" and "Invite Customer" now appear only on the Admin page. "Press I to inspect" is off unless `NEXT_PUBLIC_DEV_INSPECTOR=1`.
+
+**Files touched:**
+- **adminfe:**
+  - `lib/itineraryFromCart.ts`, `lib/proposalTemplateData.ts`, `lib/deskMemory.ts`, `services/api.ts`
+  - `components/panels/FlightDesk.tsx`, `HotelDesk.tsx`, `ItineraryView.tsx`
+  - `components/proposal/ProposalPreviewPage.tsx`, `styles/proposal-preview.css`, `styles/advisor-workbench.css`
+  - `components/InviteSomeoneButton.tsx` (new), `components/DevInspector.tsx`
+  - `app/(authenticated)/(workbench)/layout.tsx`, `app/(authenticated)/console/queue/page.tsx`
+  - removed `app/api/parse-chat/route.ts`
+- **adminbe:** `app/services/hotel_facts_service.py` (new), `app/routers/hotel_router.py` (`/hotels/facts`, `/hotels/photo`), `tests/test_hotel_facts.py`
+
+**Data/API status:**
+- Real, checked live on preprod: an example room showed "Breakfast Included", 1 Double, 11 sq m, a dated free-cancellation rule and 4 room photos.
+
+**Env vars added/changed:** `NEXT_PUBLIC_DEV_INSPECTOR` (optional).
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Navigation: Workbench grouped, sidebar sections, Admin one click away
+
+**What changed:** Advisor Workbench's 17 tabs are now **6 groups**: Orders · Servicing · Approvals · My Work · Visa · Admin, plus Finance for margin roles.
+- **How it works:** a group with several pages shows them as a second row of options, and clicking a group opens its first page, so it's the same number of clicks as before.
+- **What's in each group:**
+  - Servicing = Servicing Queue, Cases, Disruptions, Changes & Disputes (was "Desk"), Delivery.
+  - My Work = My Day, Leads, Proposals, Communications.
+  - Visa = Visa Desk, Appointments.
+- **Hints:** every group and page has a short hover hint for first-time users. The tab-row collapse toggle is gone because it's no longer needed.
+- **Analytics:** removed from the Workbench. The sidebar's Analytics page now has two views, Platform and My performance (the old Workbench Analytics); `/advisor-analytics` redirects there.
+- **Sidebar sections:**
+  - Work = Enquiries, Advisor Workbench.
+  - Tools = Call Copilot, Supplier Broadcast, Trending & Deals, Journeys.
+  - Insights = Analytics.
+  - **Admin** = a direct link for admins, so access requests are one click from anywhere.
+
+**Files touched:** `src/app/(authenticated)/(workbench)/layout.tsx`, `src/components/ShellChrome.tsx`, `src/app/(authenticated)/analytics/page.tsx`, `src/app/(authenticated)/(workbench)/advisor-analytics/page.tsx`, `src/styles/advisor-workbench.css`, `src/styles/app-shell.css`.
+**Data/API status:** none. Every route is unchanged.
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Hotels: 5★/4★ first, name search, tidier filters, Select room toggles
+
+**What changed:**
+- **Luxury by default.** Hotel searches keep only 5★ and 4★ hotels, shown 5★ first and then 4★ (the "Stars: 5★ first" sort), and the background load adds only those ratings. TripSure's listing has no star filter (`availableFilters` comes back empty), so lower-rated hotels are dropped as each page arrives. A hotel picked by name is always kept. To include lower ratings, tick "Include 3★ and below (budget stays)" in the search form.
+- **Name search.** A "Find a hotel in Mumbai by name" box above the results filters the loaded hotels as you type (by name or address).
+- **Filters.** "Free cancellation" and "Breakfast included" moved from the main bar into the Filters panel, at the top.
+- **Select room.** The button now toggles: it opens the room list, then closes it again ("Hide rooms").
+- **"Open proposal" / Proposal Composer looked broken.** It wasn't the button. The proposal had been sent before a page reload, and with db/150 not applied the server couldn't save it, so the composer opened empty.
+  - **Browser fallback:** until db/150 is applied, Console work (itineraries and proposals) is kept in this browser's localStorage and restored after a reload. Other advisors won't see it until the migration is applied.
+  - **Pipeline:** "Open proposal" for a proposal that wasn't saved now opens the enquiry in the Console to rebuild it, and the composer explains what happened.
+- **Several open at once.** Several hotels' rooms (and several flights' fare details) can be open at the same time to compare them. Opening one no longer closes the others.
+
+**Files touched:** `src/components/panels/HotelDesk.tsx`, `src/lib/hotelListing.ts`, `src/styles/advisor-workbench.css`.
+**Data/API status:** no API change.
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Searches kept per enquiry, hotel "distance from a place", Proposal Composer crash fix
+
+**What changed:**
+- **Proposal Composer crash fixed.** "Invalid time value" in `addDurationDate` happened when an itinerary had an **unscheduled** day, meaning an item added before its date was known. Unscheduled days are now skipped for arrival dates and the calendar. The calendar loop is bounded; without that, the same input would have spun forever.
+- **Search desks keep their last search per enquiry.** Leaving the Console (Proposal Composer, Orders, another desk) and coming back shows the same form, results, filters and selected desk.
+  - **Memory:** everything is kept in memory for 30 minutes, and the form and filters also in sessionStorage across a reload (`lib/deskMemory.ts`).
+  - **Background loading:** a big city's background "loading more hotels" keeps running after the desk closes and re-attaches when it reopens.
+  - **Stale results:** after 5 minutes the header says "Searched N min ago · Refresh prices/fares".
+- **Hotel "Distance from".** Above the hotel results, pick any place (office, venue, landmark) from Google Places autocomplete, biased to the searched city.
+  - **What each card shows:** the drive time and road distance by car (Google Routes API, traffic-unaware), for example "8 min by car · 1.3 km from Gateway Of India". A "Nearest to …" sort is added.
+  - **Cost control:** drive times are fetched only for the 150 nearest hotels by straight line, because Routes is billed per hotel. The rest show "≈ X km (straight line)".
+  - **In the itinerary:** the distance line is saved with a hotel added to the itinerary and shown under it.
+
+**Files touched:**
+- **New files:** `src/lib/deskMemory.ts`, `src/lib/hotelDistance.ts`.
+- **Console desks and itinerary:** `components/panels/HotelDesk.tsx`, `FlightDesk.tsx`, `SearchDesksPanel.tsx`, `ItineraryView.tsx`.
+- **Libraries:** `lib/itineraryFromCart.ts`, `lib/proposalTemplateData.ts`, `services/api.ts`.
+- **Styles:** `styles/advisor-workbench.css`.
+- **adminbe:**
+  - Services: `app/services/geo_service.py` (new) and `app/services/api_usage.py` (Google rates).
+  - Router: `app/routers/hotel_router.py` (`GET /hotels/places`, `POST /hotels/distances`).
+  - Tests: `tests/test_geo_service.py`.
+
+**Data/API status:**
+- **Real:** Google Places Autocomplete and Place Details (New), and Routes `computeRouteMatrix`, with the existing `GOOGLE_PLACES_API_KEY`. Checked live on dev: Gateway of India to Taj Mahal Palace is 1.3 km / 8 min, and to JW Marriott Juhu 26.6 km / 56 min.
+- **Needs backend attention:** the key in each environment must have the **Routes API** enabled; the dev key does. Costs appear in Admin → API costs as `google_routes` / `google_places`.
+
+**Env vars added/changed:** none.
+**Backend action needed:** enable the Routes API on the prod Google key before this reaches prod.
+
+---
+
+## 2026-10-27 — Console search desks: edit in place, travellers & rooms, requests, resizable columns, fare details fixed
+
+**What changed:**
+- **Flights**
+  - There's an explicit One way / Round trip switch. The return date is labelled "Return"; it used to say "Arrival".
+  - Travellers are set as Adults, Children (2–11) and Infants (under 2), and all three are sent to TripSure.
+  - "Edit search" opens the form above the current results instead of throwing them away.
+  - The results show who the fares are for, with a "Change travellers" control that searches again.
+  - "Add" opens a panel for extra-baggage, seat, meal and note requests. These show as chips on the itinerary item and carry into "Book this trip" and the New Booking seats step.
+  - **Fare detail tabs fixed.**
+    - **The bug:** the browser sent only a composite offer id. Fare families went out with an empty `supplier_key`, so TripSure answered INVALID_SUPPLIER and the tab showed "provider_rejected". The rules and seat-map calls also lacked the search's trace id.
+    - **Confirmed on preprod:** `supplier_key` is the provider id, and the trace id is now sent.
+    - **Tabs now show:** each fare option with its price, bags, cancellation and date-change policy, and seat/meal terms, plus the real fare rules.
+    - **Fare locks:** opening Ancillaries and Seat map reuses one fare lock instead of creating one per click.
+- **Hotels**
+  - The location box accepts a city, area or **hotel name**. Picking a hotel searches only that property, and each suggestion is tagged with its type.
+  - "Rooms & guests" sets adults and children per room, with each child's age (sent to TripSure).
+  - "Edit search" opens in place, the same as flights. A nights count is shown, and the dates are checked before searching.
+  - Guest requests (bed type, early check-in, late check-out, high floor, connecting rooms, note) are recorded with the room and shown on the itinerary.
+- **Console layout:** drag the handles between Traveller Profile, Itinerary Builder and Search to resize them. Double-click a handle to reset. Sizes are saved per browser. Layouts under 1100px stack as before.
+
+**Files touched:**
+- **New files:** `src/components/ResizableColumns.tsx`, `src/lib/flightRequests.ts`, `src/lib/hotelOccupancy.ts`.
+- **Console:** `components/panels/FlightDesk.tsx`, `components/panels/HotelDesk.tsx`, `components/panels/WorkbenchTab.tsx`.
+- **New Booking and Orders:** `components/orders/NewBookingModal.tsx`, `components/orders/OrdersWorkspace.tsx`.
+- **Libraries:** `lib/advisorHelpers.ts`, `lib/itineraryFromCart.ts`, `lib/bookingHandoff.ts`, `lib/citySuggest.ts`.
+- **Styles:** `styles/advisor-workbench.css`.
+- **adminbe:** `app/services/flight_offer_service.py`, `app/services/flight_fares_service.py`, `tests/test_flight_fare_detail.py`.
+
+**Data/API status:**
+- **Real:** all of the above uses existing TripSure calls, verified on preprod.
+- **Needs backend attention:** the preprod sandbox returns no seat map or paid extras for AI, IX, 9I or 6E, so the seat-map rendering hasn't been seen with real data yet.
+
+**Env vars added/changed:** none.
+**Backend action needed:** none.
+
+---
+
+## 2026-10-27 — Orders: full advisor booking (travellers → payment → ticket / hotel confirm); Console work saved
+
+**What changed:** An order now has a **Booking progress** checklist at the top of its detail. It has three steps:
+1. **Travellers.** The form has one slot per passenger the fares were priced for. Names must match the ID. Passports are required for international trips, and a stored passport is shown masked. GST details are optional.
+2. **Payment.** Record what the customer paid: UPI, bank transfer, card, payment link, cash or agency credit, with a reference.
+3. **Book with the supplier.** "Issue ticket" first attaches the passengers with TripSure Update Itinerary. It then checks TripSure's new fare against what the order charged and only then books. "Confirm hotel" runs TripSure booking/create for a locked room.
+
+Both booking actions ask for confirmation in the page first. If the result is unclear (a timeout or a 5xx), the item is marked "Check required" and is never retried automatically.
+
+Other changes in this pass:
+- **New Booking.** Searches now cover children and infants. A new customer needs an email and mobile. Search text and next-step copy are corrected.
+- **Accepted enquiries.** "Book trip" on the Pipeline and "Book this trip" in the Quote Builder open New Booking for that customer, tied to the enquiry. These replace "Create order now", which wrote to an `orders` table that dev doesn't have.
+- **Console persistence.** The Itinerary Builder and the Proposal Composer queue are saved per enquiry on the server and restored after a reload. Saving is debounced and version-checked, so two tabs or two advisors can't overwrite each other.
+- **No silent demo data.** The Flight, Hotel and Visa desks no longer show made-up fares when a live search fails; they show the error. Demo data is opt-in only, with `NEXT_PUBLIC_ALLOW_DEMO_DATA=1`.
+- **Fixes:**
+  - Opening an order now loads its detail. The effect that should have done this was empty.
+  - An unscoped `.ow-card` rule turned every order-detail card into a flex row.
+  - `taw-banner--danger`/`--warn` and `ta-toast--warn` were used but never styled.
+  - The placeholder "View Invoice / Download / Share" buttons are replaced by "Copy booking summary".
+  - The "sample data below" caption is removed.
+
+**Files touched:**
+- **New files:** `src/components/orders/OrderFulfilment.tsx`, `src/components/orders/TravellersForm.tsx`, `src/lib/bookingHandoff.ts`, `src/lib/useWorkspacePersistence.ts`.
+- **Orders screens:** `OrderDetail.tsx`, `OrdersWorkspace.tsx`, `NewBookingModal.tsx` and `NewBookingHotel.tsx`.
+- **Search desks:** `components/panels/FlightDesk.tsx`, `HotelDesk.tsx` and `VisaDesk.tsx`.
+- **Console:** `QuoteBuilder.tsx`, `WorkbenchDataProvider.tsx`, and the `console/pipeline` and `console/proposal-composer` pages.
+- **Libraries:** `lib/orderTypes.ts`, `lib/realOrders.ts`, `lib/env.ts`, `services/api.ts`.
+- **Styles:** `styles/orders-workspace.css`, `styles/advisor-workbench.css`.
+
+**Data/API status:**
+- **Real (already wired):** adminbe gained these endpoints:
+  - `GET /booking-orders/{id}/fulfilment` (it is also embedded in `GET /booking-orders/{id}`)
+  - `PUT /booking-orders/{id}/travellers` and `POST /booking-orders/{id}/payments`
+  - `POST /booking-orders/flight-itinerary/{id}/ticket`
+  - `POST /booking-orders/hotels/{id}/confirm` and `/check-status`
+  - `POST /booking-orders/{flight|hotel}/{id}/reset`
+  - `GET /enquiries/workspaces` and `GET`/`PUT /enquiries/{id}/workspace`
+
+  All of them are covered by `backend/tests/test_booking_fulfilment.py`.
+- **Needs backend attention:**
+  - Apply `adminbe/backend/db/150_booking_fulfilment.sql` (additive). Until then the checklist shows a banner, and ticketing and payments refuse before calling TripSure.
+  - The TripSure Update Itinerary payload has not been tried on preprod yet. That covers the seat/baggage `ssr` shape and `gstInfo`. The fare check stops the booking if TripSure prices it differently.
+  - The Book and booking/create response parsing (PNR, booking id, confirmation number) has not been checked against preprod either.
+
+**Env vars added/changed:** `NEXT_PUBLIC_ALLOW_DEMO_DATA` (optional, off by default).
+**Backend action needed:** Apply db/150 on dev, then run one preprod booking end to end.
+
+---
+
 ## 2026-09-09 — New "Pipeline" tab: every enquiry's real stage, one action per row
 
 **What changed:** direct request — a new tab beside Console and Proposal Composer that tracks every enquiry across its real lifecycle stage (New / Building Itinerary / Sent to Proposal / Accepted / Revision Requested / Rejected). "Stage" has no backend concept at all (confirmed via BACKEND-HANDOFF.md) — it's derived entirely from state this app already has: `itinerariesByEnquiry[id]` existing, `proposalQueue` membership, and a proposal's `outcome` field. Built as a real sortable/filterable table (stage tag, name, destination, pax, updated, action), not a kanban board, since every transition already happens elsewhere via a real action.

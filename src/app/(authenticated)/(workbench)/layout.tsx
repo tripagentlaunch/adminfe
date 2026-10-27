@@ -1,11 +1,10 @@
 "use client";
 /* =============================================================================
  * TripAgent — src/app/(workbench)/layout.tsx
- * Advisor Workbench's remaining sub-nav (Orders Board, Servicing Queue,
- * Disruptions, Approvals, My Day, Proposals, Leads, Communications,
- * Analytics, Visa Desk, Appointments, Servicing, Desk, Delivery, Admin,
- * Earnings, Reconciliation) + the Invite Customer action + the tab-row
- * overflow toggle.
+ * Advisor Workbench's sub-nav, grouped (2026-10-27): Orders · Servicing ·
+ * Approvals · My Work · Visa · Finance (margin roles) · Admin (admins), with
+ * each group's pages as a second row — see GROUPS below — plus the Invite
+ * Customer action.
  *
  * 2026-08-31: this layout no longer owns the advisors/members/enquiries
  * state or WorkbenchContext.Provider — that's hoisted to
@@ -31,80 +30,111 @@ import { usePathname } from "next/navigation";
 import { canSeeMargin, isAdmin } from "../../../lib/advisorHelpers";
 import { Icon } from "../../../components/ui";
 import { InviteCustomerForm } from "../../../components/InviteCustomerForm";
+import { InviteSomeoneButton } from "../../../components/InviteSomeoneButton";
+import { useWorkbench } from "../../../lib/workbenchContext";
 import { cx } from "../../../lib/cx";
 
-const TABS = [
-  { key: "orders", label: "Orders Board", icon: "luggage" },
-  { key: "queue", label: "Servicing Queue", icon: "shield" },
-  { key: "disruptions", label: "Disruptions", icon: "alert" },
-  { key: "approvals", label: "Approvals", icon: "shield" },
-  { key: "myday", label: "My Day", icon: "sliders" },
-  { key: "proposals", label: "Proposals", icon: "note" },
-  { key: "leads", label: "Leads", icon: "inbox" },
-  { key: "comms", label: "Communications", icon: "bell" },
-  { key: "analytics", label: "Analytics", icon: "compass", path: "/advisor-analytics" },
-  { key: "visa", label: "Visa Desk", icon: "visa" },
-  { key: "appointments", label: "Appointments", icon: "visa" },
-  { key: "servicing", label: "Servicing", icon: "shield" },
-  { key: "desk", label: "Desk", icon: "sliders" },
-  { key: "delivery", label: "Delivery", icon: "bell" },
-  // Earnings / Reconciliation are ADVISOR-INTERNAL economics — ported exactly:
-  // gated behind canSeeMargin(), same as the tab buttons in View.
-  { key: "earnings", label: "Earnings", icon: "sliders", gated: true },
-  { key: "recon", label: "Reconciliation", icon: "shield", gated: true },
-  // Admin oversight — ADMIN ONLY. Hidden entirely (not just disabled) for
-  // every other role, mirroring the earnings/recon `gated` treatment but on
-  // isAdmin() instead of canSeeMargin().
-  { key: "admin", label: "Admin", icon: "shield", adminOnly: true },
+// 2026-10-27: the 17 flat tabs are grouped into a few sections so a first-time
+// advisor sees what each area is for. Clicking a group opens its first page
+// (same number of clicks as before); a group with several pages shows them as
+// a second row. Every route is unchanged. Analytics left this bar: it lives in
+// the sidebar's Analytics page (with a "My performance" view).
+type Page = { key: string; label: string; hint: string };
+type Group = { key: string; label: string; icon: string; hint: string; pages: Page[]; gated?: boolean; adminOnly?: boolean };
+
+const GROUPS: Group[] = [
+  { key: "orders", label: "Orders", icon: "luggage", hint: "Bookings: new booking, travellers, payment, tickets",
+    pages: [{ key: "orders", label: "Orders", hint: "" }] },
+  { key: "servicing", label: "Servicing", icon: "shield", hint: "After booking: changes, cancellations, disruptions, documents",
+    pages: [
+      { key: "queue", label: "Servicing Queue", hint: "Open cases waiting on you" },
+      { key: "servicing", label: "Cases", hint: "Raise and track servicing requests" },
+      { key: "disruptions", label: "Disruptions", hint: "Flight delays, cancellations, schedule changes" },
+      { key: "desk", label: "Changes & Disputes", hint: "Hotel changes, disputes, group air" },
+      { key: "delivery", label: "Delivery", hint: "Tickets and vouchers sent to customers" },
+    ] },
+  { key: "approvals", label: "Approvals", icon: "check", hint: "Items waiting for an approval",
+    pages: [{ key: "approvals", label: "Approvals", hint: "" }] },
+  { key: "mywork", label: "My Work", icon: "sliders", hint: "Your day, leads, proposals and messages",
+    pages: [
+      { key: "myday", label: "My Day", hint: "Today's tasks and follow-ups" },
+      { key: "leads", label: "Leads", hint: "New leads to pick up" },
+      { key: "proposals", label: "Proposals", hint: "Proposals you've sent" },
+      { key: "comms", label: "Communications", hint: "WhatsApp and email threads" },
+    ] },
+  { key: "visa", label: "Visa", icon: "visa", hint: "Visa applications and appointments",
+    pages: [
+      { key: "visa", label: "Visa Desk", hint: "Applications in progress" },
+      { key: "appointments", label: "Appointments", hint: "Biometrics and embassy slots" },
+    ] },
+  { key: "finance", label: "Finance", icon: "tag", hint: "Earnings and reconciliation", gated: true,
+    pages: [
+      { key: "earnings", label: "Earnings", hint: "" },
+      { key: "recon", label: "Reconciliation", hint: "" },
+    ] },
+  { key: "admin", label: "Admin", icon: "people", hint: "Access requests, advisors, super keys", adminOnly: true,
+    pages: [{ key: "admin", label: "Admin", hint: "" }] },
 ];
 
 export default function WorkbenchLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/orders";
-  const activeTab = pathname.startsWith("/advisor-analytics") ? "analytics" : pathname.split("/")[1] || "orders";
-  const visibleTabs = TABS.filter((t) => (!t.gated || canSeeMargin()) && (!t.adminOnly || isAdmin()));
+  const activePage = pathname.split("/")[1] || "orders";
+  const groups = GROUPS.filter((g) => (!g.gated || canSeeMargin()) && (!g.adminOnly || isAdmin()));
+  const activeGroup = groups.find((g) => g.pages.some((p) => p.key === activePage)) || groups[0];
 
   const [inviteOpen, setInviteOpen] = useState(false);
-  // 15 tabs still wrap to two lines at typical widths. Defaults to showing
-  // all of them (matches prior behavior) — the toggle button next to
-  // Invite Customer collapses to a single row (overflow clipped).
-  const [tabsExpanded, setTabsExpanded] = useState(true);
+  const { reloadInbox } = useWorkbench();
+  // Inviting customers is an admin task, not a daily advisor action: both
+  // invite flows live on the Admin page only.
+  const onAdmin = activeGroup.key === "admin";
 
   return (
     <div className="taw">
       <div className="area-header">
         <div className="area-title-row">
           <h1>Advisor Workbench</h1>
-          <div className="area-actions">
-            <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => setInviteOpen(true)}>
-              <Icon name="send" size={13} />
-              Invite Customer
-            </button>
-            <button
-              className="area-tabs-toggle"
-              onClick={() => setTabsExpanded((v) => !v)}
-              aria-expanded={tabsExpanded}
-              aria-label={tabsExpanded ? "Collapse tabs to one row" : "Show all tabs"}
-              title={tabsExpanded ? "Collapse tabs to one row" : "Show all tabs"}
-            >
-              <Icon name="chevron" size={14} />
-            </button>
-          </div>
+          {onAdmin ? (
+            <div className="area-actions">
+              <InviteSomeoneButton onInvited={reloadInbox} />
+              <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => setInviteOpen(true)}>
+                <Icon name="send" size={13} />
+                Invite Customer
+              </button>
+            </div>
+          ) : null}
         </div>
-        <div className={cx("area-tabs", !tabsExpanded && "is-collapsed")} role="tablist" aria-label="Workbench section">
-          {visibleTabs.map((t) => (
+        <div className="area-tabs" role="tablist" aria-label="Workbench sections">
+          {groups.map((g) => (
             <Link
-              key={t.key}
-              href={(t as any).path || "/" + t.key}
+              key={g.key}
+              href={"/" + g.pages[0].key}
               role="tab"
-              id={"taw-tab-" + t.key}
-              aria-selected={activeTab === t.key ? "true" : "false"}
-              className={cx("area-tab", activeTab === t.key && "is-active")}
+              id={"taw-tab-" + g.key}
+              title={g.hint}
+              aria-selected={activeGroup.key === g.key ? "true" : "false"}
+              className={cx("area-tab", activeGroup.key === g.key && "is-active")}
             >
-              <Icon name={t.icon} size={15} />
-              <span>{t.label}</span>
+              <Icon name={g.icon} size={15} />
+              <span>{g.label}</span>
             </Link>
           ))}
         </div>
+        {activeGroup.pages.length > 1 ? (
+          <div className="taw-subtabs" role="tablist" aria-label={activeGroup.label + " pages"}>
+            {activeGroup.pages.map((p) => (
+              <Link
+                key={p.key}
+                href={"/" + p.key}
+                role="tab"
+                title={p.hint}
+                aria-selected={activePage === p.key ? "true" : "false"}
+                className={cx("taw-subtab", activePage === p.key && "is-active")}
+              >
+                {p.label}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {inviteOpen ? <InviteCustomerForm onClose={() => setInviteOpen(false)} /> : null}

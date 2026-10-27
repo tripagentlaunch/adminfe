@@ -33,6 +33,8 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, Empty, Icon, SleekScroll } from "../../../../components/ui";
 import { useWorkbench } from "../../../../lib/workbenchContext";
+import { bookingHandoffUrl } from "../../../../lib/bookingHandoff";
+import { toast } from "../../../../lib/advisorHelpers";
 import { cx } from "../../../../lib/cx";
 
 // STAGES — order matches the real lifecycle; `tone` maps to a
@@ -56,7 +58,7 @@ const STAGES = [
   { key: "new", label: "New", icon: "inbox", tone: "neutral", action: "console", actionLabel: "Start itinerary" },
   { key: "building", label: "Building Itinerary", icon: "compass", tone: "info", action: "console", actionLabel: "Continue itinerary" },
   { key: "sent", label: "Sent to Proposal", icon: "send", tone: "gold", action: "composer", actionLabel: "Open proposal" },
-  { key: "accepted", label: "Accepted", icon: "check", tone: "success", action: "composer", actionLabel: "Review & book" },
+  { key: "accepted", label: "Accepted", icon: "check", tone: "success", action: "book", actionLabel: "Book trip" },
   { key: "revision_requested", label: "Revision Requested", icon: "refresh", tone: "warn", action: "console", actionLabel: "Revise itinerary" },
   { key: "rejected", label: "Rejected", icon: "x", tone: "danger", action: "composer", actionLabel: "Open proposal" },
 ] as const;
@@ -153,7 +155,16 @@ export default function PipelinePage() {
   // to Console to actually revise the itinerary, not Proposal Composer.
   function openRow(row: (typeof allRows)[number]) {
     const stageDef = STAGE_BY_KEY[row.stage];
-    if (stageDef.action === "composer") {
+    if (stageDef.action === "book") {
+      // Accepted: straight to New Booking (live fares), tied to this enquiry.
+      router.push(bookingHandoffUrl({ enquiry: row.enquiry, member: row.member, itinerary: itinerariesByEnquiry[row.enquiry.id] || row.proposalEntry?.data }));
+    } else if (stageDef.action === "composer" && !row.proposalEntry) {
+      // Sent in an earlier session that wasn't saved: no proposal to show in the
+      // composer, so open the enquiry in the Console to rebuild and re-send it.
+      pickEnquiry(row.enquiry, row.member);
+      toast("This proposal wasn't saved — rebuild it in the Itinerary Builder and use Send to Proposal.", "warn");
+      router.push("/console/queue");
+    } else if (stageDef.action === "composer") {
       selectProposal(row.enquiry.id);
       router.push("/console/proposal-composer");
     } else {

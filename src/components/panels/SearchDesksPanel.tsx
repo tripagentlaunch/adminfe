@@ -58,6 +58,7 @@
  * directly, CSS has no interpolation for it.
  * ===========================================================================*/
 import { useLayoutEffect, useRef, useState } from "react";
+import { recallDesk, rememberDesk } from "../../lib/deskMemory";
 import { cx } from "../../lib/cx";
 import { Card, Dropdown, Icon } from "../ui";
 import { FlightDesk } from "./FlightDesk";
@@ -71,8 +72,14 @@ const DESKS = [
 ];
 
 export function SearchDesksPanel(props: any) {
-  const { member, enquiry, advisorId, onAdd, tripDates } = props;
-  const [desk, setDesk] = useState("flights");
+  const { member, enquiry, advisorId, onAdd, onAddSwap, tripDates } = props;
+  // Which desk was open for this enquiry (Flights / Hotels / Visas), kept like the desks' own searches.
+  const deskKey = "panel:" + ((enquiry && enquiry.id) || "none");
+  const [desk, setDeskState] = useState<string>(() => (recallDesk(deskKey) || {}).desk || "flights");
+  function setDesk(d: string) {
+    setDeskState(d);
+    rememberDesk(deskKey, { desk: d }, { desk: d });
+  }
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<any>(null);
   const firstRender = useRef(true);
@@ -122,10 +129,10 @@ export function SearchDesksPanel(props: any) {
     >
       <div className="taw-search-stack">
         {desk === "flights" ? (
-          <FlightDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
+          <FlightDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onAddSwap={onAddSwap} onExpandChange={setExpanded} />
         ) : null}
         {desk === "hotels" ? (
-          <HotelDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onExpandChange={setExpanded} />
+          <HotelDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onAddSwap={onAddSwap} onExpandChange={setExpanded} />
         ) : null}
         {desk === "visas" ? <VisaDesk member={member} enquiry={enquiry} advisorId={advisorId} onAdd={onAdd} /> : null}
       </div>

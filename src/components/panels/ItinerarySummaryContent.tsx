@@ -18,6 +18,7 @@
 import { inr } from "../../services/api";
 import { Icon } from "../ui";
 import { STATUS_META, tierOf } from "../../lib/mockItinerary";
+import { tripPaxLabel } from "../../lib/itineraryFromCart";
 
 // hasDraftHotel (2026-09-13) — true when an itinerary has a "draft" hotel item: an AI-drafted or
 // AI-suggested placeholder (no real hotelKey, TripSure never searched). It was the hard gate for
@@ -50,7 +51,12 @@ export function ItinerarySummaryContent({ data }: { data: any }) {
         {data.destination} · {data.dateRange}
       </div>
       <div className="taw-itinsum-sub">
-        {data.cities.join(" · ")} · {data.nights} night{data.nights === 1 ? "" : "s"} · {data.pax} adult{data.pax === 1 ? "" : "s"} · {data.purpose}
+        {[
+          (data.cities || []).join(" · "),
+          data.nights ? data.nights + " night" + (data.nights === 1 ? "" : "s") : null,
+          tripPaxLabel(data) || (data.pax ? data.pax + " traveller" + (data.pax === 1 ? "" : "s") : null),
+          data.purpose,
+        ].filter(Boolean).join(" · ")}
       </div>
       <div className="taw-itin-totals">
         <div>

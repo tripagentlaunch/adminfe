@@ -185,7 +185,16 @@ function readInfo(el: HTMLElement, tokenMaps: TokenMaps): Info {
   };
 }
 
+// Off unless NEXT_PUBLIC_DEV_INSPECTOR=1 (2026-10-27): the floating
+// "Press I to inspect" chip got in the way of everyday use of the portal.
+const INSPECTOR_ON = IS_DEV && process.env.NEXT_PUBLIC_DEV_INSPECTOR === "1";
+
 export function DevInspector() {
+  if (!INSPECTOR_ON) return null;
+  return <DevInspectorOn />;
+}
+
+function DevInspectorOn() {
   const [active, setActive] = useState(false);
   const [locked, setLocked] = useState(false);
   const [pos, setPos] = useState({ x: 0, y: 0 });

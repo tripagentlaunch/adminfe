@@ -8,16 +8,22 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
-import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
+import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
+import { ALLOW_DEMO_DATA } from "../../lib/env";
+import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
+import { distanceText, straightKm, type DistOrigin, type Drive } from "../../lib/hotelDistance";
+import {
+  BED_OPTIONS, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
+  type HotelRequests, type RoomOcc,
+} from "../../lib/hotelOccupancy";
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
-import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
-import { loadRestOfCity } from "../../lib/hotelMore";
+import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, isLuxury, activeFilterCount, filterHotels, hotelFacets, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
 import { HotelMap, placesFromSuggestion } from "./HotelMap";
 import { HotelLocationMap } from "./HotelLocationMap";
 
@@ -31,7 +37,7 @@ const HOTEL_SORT_OPTIONS = [
   { key: "best", label: "Best value", icon: "sort" },
   { key: "cheapest", label: "Price: low to high", icon: "sort" },
   { key: "priceDesc", label: "Price: high to low", icon: "sort" },
-  { key: "toprated", label: "Top-rated", icon: "sort" },
+  { key: "toprated", label: "Stars: 5★ first", icon: "sort" },
 ];
 const HOTEL_STAR_OPTIONS = [
   { key: "any", label: "All stars" },
@@ -39,6 +45,30 @@ const HOTEL_STAR_OPTIONS = [
   { key: "4", label: "4★+" },
   { key: "5", label: "5★" },
 ];
+
+// The last searches' results, kept in the browser for five minutes like TripSure's own site does
+// (it keeps a search for 5 minutes): asking for the same city, dates and rooms again, or coming
+// back to Hotels from Flights, shows the hotels at once instead of searching again. Only a search
+// whose whole city has loaded is kept.
+const HOTEL_RESULTS_TTL_MS = 5 * 60 * 1000;
+const HOTEL_RESULTS_CACHE = new Map<string, { at: number; res: any }>();
+// Background "rest of the city" loads, keyed by search. They keep running when
+// the desk unmounts (advisor opens Proposal Composer, another desk…); a desk
+// that mounts again for the same search re-attaches and keeps receiving pages.
+type MoreJob = { res: any; info: { loaded: number; expected?: number; failed?: boolean } | null; stop: () => void; subs: Set<() => void> };
+const MORE_JOBS = new Map<string, MoreJob>();
+// TripSure's listing carries no price (priceSummary is empty), so the hotels on
+// screen are priced from their cheapest live room (POST /hotels/rates, 5 per
+// call), keyed by hotel + search token so it is asked once per search.
+// null = TripSure has no bookable room for it.
+const FROM_PRICES = new Map<string, { price: number; board: string | null; refundable: any } | null>();
+const FROM_FAILED = new Map<string, number>(); // the rates call failed (when): "Rates on selection", retried after a minute
+const RETRY_FAILED_MS = 60_000;
+const fromKey = (t: any) => t.hotelId + "|" + t.token;
+function keepHotelResults(key: string, res: any) {
+  if (HOTEL_RESULTS_CACHE.size > 20) HOTEL_RESULTS_CACHE.clear();
+  HOTEL_RESULTS_CACHE.set(key, { at: Date.now(), res: { ...res, more: null } });
+}
 
 // TEMP toggle — flip to false to fall back to the old synthetic searchHotels()
 // generator instantly if the real TripSure data looks wrong. Remove once the
@@ -80,12 +110,172 @@ function cityLocationSuggestions(query: string) {
   return citySuggest(query, rankLocationSuggestions);
 }
 
+// The live list mixes cities, areas, landmarks, airports and single hotels;
+// the type tag says which. Picking a hotel searches just that property.
 function renderCityLocationSuggestion(loc: any) {
+  const type = String(loc.type || "").toLowerCase();
+  const tag = type === "hotel" ? "Hotel" : type === "airport" ? "Airport" : type === "city" ? "City"
+    : type === "state" || type === "country" ? "Region" : type ? "Area" : "";
   return (
-    <span>
-      {loc.name}
-      {loc.state ? ", " + loc.state : ""}, {loc.country}
+    <span className="taw-locsug">
+      <span>
+        {loc.name}
+        <small>{[loc.type && type !== "city" ? loc.city : null, loc.state, loc.country].filter(Boolean).join(", ")}</small>
+      </span>
+      {tag ? <em className={type === "hotel" ? "is-hotel" : ""}>{tag}</em> : null}
     </span>
+  );
+}
+
+// Three swap options for a hotel, picked automatically: same star rating, closest
+// price (or nearest by straight line when unpriced). Removable in the builder.
+// `_handles` lets addRoom price them live (POST /hotels/rates) — listings are
+// often unpriced, which used to save them at ₹0.
+// Shape = what swapHotelAlternative / the proposal read.
+// Prices come from the listing or, when it has none, the live "from" price on
+// screen (FROM_PRICES); hotels TripSure has no rooms for are skipped. Five
+// candidates go out so that three still remain if some can't be priced.
+const ALT_CANDIDATES = 5;
+function priceOf(x: any): number {
+  const t = x._tripsure;
+  const known = t && t.hotelId ? FROM_PRICES.get(fromKey(t)) : undefined;
+  return offerNet(x) || (known ? known.price : 0);
+}
+function hotelAlternatives(shown: any[], o: any): any[] {
+  const d0 = o.detail || {};
+  const net0 = priceOf(o);
+  const dist = (x: any) => {
+    const d = x.detail || {};
+    if (net0 > 0 && priceOf(x) > 0) return Math.abs(priceOf(x) - net0);
+    if (d0.lat != null && d.lat != null) return straightKm(Number(d0.lat), Number(d0.lng), Number(d.lat), Number(d.lng)) * 1000;
+    return Infinity;
+  };
+  return shown
+    .filter((x: any) => x.id !== o.id && ((x.detail || {}).stars || 0) === (d0.stars || 0)
+      && !(x._tripsure && x._tripsure.hotelId && FROM_PRICES.get(fromKey(x._tripsure)) === null))
+    .sort((a: any, b: any) => dist(a) - dist(b))
+    .slice(0, ALT_CANDIDATES)
+    .map((x: any) => {
+      const d = x.detail || {};
+      const t = x._tripsure || {};
+      return {
+        _handles: t.hotelId && t.docKey && t.token ? { hotelId: String(t.hotelId), docKey: t.docKey, token: t.token } : null,
+        hotelKey: String(x.id), name: d.hotelName || "Hotel", image: d.image || null, price: priceOf(x),
+        stars: d.stars ?? null, address: d.address || null, board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
+        detail: [d.stars ? d.stars + "-star" : null, d.address].filter(Boolean).join(" · "),
+      };
+    });
+}
+
+// The distance line saved with a hotel added to the itinerary.
+function distanceOf(dist: any, o: any): string | null {
+  if (!dist || !dist.origin) return null;
+  const d = o.detail || {};
+  return distanceText(dist.origin, dist.byId[String(o.id)], d.lat, d.lng);
+}
+
+// "Distance from" box above the hotel results: pick any place (office, venue,
+// landmark) and every hotel shows how far it is by car.
+function DistanceFrom({ dist, hotels }: { dist: any; hotels: any[] }) {
+  const [q, setQ] = useState("");
+  const bias = dist.bias || (() => {
+    const h = hotels.find((x: any) => x.detail && x.detail.lat != null);
+    return h ? { lat: Number(h.detail.lat), lon: Number(h.detail.lng) } : null;
+  })();
+  const done = Object.values(dist.byId).filter(Boolean).length;
+  if (dist.origin) {
+    return (
+      <div className="taw-distbar">
+        <Icon name="pin" size={13} />
+        <span>
+          Distances by car from <b>{dist.origin.label}</b>
+          <small>{dist.busy ? " · getting drive times…" : done ? " · drive times for the nearest " + done + " hotels; the rest are straight-line" : ""}</small>
+        </span>
+        <button type="button" className="taw-linkbtn" onClick={dist.clear}>Change</button>
+        {dist.err ? <div className="taw-dist-err">{dist.err}</div> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="taw-distbar">
+      <Icon name="pin" size={13} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <AutosuggestInput
+          value={q}
+          onChange={(v: any) => setQ(v)}
+          onSelect={(p: any) => { setQ(""); dist.pick(p); }}
+          fetchSuggestions={(text: string) =>
+            text.trim().length < 2 ? Promise.resolve([]) : hotelPlaces(text, bias ? bias.lat : undefined, bias ? bias.lon : undefined).then((r: any) => (r && r.places) || [])}
+          renderSuggestion={(p: any) => (
+            <span className="taw-locsug"><span>{p.name}<small>{p.secondary || ""}</small></span></span>
+          )}
+          getKey={(p: any) => p.place_id}
+          placeholder="Distance from… (office, venue, landmark)"
+        />
+      </div>
+      {dist.busy ? <Spinner /> : null}
+      {dist.err ? <div className="taw-dist-err">{dist.err}</div> : null}
+    </div>
+  );
+}
+
+function nightsLabel(checkIn: string, checkOut: string) {
+  const n = Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
+  if (!isFinite(n)) return null;
+  return <div className="taw-nights">{n > 0 ? n + " night" + (n === 1 ? "" : "s") : "Check-out must be after check-in"}</div>;
+}
+
+// Rooms & guests editor: per room, adults and children (each child's age —
+// TripSure prices children by age).
+function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: RoomOcc[]) => void }) {
+  const setRoom = (i: number, r: RoomOcc) => onChange(value.map((x, j) => (j === i ? r : x)));
+  return (
+    <div className="taw-pax">
+      {value.map((r, i) => (
+        <div key={i} className="taw-room">
+          <div className="taw-pax-row">
+            <b>Room {i + 1}</b>
+            {value.length > 1 ? (
+              <button type="button" className="taw-linkbtn" onClick={() => onChange(value.filter((_, j) => j !== i))}>Remove</button>
+            ) : null}
+          </div>
+          <div className="taw-pax-row">
+            <span>Adults <small>12+ years</small></span>
+            <span className="taw-stepper">
+              <button type="button" aria-label="Fewer adults" disabled={r.adults <= 1} onClick={() => setRoom(i, { ...r, adults: r.adults - 1 })}><Icon name="minus" size={12} /></button>
+              <b>{r.adults}</b>
+              <button type="button" aria-label="More adults" disabled={r.adults >= MAX_ADULTS_PER_ROOM} onClick={() => setRoom(i, { ...r, adults: r.adults + 1 })}><Icon name="plus" size={12} /></button>
+            </span>
+          </div>
+          <div className="taw-pax-row">
+            <span>Children <small>under 12</small></span>
+            <span className="taw-stepper">
+              <button type="button" aria-label="Fewer children" disabled={!r.childAges.length} onClick={() => setRoom(i, { ...r, childAges: r.childAges.slice(0, -1) })}><Icon name="minus" size={12} /></button>
+              <b>{r.childAges.length}</b>
+              <button type="button" aria-label="More children" disabled={r.childAges.length >= MAX_CHILDREN_PER_ROOM} onClick={() => setRoom(i, { ...r, childAges: r.childAges.concat([8]) })}><Icon name="plus" size={12} /></button>
+            </span>
+          </div>
+          {r.childAges.length ? (
+            <div className="taw-childages">
+              {r.childAges.map((age, k) => (
+                <label key={k}>
+                  Child {k + 1} age
+                  <select className="taw-input" value={age} onChange={(e) => setRoom(i, { ...r, childAges: r.childAges.map((a, m) => (m === k ? Number(e.target.value) : a)) })}>
+                    {Array.from({ length: 12 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : a}</option>)}
+                  </select>
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ))}
+      {value.length < MAX_ROOMS ? (
+        <button type="button" className="taw-linkbtn" style={{ justifySelf: "start", margin: "6px 0 2px" }}
+          onClick={() => onChange(value.concat([{ adults: 1, childAges: [] }]))}>
+          + Add room
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -291,7 +481,25 @@ function HotelWebsiteEditor({ hotelKey, hotelName }: { hotelKey: string; hotelNa
 // fetched on demand (POST /hotels/details with the listing's docKey/token/hotelId);
 // each room option is price-checked (POST /hotels/price-check with its bookingCode
 // and the LISTING token) before it can be added. Every provider error is shown.
-function roomOptions(det: any): any[] {
+// TripSure's description is sometimes a JSON string ({"HeadLine": ..., "Description": ...}) with a
+// "GeneralDescription :" label in front; show its text, not the raw JSON.
+export function readableDescription(raw: any): string {
+  let s = String(raw || "").trim();
+  s = s.replace(/^[A-Za-z ]*Description\s*:\s*/, "");
+  if (s.startsWith("{")) {
+    try {
+      const j = JSON.parse(s);
+      s = [j.HeadLine, j.Description, j.Location].filter(Boolean).join(" ");
+    } catch {
+      s = s.replace(/[{}"]/g, " ").replace(/\b(HeadLine|Description|Location)\s*:/g, " ");
+    }
+  }
+  return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// Per-night is worked out from the total (TripSure's perRoomPerNightTotal has
+// been seen equal to the whole stay's total).
+function roomOptions(det: any, nights: number): any[] {
   const out: any[] = [];
   ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
     (g.options || []).forEach((o: any) => {
@@ -303,7 +511,7 @@ function roomOptions(det: any): any[] {
         board: rt.roomDescription || "",
         refundable: !!rt.refundable,
         rooms: (o.standardRooms || []).length || 1,
-        perNight: sr.rateBreakdown ? sr.rateBreakdown.perRoomPerNightTotal : null,
+        perNight: Number(o.totalRate) > 0 && nights > 0 ? Number(o.totalRate) / nights / ((o.standardRooms || []).length || 1) : null,
         total: Number(o.totalRate) || 0,
         maxAdults: rt.maxAdults,
       });
@@ -312,7 +520,10 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-function RealHotelDetail({ offer, checkIn, onAdd }: any) {
+function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }: any) {
+  const [adding, setAdding] = useState<string | null>(null);
+  // The guest's requests for this stay, recorded with whichever room is added.
+  const [req, setReq] = useState<HotelRequests>(NO_HOTEL_REQUESTS);
   const ts = offer._tripsure || {};
   const [det, setDet] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -351,8 +562,36 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
       .catch((e: any) => setChecks((c: any) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
   }
 
-  function addRoom(opt: any, chk: any) {
+  async function addRoom(opt: any, chk: any) {
     const d = offer.detail || {};
+    // The stay's specifics (photos, inclusions, check-in window, rules,
+    // cancellation) come from adminbe's /hotels/facts and travel with the hotel
+    // into the itinerary and the proposal. A failure just adds it without them.
+    setAdding(opt.code);
+    const alts: any[] = alternatives || [];
+    const toPrice = alts.map((a) => a._handles).filter(Boolean);
+    const [factsRes, ratesRes] = await Promise.allSettled([
+      hotelFacts({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code }),
+      toPrice.length ? hotelRates(toPrice) : Promise.resolve({}),
+    ]);
+    const facts: any = factsRes.status === "fulfilled" ? factsRes.value : null;
+    const rates: any = ratesRes.status === "fulfilled" ? ratesRes.value || {} : {};
+    // Alternatives with their live price, room and board; the priced ones first,
+    // three kept (unpriceable ones only fill in, as "rates on request").
+    const withRates = alts.map(({ _handles, ...a }) => {
+      const r = _handles ? rates[_handles.hotelId] : null;
+      if (!r) return a;
+      return {
+        ...a,
+        price: r.price,
+        board: r.board || a.board,
+        image: a.image || (r.images && r.images[0]) || null,
+        images: r.images || [],
+        detail: [a.stars ? a.stars + "-star" : null, r.roomTitle, r.board].filter(Boolean).join(" · "),
+      };
+    });
+    const pricedAlts = withRates.filter((a) => a.price > 0).concat(withRates.filter((a) => !(a.price > 0))).slice(0, 3);
+    setAdding(null);
     const nights = d.nights || 1, rooms = d.rooms || 1;
     const verified = {
       ...offer,
@@ -361,8 +600,12 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
                 nightlyFrom: chk.total / Math.max(1, nights * rooms) },
     };
     onAdd({
-      ...hotelCartItem(verified, []),
+      ...hotelCartItem(verified, pricedAlts),
       checkIn,
+      facts,
+      occupancy: occ || null,
+      requests: { ...req, note: req.note.trim() },
+      distance: distance || null,
       // kept for the later Create Itinerary / Book Room step
       tripsure: { hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code,
                   roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
@@ -380,7 +623,8 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
     );
 
   const info = (det && det.hotelInfo) || {};
-  const opts = roomOptions(det);
+  const opts = roomOptions(det, Number((offer && offer.detail && offer.detail.nights) || 0));
+  const description = readableDescription(info.description);
   const shownOpts = showAll ? opts : opts.slice(0, 8);
   const amenities: string[] = [];
   (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
@@ -394,9 +638,9 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
           {info.checkOut ? <span>Check-out {info.checkOut}</span> : null}
           {rev ? <span>Guest rating {rev.rating} ({rev.count} reviews)</span> : null}
         </div>
-        {info.description ? (
+        {description ? (
           <p style={{ fontSize: 12.5, lineHeight: 1.5, margin: "0 0 8px", color: "var(--taupe)" }}>
-            {String(info.description).slice(0, 420)}{String(info.description).length > 420 ? "…" : ""}
+            {description.slice(0, 420)}{description.length > 420 ? "…" : ""}
           </p>
         ) : null}
         {amenities.length ? (
@@ -405,6 +649,30 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
           </div>
         ) : null}
         <HotelLocationMap name={info.hotelName} address={info.address} lat={info.latitude != null ? Number(info.latitude) : (offer.detail || {}).lat} lng={info.longitude != null ? Number(info.longitude) : (offer.detail || {}).lng} nearby={info.nearByAttractions} />
+        <div className="taw-addpanel">
+          <div className="taw-addpanel-row">
+            <b>Guest requests</b>
+            <small className="taw-addpanel-hint">{occ ? "For " + occText(occ) + " · " : ""}saved with the room you add; the hotel is told at booking</small>
+          </div>
+          <div className="taw-addpanel-grid">
+            <label>Bed
+              <select className="taw-input" value={req.bed} onChange={(e) => setReq({ ...req, bed: e.target.value })}>
+                {BED_OPTIONS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="taw-reqchecks">
+            {([
+              ["earlyCheckIn", "Early check-in"], ["lateCheckOut", "Late check-out"], ["highFloor", "High floor"], ["connecting", "Connecting rooms"],
+            ] as const).map(([k, label]) => (
+              <label key={k} className="taw-checkrow">
+                <input type="checkbox" checked={req[k]} onChange={(e) => setReq({ ...req, [k]: e.target.checked })} /> {label}
+              </label>
+            ))}
+          </div>
+          <input className="taw-input" placeholder="Note for the hotel (optional) — e.g. anniversary, airport pickup" maxLength={200}
+            value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} />
+        </div>
         <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
         {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
         {shownOpts.map((opt) => {
@@ -424,8 +692,8 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
                 <div style={{ textAlign: "right" }}>
                   <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
                   {chk.state === "ok" ? (
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} onClick={() => addRoom(opt, chk)}>
-                      <Icon name="plus" size={13} /> Add this room
+                    <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} disabled={!!adding} onClick={() => addRoom(opt, chk)}>
+                      <Icon name="plus" size={13} /> {adding === opt.code ? "Adding…" : "Add this room"}
                     </button>
                   ) : (
                     <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
@@ -614,27 +882,46 @@ export function HotelDesk(props: any) {
   const trip = props.tripDates && props.tripDates.startIso ? props.tripDates : boundFromDateRange(ask && ask.dateRange);
   const startDefault = (trip && trip.startIso) || todayISO(21);
   const endDefault = (trip && trip.endIso) || (trip && trip.startIso ? addDaysIso(trip.startIso, 4) : todayISO(25));
-  const [form, setForm] = useState({
-    city: (ask && ask.destinations && ask.destinations[0]) || "Dubai",
+  // This enquiry's last hotel search (lib/deskMemory.ts): restored on mount so
+  // leaving the Console and coming back keeps the search, results and filters.
+  const memKey = "hotel:" + ((props.enquiry && props.enquiry.id) || "none");
+  const [saved] = useState(() => recallDesk(memKey));
+  const savedJob = saved && saved.searchKey ? MORE_JOBS.get(saved.searchKey) : undefined;
+  const savedFull = saved && saved.searchKey ? HOTEL_RESULTS_CACHE.get(saved.searchKey) : undefined;
+  const [form, setForm] = useState<{ city: string; checkIn: string; checkOut: string }>(() => saved?.form || {
+    city: (ask && ask.destinations && ask.destinations[0]) || (props.tripDates && props.tripDates.city) || "Dubai",
     // Trip dates (2026-10-21): the itinerary's own dates (props.tripDates, see tripDatesFor) first, then
     // the enquiry's date text, else today+21 / +25. A known start with no end gets a 4-night stay.
     checkIn: startDefault,
     checkOut: endDefault,
-    rooms: 1,
-    pax: 1,
   });
+  // Rooms & guests: the enquiry's travellers, else the itinerary flight's fare mix.
+  const [occ, setOcc] = useState<RoomOcc[]>(() => saved?.occ || occFromPersons((ask && ask.persons && ask.persons.length ? ask.persons : props.tripDates && props.tripDates.persons) || undefined));
+  const [occOpen, setOccOpen] = useState(false);
+  // Default searches keep only 5★ and 4★ hotels (5★ shown first); budget trips tick this.
+  const [includeLower, setIncludeLower] = useState<boolean>(() => !!saved?.includeLower);
+  const includeLowerRef = useRef(includeLower);
+  useEffect(() => { includeLowerRef.current = includeLower; }, [includeLower]);
+  const [modifyOpen, setModifyOpen] = useState(false);
   // The full location object the advisor picked from the City typeahead
   // (id/name/type/coordinates/state/country) — set on AutosuggestInput's
   // onSelect, cleared whenever they type again. When present, runReal()
   // uses it directly instead of re-calling hotelAutosuggestV2() and
   // guessing the first match, same identifier chain the guide intends.
-  const [selectedLocation, setSelectedLocation] = useState<any>(null);
-  const [openOffer, setOpenOffer] = useState<any>(null);
+  const [selectedLocation, setSelectedLocation] = useState<any>(() => saved?.selectedLocation || null);
+  // Hotels whose rooms/detail are open. Several at once, so the advisor can
+  // compare two or three hotels' rooms side by side in the list.
+  const [openOffers, setOpenOffers] = useState<string[]>([]);
   function toggleDetail(id: any) {
-    setOpenOffer((cur: any) => (cur === id ? null : id));
+    const key = String(id);
+    setOpenOffers((cur) => (cur.includes(key) ? cur.filter((x) => x !== key) : cur.concat([key])));
   }
   const [loading, setLoading] = useState(false);
-  const [res, setRes] = useState<any>(null);
+  // Restored results: a still-running background load first, then the complete
+  // cached list, then whatever this desk last showed.
+  const [res, setRes] = useState<any>(() => (savedJob ? savedJob.res : savedFull ? savedFull.res : saved?.res || null));
+  const [searchedAt, setSearchedAt] = useState<number | null>(() => saved?.searchedAt || null);
+  const now = useMinuteClock();
   const [err, setErr] = useState<any>(null);
   // The search in flight (deadline + cancel, see lib/abortableSearch.ts).
   // Replaced on every run(); anything finishing for a handle that is no longer
@@ -642,20 +929,51 @@ export function HotelDesk(props: any) {
   const searchRef = useRef<any>(null);
   // The rest of the city keeps loading behind the first hotels (TripSure's async listing).
   // `moreRef` is the loop that is running; `moreInfo` is what the header says about it.
-  const moreRef = useRef<{ stop: () => void } | null>(null);
-  const [moreInfo, setMoreInfo] = useState<{ loaded: number; expected?: number; failed?: boolean } | null>(null);
-  const searchKeyRef = useRef("");
+  const moreRef = useRef<{ stop: () => void } | null>(savedJob || null);
+  const [moreInfo, setMoreInfo] = useState<{ loaded: number; expected?: number; failed?: boolean } | null>(() => (savedJob ? savedJob.info : null));
+  const searchKeyRef = useRef<string>(saved?.searchKey || "");
+  // The background load this desk listens to (re-attached after a remount).
+  const [jobKey, setJobKey] = useState<string | null>(() => (savedJob ? saved!.searchKey : null));
   function stopMore() {
     if (moreRef.current) moreRef.current.stop();
     moreRef.current = null;
+    setJobKey(null);
     setMoreInfo(null);
   }
+  useEffect(() => {
+    const job = jobKey ? MORE_JOBS.get(jobKey) : undefined;
+    if (!job) return;
+    const onPage = () => { setRes(job.res); setMoreInfo(job.info); };
+    job.subs.add(onPage);
+    return () => { job.subs.delete(onPage); };
+  }, [jobKey]);
+  // Leaving the desk cancels a first-page search still in flight; the
+  // background "more hotels" load carries on (see MORE_JOBS).
   useEffect(() => () => {
     if (searchRef.current) searchRef.current.cancel();
-    if (moreRef.current) moreRef.current.stop();
   }, []);
   // Hotel shop controls (HTL filters + sort), client-side over hotel-search offers.
-  const [view, setView] = useState<HotelView>(DEFAULT_HOTEL_VIEW);
+  const [view, setView] = useState<HotelView>(() => saved?.view || DEFAULT_HOTEL_VIEW);
+  // "Distance from" a place the advisor picks: car drive time + road km from
+  // Google for the nearest hotels (lib/hotelDistance.ts, POST /hotels/distances).
+  const [distOrigin, setDistOrigin] = useState<DistOrigin | null>(() => saved?.distOrigin || null);
+  const [driveById, setDriveById] = useState<Record<string, Drive | null>>(() => saved?.driveById || {});
+  const [distBusy, setDistBusy] = useState(false);
+  const [distErr, setDistErr] = useState<string | null>(null);
+  const distReq = useRef(0);
+  // Remember this search (form, rooms, filters, results, distances) for this enquiry.
+  // Not before the advisor has searched or changed something: an untouched form
+  // is just defaults, which must keep following the itinerary (destination,
+  // travellers) rather than be frozen at whatever they were on first open.
+  const pristineRef = useRef<string | null>(null);
+  useEffect(() => {
+    const light = { form, occ, selectedLocation, view, searchKey: searchKeyRef.current, searchedAt, distOrigin, includeLower };
+    const sig = JSON.stringify(light);
+    if (pristineRef.current === null) pristineRef.current = saved ? "" : sig;
+    if (!res && sig === pristineRef.current) return;
+    pristineRef.current = "";
+    rememberDesk(memKey, { ...light, res, driveById }, light);
+  }, [memKey, saved, form, occ, selectedLocation, view, res, searchedAt, distOrigin, driveById, includeLower]);
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
   }
@@ -664,7 +982,8 @@ export function HotelDesk(props: any) {
     setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
   }
   // Fields the advisor has typed into — the trip dates below only fill the others (see FlightDesk).
-  const touched = useRef<Record<string, boolean>>({});
+  // A restored search counts as typed: its dates are the ones the advisor searched.
+  const touched = useRef<Record<string, boolean>>(saved ? { checkIn: true, checkOut: true } : {});
   function set(k: string, v: any) {
     touched.current[k] = true;
     setForm((f) => ({ ...f, [k]: v }));
@@ -684,9 +1003,7 @@ export function HotelDesk(props: any) {
     const city = form.city.trim();
     const checkIn = form.checkIn;
     const checkOut = form.checkOut;
-    const roomsCount = Number(form.rooms) || 1;
-    const paxCount = Number(form.pax) || 2;
-    const adultsPerRoom = Math.max(1, Math.ceil(paxCount / roomsCount));
+    const roomsCount = occ.length;
     const nights = Math.max(1, Math.round(((new Date(checkOut) as any) - (new Date(checkIn) as any)) / 86400000));
 
     // Prefer what the advisor actually picked from the typeahead. Falls
@@ -707,11 +1024,7 @@ export function HotelDesk(props: any) {
       const listingPayload = {
         checkIn: checkIn,
         checkOut: checkOut,
-        rooms: Array.from({ length: roomsCount }, () => ({
-          numberOfAdults: String(adultsPerRoom),
-          numberOfChildren: "0",
-          childrenAge: "",
-        })),
+        rooms: occToTripsure(occ),
         city: top.city || top.name,
         locationSuggestion: { id: top.id, name: top.name, type: top.type, lat: top.coordinates.lat, lon: top.coordinates.lon },
         state: resolveHotelState(top),
@@ -732,9 +1045,13 @@ export function HotelDesk(props: any) {
           docKey: listRes.docKey,
           token: listRes.token,
         };
-        const offers = (listRes.hotels || []).map((h: any) => mapTripSureHotel(h, ctx));
-        const more = listRes.more && listRes.more.token ? { token: listRes.more.token, countryCode: countryCode, ctx: ctx } : null;
-        return { offers: offers, count: listRes.totalCount != null ? listRes.totalCount : offers.length, more: more, places: placesFromSuggestion(top) };
+        // Luxury search: TripSure can't be asked for star ratings, so 3★-and-below
+        // hotels are dropped here and in every background page (loadMoreHotels).
+        // A single hotel picked by name is always kept.
+        const keepAll = includeLowerRef.current || String(top.type || "").toLowerCase() === "hotel";
+        const offers = (listRes.hotels || []).map((h: any) => mapTripSureHotel(h, ctx)).filter((o: any) => keepAll || isLuxury(o));
+        const more = listRes.more && listRes.more.token ? { token: listRes.more.token, countryCode: countryCode, ctx: ctx, keepAll: keepAll } : null;
+        return { offers: offers, count: offers.length, more: more, luxury: !keepAll, places: placesFromSuggestion(top) };
       });
     });
   }
@@ -745,26 +1062,62 @@ export function HotelDesk(props: any) {
   // TripSure says the search is no longer in progress (or after 15 polls, as its own site does).
   function loadMoreHotels(first: any) {
     stopMore();
-    const handle = loadRestOfCity<any>({
-      more: first.more,
-      first: first.offers,
-      idOf: (o) => o.id,
-      mapHotel: mapTripSureHotel,
-      onUpdate: (all, info) => {
-        setRes((prev: any) => (prev ? { ...prev, offers: all, count: all.length } : prev));
-        setMoreInfo({ loaded: info.loaded });
-      },
-      onDone: (all) => {
-        if (moreRef.current === handle) moreRef.current = null;
-        setMoreInfo(null);
-        if (searchKeyRef.current) keepSearch(searchKeyRef.current, { offers: all, count: all.length, more: null, places: first.places });
-      },
-      onFail: (all) => {
-        if (moreRef.current === handle) moreRef.current = null;
-        setMoreInfo({ loaded: all.length, failed: true });
-      },
-    });
-    moreRef.current = handle;
+    const more = first.more;
+    const searchKey = searchKeyRef.current;
+    const ctl = new AbortController();
+    let stopped = false;
+    let timer: any = null;
+    const byId = new Map<string, any>();
+    first.offers.forEach((o: any) => byId.set(o.id, o));
+    const job: MoreJob = {
+      res: first,
+      info: { loaded: byId.size },
+      subs: new Set(),
+      stop: () => { stopped = true; if (timer) clearTimeout(timer); ctl.abort(); MORE_JOBS.delete(searchKey); },
+    };
+    MORE_JOBS.set(searchKey, job);
+    moreRef.current = job;
+    setJobKey(searchKey);
+    setMoreInfo(job.info);
+    const emit = () => job.subs.forEach((f) => f());
+    let key: string | undefined;
+    let polls = 0;
+    const finish = (failed?: boolean) => {
+      if (moreRef.current === job) moreRef.current = null;
+      job.info = failed ? { loaded: byId.size, failed: true } : null;
+      if (!failed) {
+        const all = Array.from(byId.values());
+        keepHotelResults(searchKey, { offers: all, count: all.length, places: first.places });
+      }
+      emit();
+      MORE_JOBS.delete(searchKey);
+    };
+    const tick = () => {
+      if (stopped) return;
+      polls += 1;
+      hotelListingMore({ token: more.token, nextResultsKey: key, countryCode: more.countryCode }, ctl.signal)
+        .then((pg: any) => {
+          if (stopped) return;
+          const ctx = { ...more.ctx, docKey: pg.docKey || more.ctx.docKey, token: pg.token || more.ctx.token };
+          (pg.hotels || []).forEach((h: any) => {
+            const o = mapTripSureHotel(h, ctx);
+            if (more.keepAll || isLuxury(o)) byId.set(h.hotelKey, o);
+          });
+          if (pg.nextResultsKey) key = pg.nextResultsKey;
+          const all = Array.from(byId.values());
+          job.res = { ...job.res, offers: all, count: all.length };
+          const expected = pg.expectedHotelCount != null ? Number(pg.expectedHotelCount) : undefined;
+          if (pg.status !== "InProgress" || polls >= 15) { finish(); return; }
+          job.info = { loaded: all.length, expected: expected };
+          emit();
+          timer = setTimeout(tick, 1500);
+        })
+        .catch((e: any) => {
+          if (stopped || (e && e.aborted)) return;
+          finish(true);
+        });
+    };
+    tick();
   }
 
   function cancelSearch() {
@@ -777,22 +1130,34 @@ export function HotelDesk(props: any) {
     setErr(null);
   }
 
-  function run() {
+  // force: skip the "same search under 5 minutes" shortcut (Refresh).
+  function run(force?: boolean) {
+    if (form.checkOut <= form.checkIn) {
+      setErr("Check-out must be after check-in.");
+      return;
+    }
     if (searchRef.current) searchRef.current.cancel();
     stopMore();
     setErr(null);
+    setModifyOpen(false);
+    setOccOpen(false);
+    distReq.current++;
+    setDriveById({});
+    setDistBusy(false);
     setLoading(true);
     setRes(null);
-    setOpenOffer(null);
-    setView(DEFAULT_HOTEL_VIEW);
+    setOpenOffers([]);
+    // Luxury search: 5★ first, then 4★ (cheapest first within each).
+    setView({ ...DEFAULT_HOTEL_VIEW, sort: includeLower ? "best" : "toprated" });
 
     if (USE_REAL_HOTELS) {
-      searchKeyRef.current = JSON.stringify([form.city.trim().toLowerCase(), selectedLocation && selectedLocation.id, form.checkIn, form.checkOut, form.rooms, form.pax]);
-      const kept = keptSearch(searchKeyRef.current);
-      if (kept) {
-        setRes(kept);
+      searchKeyRef.current = JSON.stringify([form.city.trim().toLowerCase(), selectedLocation && selectedLocation.id, form.checkIn, form.checkOut, occ, includeLower]);
+      const kept = HOTEL_RESULTS_CACHE.get(searchKeyRef.current);
+      if (!force && kept && Date.now() - kept.at < HOTEL_RESULTS_TTL_MS) {
+        setSearchedAt(kept.at);
+        setRes(kept.res);
         setLoading(false);
-        toast((kept.count || (kept.offers || []).length) + " hotel offers (from your last search, under 5 minutes old)", "success");
+        toast((kept.res.count || (kept.res.offers || []).length) + " hotel offers (from your last search, under 5 minutes old)", "success");
         return;
       }
       const search = startSearch();
@@ -803,10 +1168,11 @@ export function HotelDesk(props: any) {
           search.done();
           searchRef.current = null;
           setRes(r);
+          setSearchedAt(Date.now());
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
           if (r.more) loadMoreHotels(r);
-          else keepSearch(searchKeyRef.current, { ...r, more: null });
+          else keepHotelResults(searchKeyRef.current, r);
         })
         .catch((e: any) => {
           if (searchRef.current !== search) return;
@@ -829,9 +1195,16 @@ export function HotelDesk(props: any) {
             toast("Hotel search failed: " + errText(e), "error");
             return;
           }
-          // No response at all (backend unreachable, e.g. local dev): fall back to
-          // demo data, but say why instead of hiding the error.
-          const mock = buildMockHotelOffers({ city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: Number(form.rooms) || 1, pax: Number(form.pax) || 2 });
+          // No response at all (backend unreachable): the error, unless demo data
+          // is explicitly enabled for an offline demo (lib/env.ts ALLOW_DEMO_DATA).
+          if (!ALLOW_DEMO_DATA) {
+            const msg = "Can't reach the booking server (" + errText(e) + "). Check your connection and try again.";
+            setErr(msg);
+            setLoading(false);
+            toast(msg, "error");
+            return;
+          }
+          const mock = buildMockHotelOffers({ city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: occ.length, pax: occGuests(occ) });
           setRes(mock);
           setLoading(false);
           toast("Backend unreachable (" + errText(e) + ") — showing demo hotel data — " + mock.count + " hotel offers loaded", "error");
@@ -839,7 +1212,7 @@ export function HotelDesk(props: any) {
       return;
     }
 
-    const params: any = { city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: Number(form.rooms) || 1, pax: Number(form.pax) || 2 };
+    const params: any = { city: form.city.trim(), checkIn: form.checkIn, checkOut: form.checkOut, rooms: occ.length, pax: occGuests(occ) };
     if (member && member.id) params.member_id = member.id;
     if (props.advisorId) params.advisor_id = props.advisorId;
     searchHotels(params)
@@ -856,16 +1229,83 @@ export function HotelDesk(props: any) {
   }
   const offers = (res && res.offers) || [];
 
+  // Google drive times for the nearest hotels not done yet: up to 150 per place
+  // (billed per hotel), picked by straight-line distance, which costs nothing.
+  const DRIVE_BUDGET = 150;
+  function fetchDrives(origin: DistOrigin, list: any[], have: Record<string, any>) {
+    const budget = DRIVE_BUDGET - Object.keys(have).length;
+    if (budget <= 0) return;
+    const todo = list
+      .filter((o: any) => o && o.detail && o.detail.lat != null && o.detail.lng != null && !(String(o.id) in have))
+      .map((o: any) => {
+        const lat = Number(o.detail.lat), lng = Number(o.detail.lng);
+        return { id: String(o.id), lat, lng, km: straightKm(origin.lat, origin.lng, lat, lng) };
+      })
+      .sort((a: any, b: any) => a.km - b.km)
+      .slice(0, budget);
+    if (!todo.length) return;
+    const seq = ++distReq.current;
+    setDistBusy(true);
+    hotelDistances(origin.place_id, todo.map(({ id, lat, lng }: any) => ({ id, lat, lng })))
+      .then((r: any) => {
+        if (seq !== distReq.current) return;
+        setDriveById((m) => ({ ...m, ...((r && r.results) || {}) }));
+        setDistErr(null);
+      })
+      .catch((e: any) => { if (seq === distReq.current) setDistErr("Couldn't get drive times — showing straight-line distance. " + errText(e)); })
+      .finally(() => { if (seq === distReq.current) setDistBusy(false); });
+  }
+  function pickOrigin(place: any) {
+    const seq = ++distReq.current;
+    setDistBusy(true);
+    setDistErr(null);
+    setDriveById({});
+    // An empty hotel list resolves the place itself (label + coordinates), so
+    // the nearest hotels can be chosen before any drive time is paid for.
+    hotelDistances(place.place_id, [])
+      .then((r: any) => {
+        if (seq !== distReq.current) return;
+        const origin: DistOrigin = { place_id: place.place_id, label: (r.origin && r.origin.label) || place.name, lat: r.origin.lat, lng: r.origin.lng };
+        setDistOrigin(origin);
+        setDistBusy(false);
+        setView((v) => ({ ...v, sort: "nearest" }));
+        fetchDrives(origin, offers, {});
+      })
+      .catch((e: any) => {
+        if (seq !== distReq.current) return;
+        setDistBusy(false);
+        setDistErr("Couldn't find that place: " + errText(e));
+      });
+  }
+  function clearOrigin() {
+    distReq.current++;
+    setDistOrigin(null);
+    setDriveById({});
+    setDistErr(null);
+    setDistBusy(false);
+    setView((v) => (v.sort === "nearest" ? { ...v, sort: "best" } : v));
+  }
+  // More hotels arrived (background load / new search): fill in the nearest ones.
+  const offersCount = offers.length;
+  const loadingMore = !!moreInfo;
+  useEffect(() => {
+    if (!distOrigin || distBusy || !offersCount) return;
+    const t = setTimeout(() => fetchDrives(distOrigin, offers, driveById), 900);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distOrigin, offersCount, loadingMore]);
+
   // showResults / backToSearch (2026-09-04) — same "results REPLACE the
   // form, not sit below it" treatment as FlightDesk (see its own docblock
   // on `showResults`), brought here and to VisaDesk so all three Search
   // desks behave the same way instead of Hotels/Visas dumping results
   // underneath a form that's still sitting there taking up room.
   const showResults = loading || res != null;
+  // "Edit search" opens the form above the results (they stay until the new
+  // search answers), keeping every field as searched.
   function backToSearch() {
-    stopMore();
-    setRes(null);
     setErr(null);
+    setModifyOpen((v) => !v);
   }
   // onExpandChange (2026-09-04) — without this, the Search card stays
   // sized to its own content (`.taw-card--fit`, see SearchDesksPanel's
@@ -890,7 +1330,7 @@ export function HotelDesk(props: any) {
         </div>
       ) : null}
       <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
-        <Field label="City" htmlFor="taw-ho-city">
+        <Field label="City, area or hotel" htmlFor="taw-ho-city">
           <AutosuggestInput
             value={form.city}
             onChange={(v: any) => {
@@ -909,7 +1349,7 @@ export function HotelDesk(props: any) {
             renderSuggestion={renderCityLocationSuggestion}
             getKey={(loc: any) => loc.id}
             showDefaultsOnFocus
-            placeholder="Dubai"
+            placeholder="Dubai, Bandra or a hotel name"
           />
         </Field>
         <Field label="Check-in" htmlFor="taw-ho-in">
@@ -919,29 +1359,38 @@ export function HotelDesk(props: any) {
           <input className="taw-input" type="date" value={form.checkOut} onChange={(e) => set("checkOut", e.target.value)} />
         </Field>
       </div>
-      <div className="taw-row taw-row-3" style={{ marginBottom: 13 }}>
-        <Field label="Rooms" htmlFor="taw-ho-rooms">
-          <input className="taw-input" type="number" min={1} value={form.rooms} onChange={(e) => set("rooms", e.target.value)} />
-        </Field>
-        <Field label="Guests" htmlFor="taw-ho-pax">
-          <input className="taw-input" type="number" min={1} value={form.pax} onChange={(e) => set("pax", e.target.value)} />
-        </Field>
+      <div className="taw-row taw-row-2" style={{ marginBottom: 13 }}>
+        <div style={{ minWidth: 0 }}>
+          <Field label="Rooms & guests" htmlFor="taw-ho-occ">
+            <button type="button" className="taw-input taw-paxbtn" aria-expanded={occOpen} onClick={() => setOccOpen((v) => !v)}>
+              <Icon name="people" size={14} />
+              <span>{occText(occ)}</span>
+            </button>
+          </Field>
+        </div>
         <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={run}>
+          <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={() => run()}>
             {loading ? <Spinner /> : <Icon name="search" size={16} />}
             {loading ? "Searching…" : "Search Hotels"}
           </button>
         </div>
       </div>
+      {occOpen ? <RoomsEditor value={occ} onChange={setOcc} /> : null}
+      <label className="taw-checkrow" style={{ marginBottom: 8 }}>
+        <input type="checkbox" checked={includeLower} onChange={(e) => setIncludeLower(e.target.checked)} />
+        Include 3★ and below (budget stays) — otherwise only 5★ and 4★ hotels
+      </label>
+      {nightsLabel(form.checkIn, form.checkOut)}
     </>
   );
 
   const resultsView = (
     <div className="taw-results-view">
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 11 }}>
         {!loading ? (
-          <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
-            <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />
+          <button className="taw-btn taw-btn--sm" onClick={backToSearch} aria-expanded={modifyOpen} title="Change destination, dates, rooms or guests">
+            <Icon name={modifyOpen ? "x" : "edit"} size={13} />
+            {modifyOpen ? "Close" : "Edit search"}
           </button>
         ) : (
           <>
@@ -952,19 +1401,26 @@ export function HotelDesk(props: any) {
         {res ? (
           <div className="taw-leg-switch">
             <span className="taw-leg-tab is-active">
-              {form.city} · {fmtDate(form.checkIn)} – {fmtDate(form.checkOut)}
+              {form.city} · {fmtDate(form.checkIn)} – {fmtDate(form.checkOut)} · {occText(occ)}
             </span>
           </div>
+        ) : null}
+        {res && !loading && !moreInfo && searchedAt && now - searchedAt > STALE_AFTER_MS ? (
+          <span style={{ fontSize: 12, color: "var(--taupe)" }}>
+            Searched {ageLabel(searchedAt)} ·{" "}
+            <button type="button" className="taw-linkbtn" onClick={() => run(true)}>Refresh prices</button>
+          </span>
         ) : null}
         {moreInfo ? (
           <span role="status" style={{ fontSize: 12, color: moreInfo.failed ? "var(--danger, #B03434)" : "var(--taupe)" }}>
             {moreInfo.failed
               ? "Couldn't load the rest of the hotels. Showing " + moreInfo.loaded + "."
-              : "Loading more hotels… " + moreInfo.loaded + " so far"}
+              : (res && res.luxury ? "Adding 5★ and 4★ hotels… " : "Loading more hotels… ") + moreInfo.loaded + " so far"}
           </span>
         ) : null}
       </div>
-      {err ? (
+      {modifyOpen && !loading ? <div className="taw-modify">{formView}</div> : null}
+      {err && !modifyOpen ? (
         <div className="taw-banner taw-banner--err">
           <Icon name="alert" size={16} />
           {err}
@@ -972,7 +1428,8 @@ export function HotelDesk(props: any) {
       ) : null}
       {loading ? <SkeletonResults /> : null}
       {!loading && res ? (
-        <HotelResults offers={offers} places={(res && res.places) || []} view={view} setV={setV} clearFilters={clearFilters} city={form.city} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
+        <HotelResults offers={offers} places={(res && res.places) || []} view={view} setV={setV} clearFilters={clearFilters} city={form.city} openOffers={openOffers} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} onAddSwap={props.onAddSwap} occ={occ}
+          dist={{ origin: distOrigin, byId: driveById, busy: distBusy, err: distErr, pick: pickOrigin, clear: clearOrigin, bias: selectedLocation && selectedLocation.coordinates }} />
       ) : null}
     </div>
   );
@@ -982,10 +1439,46 @@ export function HotelDesk(props: any) {
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
 // as one block, mirroring the original's inline IIFE at the same spot.
-function HotelResults({ offers, places, view, setV, clearFilters, city, openOffer, toggleDetail, checkIn, advisorId, onAdd }: any) {
+function HotelResults({ offers, places, view, setV, clearFilters, city, openOffers, toggleDetail, checkIn, advisorId, onAdd, onAddSwap, occ, dist }: any) {
+  // "+ Swap option": offer this hotel as an alternative to the itinerary's stay
+  // on the same check-in day, priced live first (listings are often unpriced).
+  const [swapBusy, setSwapBusy] = useState<string | null>(null);
+  async function addAsSwap(o: any) {
+    const item: any = { ...hotelCartItem(o, []), checkIn };
+    const t = o._tripsure || {};
+    if (t.hotelId && t.docKey && t.token) {
+      setSwapBusy(String(o.id));
+      try {
+        const r: any = await hotelRates([{ hotelId: String(t.hotelId), docKey: t.docKey, token: t.token }]);
+        const x = r && r[String(t.hotelId)];
+        if (x) {
+          item.baseNet = x.price;
+          item.images = x.images || [];
+          item.roomTitle = x.roomTitle || null;
+          item._detail = { ...(item._detail || {}), board: x.board || (item._detail || {}).board };
+        }
+      } catch {
+        /* added without a live price — shown as "rates on request" */
+      }
+      setSwapBusy(null);
+    }
+    onAddSwap(item);
+  }
   const offNet = offerNet;
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
-  const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
+  const shown = useMemo(() => {
+    const list = sortHotels(filterHotels(offers, view), view);
+    if (view.sort !== "nearest" || !dist || !dist.origin) return list;
+    // Nearest first: drive time where Google answered, else straight line (at ~30 km/h).
+    const o = dist.origin;
+    const cost = (h: any) => {
+      const dr = dist.byId[String(h.id)];
+      if (dr && dr.seconds != null) return dr.seconds;
+      const d = h.detail || {};
+      return d.lat != null && d.lng != null ? straightKm(o.lat, o.lng, Number(d.lat), Number(d.lng)) * 120 : Infinity;
+    };
+    return list.slice().sort((a: any, b: any) => cost(a) - cost(b));
+  }, [offers, view, dist]);
   const filterKey = viewKey(view);
   const nFilters = activeFilterCount(view);
 
@@ -995,6 +1488,49 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
   // A big city is ~1,000 hotels: draw a page of them and the next page as the advisor scrolls.
   const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
   useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
+  // Live "from" prices for the hotels drawn on screen (see FROM_PRICES).
+  const [, setPricedTick] = useState(0);
+  useEffect(() => {
+    const todo = shown.slice(0, visible)
+      .map((o: any) => o._tripsure)
+      .filter((t: any) => t && t.hotelId && t.docKey && t.token && !FROM_PRICES.has(fromKey(t))
+        && !(Date.now() - (FROM_FAILED.get(fromKey(t)) || 0) < RETRY_FAILED_MS));
+    if (!todo.length) return;
+    todo.forEach((t: any) => FROM_FAILED.delete(fromKey(t)));
+    let live = true;
+    (async () => {
+      for (let i = 0; i < todo.length && live; i += 5) {
+        const batch = todo.slice(i, i + 5).filter((t: any) => !FROM_PRICES.has(fromKey(t)));
+        if (!batch.length) continue;
+        try {
+          const r: any = await hotelRates(batch.map((t: any) => ({ hotelId: String(t.hotelId), docKey: t.docKey, token: t.token })));
+          // Left out of the answer = TripSure's call failed (not "no rooms").
+          let answered = 0;
+          batch.forEach((t: any) => {
+            const id = String(t.hotelId);
+            if (!r || !(id in r)) { FROM_FAILED.set(fromKey(t), Date.now()); return; }
+            answered++;
+            const x = r[id];
+            FROM_PRICES.set(fromKey(t), x ? { price: x.price, board: x.board || null, refundable: x.refundable } : null);
+          });
+          if (!answered) {
+            // TripSure is failing for every hotel: stop rather than keep asking.
+            todo.slice(i + 5).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
+            if (live) setPricedTick((n) => n + 1);
+            break;
+          }
+        } catch {
+          // Keep "Rates on selection"; the next scroll or filter change tries again.
+          todo.slice(i).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
+          if (live) setPricedTick((n) => n + 1);
+          break;
+        }
+        if (live) setPricedTick((n) => n + 1);
+      }
+    })();
+    return () => { live = false; };
+  }, [shown, visible]);
+  const fromPrice = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
   const sentinel = useRef<HTMLDivElement | null>(null);
   const more = layout === "list" && visible < shown.length;
   useEffect(() => {
@@ -1036,6 +1572,17 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
     <div className="taw-results-panel">
       {offers.length ? (
         <>
+        {dist ? <DistanceFrom dist={dist} hotels={offers} /> : null}
+        <label className="taw-namesearch">
+          <Icon name="search" size={13} />
+          <input
+            type="search"
+            value={view.name || ""}
+            onChange={(e) => setV("name", e.target.value)}
+            placeholder={"Find a hotel in " + (city || "these results") + " by name"}
+            aria-label="Find a hotel by name"
+          />
+        </label>
         <div className="taw-filter-strip taw-filter-strip--wrap">
           <button className={cx("taw-chip", "taw-chip--toggle", layout === "list" && "is-active")} onClick={() => setLayout("list")} aria-pressed={layout === "list" ? "true" : "false"}>
             <Icon name="list" size={12} />
@@ -1045,26 +1592,12 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
             <Icon name="pin" size={12} />
             Map
           </button>
-          <Dropdown value={view.sort} options={HOTEL_SORT_OPTIONS} onChange={(v: any) => setV("sort", v)} ariaLabel="Sort hotels" triggerClassName="taw-filter-dd" hideOptionIcons />
+          <Dropdown value={view.sort} options={dist && dist.origin ? [{ key: "nearest", label: "Nearest to " + dist.origin.label, icon: "sort" }, ...HOTEL_SORT_OPTIONS] : HOTEL_SORT_OPTIONS}
+            onChange={(v: any) => setV("sort", v)} ariaLabel="Sort hotels" triggerClassName="taw-filter-dd" hideOptionIcons />
           <Dropdown value={view.stars} options={HOTEL_STAR_OPTIONS} onChange={(v: any) => setV("stars", v)} ariaLabel="Filter by stars" triggerClassName="taw-filter-dd" />
           {facets.hasPrices && facets.priceBands.length ? (
             <Dropdown value={view.price} options={priceOptions} onChange={(v: any) => setV("price", v)} ariaLabel="Filter by price" triggerClassName="taw-filter-dd" hideOptionIcons />
           ) : null}
-          <button
-            className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
-            onClick={() => setV("refundable", !view.refundable)}
-            aria-pressed={view.refundable ? "true" : "false"}
-          >
-            <Icon name={view.refundable ? "x" : "shield"} size={12} />
-            Free cancellation
-          </button>
-          <button
-            className={cx("taw-chip", "taw-chip--toggle", view.breakfast && "is-active")}
-            onClick={() => setV("breakfast", !view.breakfast)}
-            aria-pressed={view.breakfast ? "true" : "false"}
-          >
-            Breakfast included
-          </button>
           <button className={cx("taw-chip", "taw-chip--toggle", showFilters && "is-active")} onClick={() => setShowFilters((x) => !x)} aria-expanded={showFilters ? "true" : "false"}>
             <Icon name="sliders" size={12} />
             Filters{nFilters ? " (" + nFilters + ")" : ""}
@@ -1072,6 +1605,21 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
         </div>
         {showFilters ? (
           <div className="taw-filter-more" style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "2px 2px 8px", flex: "none" }}>
+            <button
+              className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
+              onClick={() => setV("refundable", !view.refundable)}
+              aria-pressed={view.refundable ? "true" : "false"}
+            >
+              <Icon name={view.refundable ? "x" : "shield"} size={12} />
+              Free cancellation
+            </button>
+            <button
+              className={cx("taw-chip", "taw-chip--toggle", view.breakfast && "is-active")}
+              onClick={() => setV("breakfast", !view.breakfast)}
+              aria-pressed={view.breakfast ? "true" : "false"}
+            >
+              Breakfast included
+            </button>
             {facets.boards.length > 1 ? <Dropdown value={view.board} options={boardOptions} onChange={(v: any) => setV("board", v)} ariaLabel="Filter by board" triggerClassName="taw-filter-dd" /> : null}
             {facets.stayTypes.length > 1 ? <Dropdown value={view.stayType} options={stayOptions} onChange={(v: any) => setV("stayType", v)} ariaLabel="Filter by property type" triggerClassName="taw-filter-dd" hideOptionIcons /> : null}
             {facets.amenities.slice(0, 12).map((a: any) => (
@@ -1103,7 +1651,7 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
             const stars = d.stars || 0;
             let starStr = "";
             for (let i = 0; i < stars; i++) starStr += "★";
-            const isOpen = openOffer === o.id;
+            const isOpen = openOffers.includes(String(o.id));
             const real = !!(o._tripsure && !o._isMock);
             return (
               <div key={o.id} id={"taw-hotel-" + o.id} className="taw-res" style={{ display: "block", ...(focusId === String(o.id) ? { outline: "2px solid #B8945F", outlineOffset: -2 } : null) }}>
@@ -1124,6 +1672,12 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
                       {d.nights ? <span>{d.nights + " nights × " + (d.rooms || 1) + " room"}</span> : null}
                       {d.nightlyFrom ? <span className="ta-num">from {inr(d.nightlyFrom)}/night</span> : null}
                     </div>
+                    {dist && dist.origin ? (
+                      <div className="taw-dist">
+                        <Icon name="pin" size={12} />
+                        {distanceText(dist.origin, dist.byId[String(o.id)], d.lat, d.lng) || "No map location for this hotel"}
+                      </div>
+                    ) : null}
                     <button className="taw-linkbtn" onClick={() => toggleDetail(o.id)} aria-expanded={isOpen ? "true" : "false"}>
                       <Icon name="chevron" size={12} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: ".15s" }} />
                       {isOpen ? "Hide property detail" : "Property detail · reviews · rates · policy"}
@@ -1131,36 +1685,42 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
                   </div>
                   <div className="taw-res-side">
                     {real && !net ? (
-                      <div className="taw-res-net" style={{ fontSize: 12, color: "var(--taupe)" }}>Rates on selection</div>
+                      fromPrice(o) ? (
+                        <div className="taw-res-net ta-num" title={"Cheapest live room for these dates" + (fromPrice(o)!.board ? " · " + fromPrice(o)!.board : "")}>
+                          <small>from</small> {inr(fromPrice(o)!.price)}
+                          <small>{d.nights ? d.nights + " nights, " : ""}net</small>
+                        </div>
+                      ) : (
+                        <div className="taw-res-net" style={{ fontSize: 12, color: "var(--taupe)" }}>
+                          {fromPrice(o) === null ? "No rooms for these dates" : FROM_FAILED.has(fromKey(o._tripsure)) ? "Rates on selection" : "Pricing…"}
+                        </div>
+                      )
                     ) : (
                       <div className="taw-res-net ta-num">
                         {inr(net)}
                         <small>net cost</small>
                       </div>
                     )}
+                    {onAddSwap ? (
+                      <button type="button" className="taw-linkbtn" disabled={!!swapBusy}
+                        title="Add as a swap option to the itinerary's stay on this check-in day"
+                        onClick={() => addAsSwap(o)}>
+                        {swapBusy === String(o.id) ? "Pricing…" : "+ Swap option"}
+                      </button>
+                    ) : null}
                     <button
                       className="taw-btn taw-btn--accent taw-btn--sm"
                       onClick={() => {
                         // Real TripSure hotel: pick a room and confirm its price first (opens the room list).
                         if (real) {
-                          if (!isOpen) toggleDetail(o.id);
+                          toggleDetail(o.id); // opens the room list, or closes it again
                           return;
                         }
-                        const others = shown.filter((x: any) => x.id !== o.id).slice(0, 2);
-                        const alternatives = others.map((alt: any) => {
-                          const ad = alt.detail || {};
-                          return {
-                            name: ad.hotelName || "Hotel",
-                            detail: [ad.stars ? ad.stars + "★" : null, ad.board].filter(Boolean).join(" · "),
-                            price: offNet(alt),
-                            image: ad.image || null,
-                          };
-                        });
-                        onAdd({ ...hotelCartItem(o, alternatives), checkIn });
+                        onAdd({ ...hotelCartItem(o, hotelAlternatives(shown, o).map(({ _handles, ...a }: any) => a)), checkIn, occupancy: occ, distance: distanceOf(dist, o) });
                       }}
                     >
-                      <Icon name={real ? "chevron" : "plus"} size={13} />
-                      {real ? "Select room" : "Add"}
+                      <Icon name={real ? "chevron" : "plus"} size={13} style={real && isOpen ? { transform: "rotate(180deg)" } : undefined} />
+                      {real ? (isOpen ? "Hide rooms" : "Select room") : "Add"}
                     </button>
                   </div>
                 </div>
@@ -1177,7 +1737,7 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
                     <HotelWebsiteEditor hotelKey={o.id} hotelName={d.hotelName} />
                   </div>
                 ) : null}
-                {isOpen ? (real ? <RealHotelDetail offer={o} checkIn={checkIn} onAdd={onAdd} /> : <HotelPdpDetail offer={o} advisorId={advisorId} checkIn={checkIn} />) : null}
+                {isOpen ? (real ? <RealHotelDetail offer={o} checkIn={checkIn} onAdd={onAdd} occ={occ} distance={distanceOf(dist, o)} alternatives={hotelAlternatives(shown, o)} /> : <HotelPdpDetail offer={o} advisorId={advisorId} checkIn={checkIn} />) : null}
               </div>
             );
           })

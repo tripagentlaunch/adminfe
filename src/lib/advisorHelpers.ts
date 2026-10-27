@@ -214,7 +214,10 @@ export function fareBrand(d: any) {
 // Cart-item builders — web/js/advisor.js line ~799/821/842. Map raw offers
 // (from search) into the shape the pricing engine reads (type + baseNet +
 // label fields).
-export function flightCartItem(offer: any, alternatives?: any[]) {
+// extra.pax — the traveller mix the fare was searched for; extra.requests —
+// the customer's extra-baggage / seat / meal requests (FlightDesk's Add panel).
+// Both ride along onto the itinerary item and into "Book this trip".
+export function flightCartItem(offer: any, alternatives?: any[], extra?: { pax?: any; requests?: any }) {
   var d = offer.detail || {};
   var net = Number(offer.base_net != null ? offer.base_net : offer.baseNet != null ? offer.baseNet : d.baseNet) || 0;
   return {
@@ -235,6 +238,8 @@ export function flightCartItem(offer: any, alternatives?: any[]) {
     _title: (d.airlineName || d.airline || "Flight") + " " + (d.flightNo || ""),
     _sub: (d.originCode || "") + " → " + (d.destCode || "") + (d.duration ? " · " + d.duration : ""),
     _detail: d,
+    paxMix: (extra && extra.pax) || null,
+    requests: (extra && extra.requests) || null,
   };
 }
 // _looksLikeRealHotelKey(id) (2026-09-15, real Maldives 404 reproduction)

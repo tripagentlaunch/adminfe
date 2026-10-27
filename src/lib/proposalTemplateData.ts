@@ -17,6 +17,7 @@
  * ===========================================================================*/
 
 import { computeCostRange } from "./tripCostRange";
+import { tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
@@ -40,7 +41,9 @@ function fmtDayHeader(iso: string) {
 }
 
 export function buildProposalTemplateData(itinerary: any, pricing: any, member: any, advisor: any, hotelEnrichment?: Record<string, HotelEnrichment>) {
-  const data = itinerary || {};
+  // Trips built from Search carry no dates / nights / destination of their own:
+  // derive whichever are missing from the items (withTripSummary).
+  const data = itinerary && Array.isArray(itinerary.days) ? withTripSummary(itinerary) : itinerary || {};
   const days: any[] = data.days || [];
 
   function dayIsoLabel(iso: string) {
@@ -259,6 +262,8 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // area + AI-estimate flag (itinerary_service blocks / suggested hotels): an estimated price is
         // never shown as a TripSure rate.
         area: it.area || null,
+        // The stay's specifics from /hotels/facts (gallery, inclusions, check-in, rules).
+        facts: it.facts || null,
         priceIsEstimate: !!it.priceIsEstimate,
         price: it.price || 0,
         status: it.status,
@@ -314,9 +319,13 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     if (isNaN(h)) return null;
     const dur = (durationStr || "").match(/(\d+)h(?:\s*(\d+)m)?/);
     if (!dur) return null;
-    const dt = new Date(`${dayIso}T00:00:00`);
-    dt.setHours(h, m || 0, 0, 0);
-    dt.setMinutes(dt.getMinutes() + parseInt(dur[1], 10) * 60 + (dur[2] ? parseInt(dur[2], 10) : 0));
+    // An "unscheduled" day (an item added before its date was known) has no
+    // real date to add to — no arrival date rather than a crash.
+    // UTC end to end (a local-time date read back with toISOString shifts it a day in IST).
+    const dt = new Date(`${dayIso}T00:00:00Z`);
+    if (isNaN(dt.getTime())) return null;
+    dt.setUTCHours(h, m || 0, 0, 0);
+    dt.setUTCMinutes(dt.getUTCMinutes() + parseInt(dur[1], 10) * 60 + (dur[2] ? parseInt(dur[2], 10) : 0));
     return dt.toISOString().slice(0, 10);
   }
 
@@ -377,6 +386,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   }
   function addDaysIso(iso: string, n: number) {
     const d = new Date(iso);
+    if (isNaN(d.getTime())) return ""; // unscheduled day: no date to count from
     d.setDate(d.getDate() + n);
     return d.toISOString().slice(0, 10);
   }
@@ -392,19 +402,22 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
       nights: parseNights(it.duration),
     }));
 
-  const rangeStart = data.startIso || days.map((d: any) => d._iso).filter(Boolean).sort()[0];
+  // Real dates only: an "unscheduled" day has no place on the calendar.
+  const isIsoDate = (x: any) => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x);
+  const rangeStart = data.startIso || days.map((d: any) => d._iso).filter(isIsoDate).sort()[0];
   // rangeEnd is INCLUSIVE — the trip's departure/"Home" day itself, same
   // as itinerary.endIso (see itineraryFromCart.ts's boundFromDateRange)
   // or, absent that, the day right after the last stay's last night.
   const rangeEnd =
     data.endIso ||
-    hotelStays.map((s: any) => s.checkOut).sort().pop() ||
-    days.map((d: any) => d._iso).filter(Boolean).sort().pop();
+    hotelStays.map((s: any) => s.checkOut).filter(isIsoDate).sort().pop() ||
+    days.map((d: any) => d._iso).filter(isIsoDate).sort().pop();
 
   const calendarDays: { iso: string; dow: string; dom: string }[] = [];
-  if (rangeStart && rangeEnd) {
+  if (isIsoDate(rangeStart) && isIsoDate(rangeEnd)) {
     let cursor = rangeStart;
-    while (cursor <= rangeEnd) {
+    // Capped at a year so a bad date can never spin this forever.
+    while (isIsoDate(cursor) && cursor <= rangeEnd && calendarDays.length < 366) {
       calendarDays.push({ iso: cursor, ...fmtDayHeader(cursor) });
       cursor = addDaysIso(cursor, 1);
     }
@@ -425,7 +438,9 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         staySeq++;
         i += span;
       } else {
-        calendarBlocks.push({ startIdx: i, span: 1, label: "Home", sub: "", tone: "", isHome: true });
+        // No stay that night: a flight day reads "Travel day", otherwise "Free day".
+        const travel = flights.some((f: any) => f._dayIso === iso);
+        calendarBlocks.push({ startIdx: i, span: 1, label: travel ? "Travel day" : "Free day", sub: "", tone: "", isHome: true });
         i++;
       }
     }
@@ -525,6 +540,14 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         return { ...ln, label: enrichedLabel((itemQueuesByType[lnType] || []).shift(), ln.label || ln.type) };
       })
     : fallbackLinesFromItinerary();
+  // The quote's total also carries the planning fee, GST and TCS (commerce_quote_service): list
+  // them, so the lines the customer reads add up to the total they're shown.
+  if (pricing?.lines?.length) {
+    const extra = (label: string, v: any) => { if (Number(v) > 0) enrichedCostLines.push({ label, sell: Number(v), type: "charge" }); };
+    extra("Planning fee", pricing.planningFee);
+    extra("GST", pricing.gstTotal);
+    extra("TCS (collected at source)", pricing.tcs);
+  }
 
   const computedTotal = enrichedCostLines.reduce((sum: number, ln: any) => sum + (ln.sell || 0), 0);
 
@@ -539,6 +562,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     dateRange: data.dateRange,
     nights: data.nights,
     pax: data.pax || 1,
+    paxLabel: tripPaxLabel(data),
     memberName: member?.name || "",
     // pricing.grandTotal when the live quote resolved; otherwise the sum
     // of the SAME fallback lines actually shown above, not a separate

@@ -45,10 +45,12 @@
  * ===========================================================================*/
 import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { Card, Dropdown, Empty, Icon, SleekScroll, Spinner } from "../../../../components/ui";
 import { QuoteBuilder } from "../../../../components/panels/QuoteBuilder";
+import { bookingHandoffUrl } from "../../../../lib/bookingHandoff";
 import { useWorkbench } from "../../../../lib/workbenchContext";
-import type { ProposalOutcome } from "../../../../lib/workbenchContext";
+import type { ProposalOutcome, ProposalQueueEntry } from "../../../../lib/workbenchContext";
 import { cartFromItinerary } from "../../../../lib/itineraryFromCart";
 import { useQuotePricing } from "../../../../lib/useQuotePricing";
 import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
@@ -112,8 +114,27 @@ function relativeTime(ts: number) {
 }
 
 export default function ProposalComposerPage() {
-  const { proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, creating, createOrder, setProposalOutcome, swapProposalHotel, swapProposalFlight } = useWorkbench();
-  const selected = proposalQueue.find((e) => e.enquiryId === selectedProposalEnqId) || proposalQueue[0] || null;
+  const {
+    proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, enquiries, setProposalOutcome, swapProposalHotel, swapProposalFlight,
+    itinerariesByEnquiry, selEnqId, member, membersById, sendItineraryToProposal,
+  } = useWorkbench();
+  const router = useRouter();
+  // What the composer works on: every sent proposal, plus the enquiry open in
+  // the Console as a draft — so clicking "Proposal Composer" right after
+  // building an itinerary shows it, with no "Send to Proposal" step. Each entry
+  // shows the LIVE itinerary (builder edits and swaps appear straight away).
+  const entries = useMemo(() => {
+    const list: (ProposalQueueEntry & { draft?: boolean })[] = proposalQueue.map((e) => ({ ...e, data: itinerariesByEnquiry[e.enquiryId] || e.data }));
+    const live = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
+    if (selEnqId && live && (live.days || []).length && !list.some((e) => e.enquiryId === selEnqId)) {
+      const enq = enquiries.find((e: any) => e.id === selEnqId);
+      const who = member || (enq && enq.member_id ? membersById[enq.member_id] : null);
+      list.unshift({ enquiryId: selEnqId, member: who, data: live, sentAt: 0, outcome: "awaiting", draft: true });
+    }
+    return list;
+  }, [proposalQueue, itinerariesByEnquiry, selEnqId, enquiries, member, membersById]);
+  const selected =
+    entries.find((e) => e.enquiryId === selectedProposalEnqId) || entries.find((e) => e.enquiryId === selEnqId) || entries[0] || null;
 
   // open: "queue" | "quote" (2026-09-04) — same shape as
   // QueueProfileAccordion's own `open` state; only one section is open
@@ -179,6 +200,9 @@ export default function ProposalComposerPage() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [pane, setPane] = useState({ w: 0, h: 0 });
 
+  // Re-attached whenever the PDF view is shown: it isn't mounted on first render
+  // (the new preview is the default), and measuring nothing left the PDF at a
+  // 100px "zoomed out" width.
   useEffect(() => {
     const el = previewRef.current;
     if (!el) return;
@@ -188,7 +212,7 @@ export default function ProposalComposerPage() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [newPreview, selected?.enquiryId]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -390,7 +414,7 @@ export default function ProposalComposerPage() {
           <div className={"taw-acc-h" + (qOpen ? " is-open" : "")}>
             <Icon name="inbox" size={20} />
             <h3>Queue</h3>
-            {proposalQueue.length ? <span className="sub">{proposalQueue.length} pending</span> : null}
+            {entries.length ? <span className="sub">{entries.length} {entries.length === 1 ? "proposal" : "proposals"}</span> : null}
             <button
               className="taw-acc-toggle"
               onClick={toggle}
@@ -402,11 +426,11 @@ export default function ProposalComposerPage() {
           </div>
           {qOpen ? (
             <div className="taw-acc-body flush">
-              {proposalQueue.length ? (
+              {entries.length ? (
                 <SleekScroll className="taw-enq-scroll">
                   <div className="taw-enq">
-                    {proposalQueue.map((entry) => {
-                      const hours = Math.floor(Math.max(0, Date.now() - entry.sentAt) / 3600000);
+                    {entries.map((entry) => {
+                      const hours = entry.draft ? 0 : Math.floor(Math.max(0, Date.now() - entry.sentAt) / 3600000);
                       return (
                         <button
                           key={entry.enquiryId}
@@ -418,14 +442,14 @@ export default function ProposalComposerPage() {
                               {entry.member ? entry.member.name : "New lead"}
                               {entry.data.pax ? <span className="taw-enq-pax">· {entry.data.pax} pax</span> : null}
                             </div>
-                            <span className={cx("taw-enq-hours", hours >= 24 && "is-breach")}>{hours}h</span>
+                            {entry.draft ? null : <span className={cx("taw-enq-hours", hours >= 24 && "is-breach")}>{hours}h</span>}
                           </div>
                           <div className="taw-enq-meta">
                             {entry.data.destination}
                             {entry.data.destination && entry.data.dateRange ? " · " : ""}
                             {entry.data.dateRange}
                           </div>
-                          <div className="taw-enq-depart">Sent {relativeTime(entry.sentAt)}</div>
+                          <div className="taw-enq-depart">{entry.draft ? "Draft — open in the Console, not sent yet" : "Sent " + relativeTime(entry.sentAt)}</div>
                         </button>
                       );
                     })}
@@ -480,8 +504,14 @@ export default function ProposalComposerPage() {
                 err={pricingErr}
                 inclusive={inclusive}
                 onToggleInclusive={setInclusive}
-                creating={creating}
-                onCreateOrder={createOrder}
+                creating={false}
+                // Booking runs on /orders (live fares, travellers, payment, ticketing) and is tied to this
+                // enquiry; the legacy /fn/order-create path wrote to an `orders` table dev doesn't have.
+                onCreateOrder={() => router.push(bookingHandoffUrl({
+                  enquiry: enquiries.find((e: any) => e.id === selected.enquiryId) || { id: selected.enquiryId },
+                  member: selected.member,
+                  itinerary: selected.data,
+                }))}
               />
             )}
           </div>
@@ -493,7 +523,18 @@ export default function ProposalComposerPage() {
         title="Proposal Composer"
         icon={<Icon name="note" size={20} />}
         sub={selected ? (selected.member ? "for " + selected.member.name : "no member") : undefined}
-        actions={selected ? <ProposalOutcomeControl entry={selected} onChange={setProposalOutcome} /> : undefined}
+        actions={
+          selected ? (
+            (selected as any).draft ? (
+              // Not sent yet: one click records it as sent (Pipeline, Proposal Composer queue).
+              <button type="button" className="taw-btn taw-btn--sm" onClick={() => sendItineraryToProposal(selected.enquiryId, selected.member, selected.data)}>
+                <Icon name="send" size={13} /> Mark as sent
+              </button>
+            ) : (
+              <ProposalOutcomeControl entry={selected} onChange={setProposalOutcome} />
+            )
+          ) : undefined
+        }
         flush
       >
         {selected ? (
@@ -554,25 +595,7 @@ export default function ProposalComposerPage() {
                 className="taw-pdf-preview"
                 style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
               >
-                <ProposalPreviewPage onDownload={cart.length ? downloadPdf : undefined} onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} onSwapFlight={selected ? (flightId, altIndex) => swapProposalFlight(selected.enquiryId, flightId, altIndex) : undefined} data={proposalData && proposalData.destination ? proposalData : {
-                  destination: "Switzerland",
-                  memberName: "Kabir Shah",
-                  dateRange: "12 – 20 Oct 2026",
-                  nights: 8,
-                  pax: 1,
-                  cities: ["Zurich", "Lucerne", "Zermatt"],
-                  stays: [
-                    { name: "Widder Hotel", location: "Zurich · Old Town", nights: 3, image: "https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=800&q=80", price: "₹87,600", cabin: null },
-                    { name: "Hotel Schweizerhof", location: "Lucerne · Lakeside", nights: 2, image: "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&q=80", price: "₹54,200", cabin: null },
-                    { name: "Mont Cervin Palace", location: "Zermatt · Village centre", nights: 3, image: "https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?w=800&q=80", price: "₹1,12,400", cabin: null },
-                  ],
-                  flights: [
-                    { from: "Mumbai", to: "Zurich", depTime: "04:35", arrTime: "12:25", flightNo: "EK 501 · EK 87", duration: "13h 20m", cabin: "Business", price: "₹2,24,800" },
-                    { from: "Zurich", to: "Mumbai", depTime: "13:40", arrTime: "01:55+1", flightNo: "EK 88 · EK 502", duration: "10h 15m", cabin: "Business", price: "₹2,24,800" },
-                  ],
-                  visa: null,
-                  advisorName: "TripAgent",
-                }} />
+                <ProposalPreviewPage onDownload={cart.length ? downloadPdf : undefined} onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} onSwapFlight={selected ? (flightId, altIndex) => swapProposalFlight(selected.enquiryId, flightId, altIndex) : undefined} data={{ ...(proposalData || {}), destination: (proposalData && proposalData.destination) || "Your trip" }} />
               </div>
             ) : (
             <div className={cx("taw-pdf-preview", isFullscreen && "is-maximized")} ref={previewRef}>
@@ -618,11 +641,21 @@ export default function ProposalComposerPage() {
             )}
           </div>
         ) : (
-          <Empty
-            icon="note"
-            title="Not yet built"
-            message="Pick an entry from the Queue once one exists — the proposal PDF preview renders here."
-          />
+          selectedProposalEnqId ? (
+            // Opened from Pipeline for a proposal this browser no longer has (sent before a
+            // reload while saving wasn't available). Point back to where it can be rebuilt.
+            <Empty
+              icon="note"
+              title="This proposal isn't available here"
+              message="It was sent in an earlier session and wasn't saved. Open the enquiry in the Console and use Send to Proposal again — new work is now kept."
+            />
+          ) : (
+            <Empty
+              icon="note"
+              title="Not yet built"
+              message="Pick an entry from the Queue once one exists — the proposal PDF preview renders here."
+            />
+          )
         )}
       </Card>
     </div>
