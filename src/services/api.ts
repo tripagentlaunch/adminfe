@@ -2476,6 +2476,7 @@ export {
   getTaraPlan,
   getRealWhatsAppMessages,
   getConversationHandoff,
+  getCustomerTyping,
   setConversationHandoff,
   getMemberCode,
   sendChatbotReply,
@@ -2763,6 +2764,18 @@ function conversationHandoffCall(code, method, body) {
   });
 }
 function getConversationHandoff(code) { return conversationHandoffCall(code, "GET"); }
+
+// getCustomerTyping(code) — is the customer typing in the website chat right now? Resolves to a
+// boolean, never rejects (a failed check just means no dots). Via GET /admin/conversation/{code}/typing.
+function getCustomerTyping(code) {
+  var jwt = authBearer();
+  if (!jwt || !code) return Promise.resolve(false);
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/typing",
+    { headers: { Authorization: "Bearer " + jwt } }, 5000)
+    .then(function (res) { return res.ok ? res.json() : { typing: false }; })
+    .then(function (b) { return !!(b && b.typing); })
+    .catch(function () { return false; });
+}
 
 // getMemberCode(phone, email) — the Tara access code for a customer known only
 // by phone/email (a CRM record with no code), via GET /admin/member-code.
