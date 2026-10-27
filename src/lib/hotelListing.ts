@@ -187,3 +187,79 @@ export function activeFilterCount(view: HotelView): number {
 }
 
 export const HOTEL_PAGE_SIZE = 40;
+
+// ---- One TripSure hotel -> the offer shape the filters, sort and map work on --------------------
+
+export function cheapestPrice(priceSummary: any) {
+  if (!priceSummary || !priceSummary.length) return null;
+  return priceSummary.reduce((best: any, p: any) => {
+    if (best == null) return p;
+    return Number(p.totalPrice) < Number(best.totalPrice) ? p : best;
+  }, null);
+}
+
+// Maps one TripSure listing "hotels[]" entry into the offer shape HotelResults/hotelCartItem
+// expect: { id, international, base_net, detail: { hotelName, cityName, stars, ... } }. The hotel
+// as TripSure sent it stays on `_raw` (the New Booking hotel step lists from it).
+export function mapTripSureHotel(hotel: any, ctx: any) {
+  const info = hotel.hotelInfo || {};
+  const priceSummary = hotel.priceSummary || [];
+  const best = cheapestPrice(priceSummary);
+  // TripSure flags each property (free cancellation, free breakfast, amenities) whether or not the
+  // listing carries a price, so the filters work on unpriced hotels too.
+  const opts = info.options || {};
+  const amenityFlags = info.amenity || {};
+  return {
+    id: hotel.hotelKey,
+    international: ctx.international,
+    base_net: best ? Number(best.totalPrice) || 0 : 0,
+    detail: {
+      hotelName: info.name,
+      cityName: info.city,
+      image: info.image,
+      stars: Number(info.starRating) || 0,
+      board: best && best.boardBasis ? best.boardBasis.description || best.boardBasis.type : null,
+      nights: ctx.nights,
+      rooms: ctx.rooms,
+      nightlyFrom: best ? Number(best.pricePerNightPerRoom) || undefined : undefined,
+      refundable: best ? best.refundability === "Refundable" : !!(opts.refundable || opts.freeCancellation),
+      freeCancellation: !!opts.freeCancellation,
+      freeBreakfast: !!opts.freeBreakfast,
+      stayType: info.type || info.category || null,
+      chain: info.chainName || null,
+      amenities: Object.keys(amenityFlags).filter((k) => amenityFlags[k]),
+      // address/lat/lng (2026-09-11): TripSure's own real address and coordinates for this property,
+      // carried through so a hotel added from Search gets the same real Google Maps link in the
+      // Proposal PDF (see proposalTemplateData.ts's mapsUrl), and so the results map can place it.
+      address: info.address || null,
+      lat: info.latitude != null ? Number(info.latitude) : null,
+      lng: info.longitude != null ? Number(info.longitude) : null,
+    },
+    // Full TripSure context, namespaced so it doesn't collide with the fields above.
+    _tripsure: {
+      hotelId: hotel.hotelKey,
+      docKey: ctx.docKey,
+      token: ctx.token,
+      priceSummary: priceSummary,
+    },
+    _raw: hotel,
+  };
+}
+
+// ---- Searches kept in the browser for five minutes (TripSure's own site does the same) ---------
+// Asking for the same city, dates and rooms again shows the hotels at once instead of searching
+// again. Only a search whose whole city has loaded is kept.
+
+const KEPT_TTL_MS = 5 * 60 * 1000;
+const kept = new Map<string, { at: number; value: any }>();
+
+export function keepSearch(key: string, value: any) {
+  if (!key) return;
+  if (kept.size > 20) kept.clear();
+  kept.set(key, { at: Date.now(), value });
+}
+
+export function keptSearch(key: string): any | null {
+  const hit = key ? kept.get(key) : null;
+  return hit && Date.now() - hit.at < KEPT_TTL_MS ? hit.value : null;
+}

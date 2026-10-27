@@ -16,7 +16,8 @@ import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advi
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
-import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
+import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
+import { loadRestOfCity } from "../../lib/hotelMore";
 import { HotelMap } from "./HotelMap";
 
 // SORT_OPTIONS/STAR_OPTIONS (2026-09-04) — the filter/sort row rebuilt to
@@ -37,17 +38,6 @@ const HOTEL_STAR_OPTIONS = [
   { key: "4", label: "4★+" },
   { key: "5", label: "5★" },
 ];
-
-// The last searches' results, kept in the browser for five minutes like TripSure's own site does
-// (it keeps a search for 5 minutes): asking for the same city, dates and rooms again, or coming
-// back to Hotels from Flights, shows the hotels at once instead of searching again. Only a search
-// whose whole city has loaded is kept.
-const HOTEL_RESULTS_TTL_MS = 5 * 60 * 1000;
-const HOTEL_RESULTS_CACHE = new Map<string, { at: number; res: any }>();
-function keepHotelResults(key: string, res: any) {
-  if (HOTEL_RESULTS_CACHE.size > 20) HOTEL_RESULTS_CACHE.clear();
-  HOTEL_RESULTS_CACHE.set(key, { at: Date.now(), res: { ...res, more: null } });
-}
 
 // TEMP toggle — flip to false to fall back to the old synthetic searchHotels()
 // generator instantly if the real TripSure data looks wrong. Remove once the
@@ -125,66 +115,6 @@ function resolveHotelState(loc: any): string {
 
 // Picks the cheapest priceSummary entry for a TripSure hotel (by totalPrice)
 // for the list view; HotelPdpDetail will get the full array later.
-function cheapestPrice(priceSummary: any) {
-  if (!priceSummary || !priceSummary.length) return null;
-  return priceSummary.reduce((best: any, p: any) => {
-    if (best == null) return p;
-    return Number(p.totalPrice) < Number(best.totalPrice) ? p : best;
-  }, null);
-}
-
-// Maps one TripSure /hotels/listing "hotels[]" entry into the offer shape
-// HotelResults/hotelCartItem already expect (see the old synthetic shape:
-// { id, international, base_net, detail: { hotelName, cityName, stars, ... } }).
-function mapTripSureHotel(hotel: any, ctx: any) {
-  const info = hotel.hotelInfo || {};
-  const priceSummary = hotel.priceSummary || [];
-  const best = cheapestPrice(priceSummary);
-  // TripSure flags each property (free cancellation, free breakfast, amenities) whether or not the
-  // listing carries a price, so the filters work on unpriced hotels too.
-  const opts = info.options || {};
-  const amenityFlags = info.amenity || {};
-  return {
-    id: hotel.hotelKey,
-    international: ctx.international,
-    base_net: best ? Number(best.totalPrice) || 0 : 0,
-    detail: {
-      hotelName: info.name,
-      cityName: info.city,
-      image: info.image,
-      stars: Number(info.starRating) || 0,
-      board: best && best.boardBasis ? best.boardBasis.description || best.boardBasis.type : null,
-      nights: ctx.nights,
-      rooms: ctx.rooms,
-      nightlyFrom: best ? Number(best.pricePerNightPerRoom) || undefined : undefined,
-      refundable: best ? best.refundability === "Refundable" : !!(opts.refundable || opts.freeCancellation),
-      freeCancellation: !!opts.freeCancellation,
-      freeBreakfast: !!opts.freeBreakfast,
-      stayType: info.type || info.category || null,
-      chain: info.chainName || null,
-      amenities: Object.keys(amenityFlags).filter((k) => amenityFlags[k]),
-      // address/lat/lng (2026-09-11) — TripSure's own real address and
-      // coordinates for this property, carried through so a hotel added
-      // from Search can get the same real Google Maps link in the
-      // Proposal PDF as one an AI-generated itinerary finds directly (see
-      // proposalTemplateData.ts's mapsUrl). TripSure has no public hotel
-      // website of its own to link to instead (confirmed against its
-      // integration guide — a pure server-to-server API).
-      address: info.address || null,
-      lat: info.latitude != null ? Number(info.latitude) : null,
-      lng: info.longitude != null ? Number(info.longitude) : null,
-    },
-    // Full TripSure context, namespaced so it doesn't collide with the fields
-    // above — HotelPdpDetail will read this once it's wired to real data.
-    _tripsure: {
-      hotelId: hotel.hotelKey,
-      docKey: ctx.docKey,
-      token: ctx.token,
-      priceSummary: priceSummary,
-    },
-  };
-}
-
 // HotelWebsiteEditor (2026-09-11) — advisor-entered override for
 // hotel_snapshots.website: the hotel's OWN real, official site. Manual-only
 // by design — TripSure's listing()/details() carry no website field of
@@ -813,47 +743,26 @@ export function HotelDesk(props: any) {
   // TripSure says the search is no longer in progress (or after 15 polls, as its own site does).
   function loadMoreHotels(first: any) {
     stopMore();
-    const more = first.more;
-    const ctl = new AbortController();
-    let stopped = false;
-    let timer: any = null;
-    const handle = { stop: () => { stopped = true; if (timer) clearTimeout(timer); ctl.abort(); } };
+    const handle = loadRestOfCity<any>({
+      more: first.more,
+      first: first.offers,
+      idOf: (o) => o.id,
+      mapHotel: mapTripSureHotel,
+      onUpdate: (all, info) => {
+        setRes((prev: any) => (prev ? { ...prev, offers: all, count: all.length } : prev));
+        setMoreInfo({ loaded: info.loaded });
+      },
+      onDone: (all) => {
+        if (moreRef.current === handle) moreRef.current = null;
+        setMoreInfo(null);
+        if (searchKeyRef.current) keepSearch(searchKeyRef.current, { offers: all, count: all.length, more: null });
+      },
+      onFail: (all) => {
+        if (moreRef.current === handle) moreRef.current = null;
+        setMoreInfo({ loaded: all.length, failed: true });
+      },
+    });
     moreRef.current = handle;
-    const byId = new Map<string, any>();
-    first.offers.forEach((o: any) => byId.set(o.id, o));
-    let key: string | undefined;
-    let polls = 0;
-    setMoreInfo({ loaded: byId.size });
-    const finish = (failed?: boolean) => {
-      if (moreRef.current === handle) moreRef.current = null;
-      setMoreInfo(failed ? { loaded: byId.size, failed: true } : null);
-      if (!failed && searchKeyRef.current) {
-        const all = Array.from(byId.values());
-        keepHotelResults(searchKeyRef.current, { offers: all, count: all.length });
-      }
-    };
-    const tick = () => {
-      if (stopped) return;
-      polls += 1;
-      hotelListingMore({ token: more.token, nextResultsKey: key, countryCode: more.countryCode }, ctl.signal)
-        .then((pg: any) => {
-          if (stopped) return;
-          const ctx = { ...more.ctx, docKey: pg.docKey || more.ctx.docKey, token: pg.token || more.ctx.token };
-          (pg.hotels || []).forEach((h: any) => byId.set(h.hotelKey, mapTripSureHotel(h, ctx)));
-          if (pg.nextResultsKey) key = pg.nextResultsKey;
-          const all = Array.from(byId.values());
-          setRes((prev: any) => (prev ? { ...prev, offers: all, count: all.length } : prev));
-          const expected = pg.expectedHotelCount != null ? Number(pg.expectedHotelCount) : undefined;
-          if (pg.status !== "InProgress" || polls >= 15) { finish(); return; }
-          setMoreInfo({ loaded: all.length, expected: expected });
-          timer = setTimeout(tick, 1500);
-        })
-        .catch((e: any) => {
-          if (stopped || (e && e.aborted)) return;
-          finish(true);
-        });
-    };
-    tick();
   }
 
   function cancelSearch() {
@@ -877,11 +786,11 @@ export function HotelDesk(props: any) {
 
     if (USE_REAL_HOTELS) {
       searchKeyRef.current = JSON.stringify([form.city.trim().toLowerCase(), selectedLocation && selectedLocation.id, form.checkIn, form.checkOut, form.rooms, form.pax]);
-      const kept = HOTEL_RESULTS_CACHE.get(searchKeyRef.current);
-      if (kept && Date.now() - kept.at < HOTEL_RESULTS_TTL_MS) {
-        setRes(kept.res);
+      const kept = keptSearch(searchKeyRef.current);
+      if (kept) {
+        setRes(kept);
         setLoading(false);
-        toast((kept.res.count || (kept.res.offers || []).length) + " hotel offers (from your last search, under 5 minutes old)", "success");
+        toast((kept.count || (kept.offers || []).length) + " hotel offers (from your last search, under 5 minutes old)", "success");
         return;
       }
       const search = startSearch();
@@ -895,7 +804,7 @@ export function HotelDesk(props: any) {
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
           if (r.more) loadMoreHotels(r);
-          else keepHotelResults(searchKeyRef.current, r);
+          else keepSearch(searchKeyRef.current, { ...r, more: null });
         })
         .catch((e: any) => {
           if (searchRef.current !== search) return;
