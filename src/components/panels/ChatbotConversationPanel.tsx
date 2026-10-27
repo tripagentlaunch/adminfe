@@ -23,7 +23,7 @@
  * ===========================================================================*/
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, setConversationHandoff, getMemberCode } from "../../services/api";
+import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerTyping, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 
 interface ConvoMessage {
@@ -283,6 +283,20 @@ export function ChatbotConversationPanel({ member }: any) {
   // Which button was pressed, for its spinner.
   const [sendingTo, setSendingTo] = useState<"whatsapp" | "web" | null>(null);
   const takenOver = mode !== "tara";
+  // The customer is typing in the website chat: three dots, checked every 2s while this panel is open.
+  const [customerTyping, setCustomerTyping] = useState(false);
+  useEffect(() => {
+    setCustomerTyping(false);
+    if (!code) return;
+    let cancelled = false;
+    const check = () => {
+      if (document.hidden) return;
+      getCustomerTyping(code).then((t: boolean) => { if (!cancelled) setCustomerTyping(!!t); });
+    };
+    check();
+    const t = setInterval(check, 2000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [code]);
   // The newest message is the customer's and nobody has answered it yet: while Tara is
   // about to reply the advisor sees a countdown and can press "I'll reply".
   const lastMessage = messages.length ? messages[messages.length - 1] : null;
@@ -700,6 +714,15 @@ export function ChatbotConversationPanel({ member }: any) {
             </button>
           ) : null}
           </div>
+
+          {customerTyping ? (
+            <div role="status" aria-label="The customer is typing" style={{ flex: "none", display: "flex", gap: 4, alignItems: "center", margin: "0 0 8px 4px", height: 18 }}>
+              {[0, 1, 2].map((i) => (
+                <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "#9098A8", animation: "taw-typing 1.2s ease-in-out infinite", animationDelay: i * 0.18 + "s" }} />
+              ))}
+              <style>{"@keyframes taw-typing{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}"}</style>
+            </div>
+          ) : null}
 
           <div style={{ flex: "none", border: "1px solid #E9E1CF", borderRadius: 12, background: "#FDFBF6", padding: "10px 12px", marginBottom: 8 }}>
             <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1F2430", lineHeight: 1.25 }}>Take over the chat with AI</div>
