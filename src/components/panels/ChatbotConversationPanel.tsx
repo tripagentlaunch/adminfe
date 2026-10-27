@@ -292,6 +292,14 @@ export function ChatbotConversationPanel({ member }: any) {
     const t = setInterval(() => setNowMs(Date.now()), 500);
     return () => clearInterval(t);
   }, [awaitingReply, lastMessage && lastMessage.id]);
+  // Where a desk reply will go: the channel the customer last wrote on, never both (the server
+  // decides the same way, on fresh data). Unknown when no message says (older threads).
+  let lastCustomerChannel: string | null = null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if ((m.role === "user" || m.role === "customer") && (m.channel === "web" || m.channel === "whatsapp")) { lastCustomerChannel = m.channel; break; }
+  }
+  const replyGoesTo = websiteOnly || lastCustomerChannel === "web" ? "the website chat" : lastCustomerChannel === "whatsapp" ? "WhatsApp" : null;
   const waitedS = awaitingReply && lastMessage && lastMessage.at ? (nowMs - (lastMessage.at < 1e12 ? lastMessage.at * 1000 : lastMessage.at)) / 1000 : 0;
   let waitingLine = "";
   if (awaitingReply && handoffStatus === "ready") {
@@ -788,7 +796,10 @@ export function ChatbotConversationPanel({ member }: any) {
                   <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#B03434", lineHeight: 1.35 }}>{sendError}</div>
                 ) : null}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, fontSize: 11.5, color: "#8A8070" }}>
-                  <span>{mode === "both" ? "You and Tara are both replying" : "You are currently in advisor mode"}</span>
+                  <span>
+                    {mode === "both" ? "You and Tara are both replying" : "You are currently in advisor mode"}
+                    {replyGoesTo ? ` · your reply goes to ${replyGoesTo}` : ""}
+                  </span>
                   <button
                     type="button"
                     disabled={modeSaving}
