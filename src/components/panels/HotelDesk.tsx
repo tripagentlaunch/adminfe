@@ -5,7 +5,7 @@
  * property-detail (PDP) expander, HotelPdpDetail (line ~1199, colocated here
  * — only ever used by HotelDesk in the original module too).
  * ===========================================================================*/
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
@@ -16,6 +16,8 @@ import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advi
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
 import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
+import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
+import { HotelMap } from "./HotelMap";
 
 // SORT_OPTIONS/STAR_OPTIONS (2026-09-04) — the filter/sort row rebuilt to
 // match FlightDesk's `.taw-filter-strip` (a row of Dropdown pills + one
@@ -25,7 +27,8 @@ import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 // looking like an earlier, different design pass.
 const HOTEL_SORT_OPTIONS = [
   { key: "best", label: "Best value", icon: "sort" },
-  { key: "cheapest", label: "Cheapest", icon: "sort" },
+  { key: "cheapest", label: "Price: low to high", icon: "sort" },
+  { key: "priceDesc", label: "Price: high to low", icon: "sort" },
   { key: "toprated", label: "Top-rated", icon: "sort" },
 ];
 const HOTEL_STAR_OPTIONS = [
@@ -34,6 +37,17 @@ const HOTEL_STAR_OPTIONS = [
   { key: "4", label: "4★+" },
   { key: "5", label: "5★" },
 ];
+
+// The last searches' results, kept in the browser for five minutes like TripSure's own site does
+// (it keeps a search for 5 minutes): asking for the same city, dates and rooms again, or coming
+// back to Hotels from Flights, shows the hotels at once instead of searching again. Only a search
+// whose whole city has loaded is kept.
+const HOTEL_RESULTS_TTL_MS = 5 * 60 * 1000;
+const HOTEL_RESULTS_CACHE = new Map<string, { at: number; res: any }>();
+function keepHotelResults(key: string, res: any) {
+  if (HOTEL_RESULTS_CACHE.size > 20) HOTEL_RESULTS_CACHE.clear();
+  HOTEL_RESULTS_CACHE.set(key, { at: Date.now(), res: { ...res, more: null } });
+}
 
 // TEMP toggle — flip to false to fall back to the old synthetic searchHotels()
 // generator instantly if the real TripSure data looks wrong. Remove once the
@@ -126,6 +140,10 @@ function mapTripSureHotel(hotel: any, ctx: any) {
   const info = hotel.hotelInfo || {};
   const priceSummary = hotel.priceSummary || [];
   const best = cheapestPrice(priceSummary);
+  // TripSure flags each property (free cancellation, free breakfast, amenities) whether or not the
+  // listing carries a price, so the filters work on unpriced hotels too.
+  const opts = info.options || {};
+  const amenityFlags = info.amenity || {};
   return {
     id: hotel.hotelKey,
     international: ctx.international,
@@ -139,7 +157,12 @@ function mapTripSureHotel(hotel: any, ctx: any) {
       nights: ctx.nights,
       rooms: ctx.rooms,
       nightlyFrom: best ? Number(best.pricePerNightPerRoom) || undefined : undefined,
-      refundable: !!(best && best.refundability === "Refundable"),
+      refundable: best ? best.refundability === "Refundable" : !!(opts.refundable || opts.freeCancellation),
+      freeCancellation: !!opts.freeCancellation,
+      freeBreakfast: !!opts.freeBreakfast,
+      stayType: info.type || info.category || null,
+      chain: info.chainName || null,
+      amenities: Object.keys(amenityFlags).filter((k) => amenityFlags[k]),
       // address/lat/lng (2026-09-11) — TripSure's own real address and
       // coordinates for this property, carried through so a hotel added
       // from Search can get the same real Google Maps link in the
@@ -689,6 +712,7 @@ export function HotelDesk(props: any) {
   // `moreRef` is the loop that is running; `moreInfo` is what the header says about it.
   const moreRef = useRef<{ stop: () => void } | null>(null);
   const [moreInfo, setMoreInfo] = useState<{ loaded: number; expected?: number; failed?: boolean } | null>(null);
+  const searchKeyRef = useRef("");
   function stopMore() {
     if (moreRef.current) moreRef.current.stop();
     moreRef.current = null;
@@ -699,9 +723,13 @@ export function HotelDesk(props: any) {
     if (moreRef.current) moreRef.current.stop();
   }, []);
   // Hotel shop controls (HTL filters + sort), client-side over hotel-search offers.
-  const [view, setView] = useState({ sort: "best", stars: "any", refundable: false, board: "all" });
+  const [view, setView] = useState<HotelView>(DEFAULT_HOTEL_VIEW);
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
+  }
+  // Every filter off; the sort order stays as chosen.
+  function clearFilters() {
+    setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
   }
   // Fields the advisor has typed into — the trip dates below only fill the others (see FlightDesk).
   const touched = useRef<Record<string, boolean>>({});
@@ -799,6 +827,10 @@ export function HotelDesk(props: any) {
     const finish = (failed?: boolean) => {
       if (moreRef.current === handle) moreRef.current = null;
       setMoreInfo(failed ? { loaded: byId.size, failed: true } : null);
+      if (!failed && searchKeyRef.current) {
+        const all = Array.from(byId.values());
+        keepHotelResults(searchKeyRef.current, { offers: all, count: all.length });
+      }
     };
     const tick = () => {
       if (stopped) return;
@@ -841,9 +873,17 @@ export function HotelDesk(props: any) {
     setLoading(true);
     setRes(null);
     setOpenOffer(null);
-    setView({ sort: "best", stars: "any", refundable: false, board: "all" });
+    setView(DEFAULT_HOTEL_VIEW);
 
     if (USE_REAL_HOTELS) {
+      searchKeyRef.current = JSON.stringify([form.city.trim().toLowerCase(), selectedLocation && selectedLocation.id, form.checkIn, form.checkOut, form.rooms, form.pax]);
+      const kept = HOTEL_RESULTS_CACHE.get(searchKeyRef.current);
+      if (kept && Date.now() - kept.at < HOTEL_RESULTS_TTL_MS) {
+        setRes(kept.res);
+        setLoading(false);
+        toast((kept.res.count || (kept.res.offers || []).length) + " hotel offers (from your last search, under 5 minutes old)", "success");
+        return;
+      }
       const search = startSearch();
       searchRef.current = search;
       runReal(search.signal)
@@ -855,6 +895,7 @@ export function HotelDesk(props: any) {
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
           if (r.more) loadMoreHotels(r);
+          else keepHotelResults(searchKeyRef.current, r);
         })
         .catch((e: any) => {
           if (searchRef.current !== search) return;
@@ -1020,7 +1061,7 @@ export function HotelDesk(props: any) {
       ) : null}
       {loading ? <SkeletonResults /> : null}
       {!loading && res ? (
-        <HotelResults offers={offers} view={view} setV={setV} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
+        <HotelResults offers={offers} view={view} setV={setV} clearFilters={clearFilters} city={form.city} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
       ) : null}
     </div>
   );
@@ -1030,50 +1071,73 @@ export function HotelDesk(props: any) {
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
 // as one block, mirroring the original's inline IIFE at the same spot.
-function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, advisorId, onAdd }: any) {
-  const offNet = (o: any) => Number(o.base_net != null ? o.base_net : o.baseNet) || 0;
-  // Board types present, for the board filter.
-  const boards: any[] = [];
-  const seenB: any = {};
-  offers.forEach((o: any) => {
-    const b = (o.detail || {}).board;
-    if (b && !seenB[b]) {
-      seenB[b] = 1;
-      boards.push(b);
+function HotelResults({ offers, view, setV, clearFilters, city, openOffer, toggleDetail, checkIn, advisorId, onAdd }: any) {
+  const offNet = offerNet;
+  const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
+  const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
+  const filterKey = viewKey(view);
+  const nFilters = activeFilterCount(view);
+
+  // List or map (TripSure's own List / Map switch).
+  const [layout, setLayout] = useState<"list" | "map">("list");
+  const [showFilters, setShowFilters] = useState(false);
+  // A big city is ~1,000 hotels: draw a page of them and the next page as the advisor scrolls.
+  const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
+  useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  const more = layout === "list" && visible < shown.length;
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!more || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) setVisible((v) => v + HOTEL_PAGE_SIZE);
+    }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [more, visible]);
+
+  // "View in list" on a map card: back to the list, that hotel drawn, scrolled to and outlined.
+  const [focusId, setFocusId] = useState<string | null>(null);
+  function pickFromMap(id: string) {
+    setLayout("list");
+    setFocusId(id);
+  }
+  useEffect(() => {
+    if (!focusId || layout !== "list") return;
+    const at = shown.findIndex((o: any) => String(o.id) === focusId);
+    if (at >= visible) {
+      setVisible(at + 1);
+      return;
     }
-  });
-  // Filter.
-  let shown = offers.filter((o: any) => {
-    const d = o.detail || {};
-    const s = d.stars || 0;
-    if (view.stars === "5" && s < 5) return false;
-    if (view.stars === "4" && s < 4) return false;
-    if (view.stars === "3" && s < 3) return false;
-    if (view.refundable && !d.refundable) return false;
-    if (view.board !== "all" && d.board !== view.board) return false;
-    return true;
-  });
-  // Sort. 'best' rewards rating per rupee (stars / normalised price).
-  const minNet = Math.min.apply(null, offers.map(offNet).concat([Infinity]));
-  shown = shown.slice().sort((a: any, b: any) => {
-    const da = a.detail || {},
-      db = b.detail || {};
-    if (view.sort === "cheapest") return offNet(a) - offNet(b);
-    if (view.sort === "toprated") return (db.stars || 0) - (da.stars || 0) || offNet(a) - offNet(b);
-    // best: higher stars and lower price win.
-    const sa = (da.stars || 3) / (offNet(a) / (minNet || 1));
-    const sb = (db.stars || 3) / (offNet(b) / (minNet || 1));
-    return sb - sa;
-  });
-  const boardOptions = [{ key: "all", label: "Any board" }, ...boards.map((b: string) => ({ key: b, label: b }))];
+    const t = setTimeout(() => {
+      const el = document.getElementById("taw-hotel-" + focusId);
+      if (el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 60);
+    const clear = setTimeout(() => setFocusId(null), 3500);
+    return () => { clearTimeout(t); clearTimeout(clear); };
+  }, [focusId, layout, visible, shown]);
+
+  const boardOptions = [{ key: "all", label: "Any board" }, ...facets.boards.map((b: string) => ({ key: b, label: b }))];
+  const priceOptions = [{ key: "any", label: "Any price" }, ...facets.priceBands];
+  const stayOptions = [{ key: "all", label: "Any type" }, ...facets.stayTypes.map((t: string) => ({ key: t, label: t }))];
+  const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x: string) => x !== k) : view.amenities.concat([k]));
   return (
     <div className="taw-results-panel">
       {offers.length ? (
-        <div className="taw-filter-strip">
+        <>
+        <div className="taw-filter-strip taw-filter-strip--wrap">
+          <button className={cx("taw-chip", "taw-chip--toggle", layout === "list" && "is-active")} onClick={() => setLayout("list")} aria-pressed={layout === "list" ? "true" : "false"}>
+            <Icon name="list" size={12} />
+            List
+          </button>
+          <button className={cx("taw-chip", "taw-chip--toggle", layout === "map" && "is-active")} onClick={() => setLayout("map")} aria-pressed={layout === "map" ? "true" : "false"}>
+            <Icon name="pin" size={12} />
+            Map
+          </button>
           <Dropdown value={view.sort} options={HOTEL_SORT_OPTIONS} onChange={(v: any) => setV("sort", v)} ariaLabel="Sort hotels" triggerClassName="taw-filter-dd" hideOptionIcons />
           <Dropdown value={view.stars} options={HOTEL_STAR_OPTIONS} onChange={(v: any) => setV("stars", v)} ariaLabel="Filter by stars" triggerClassName="taw-filter-dd" />
-          {boards.length > 1 ? (
-            <Dropdown value={view.board} options={boardOptions} onChange={(v: any) => setV("board", v)} ariaLabel="Filter by board" triggerClassName="taw-filter-dd" />
+          {facets.hasPrices && facets.priceBands.length ? (
+            <Dropdown value={view.price} options={priceOptions} onChange={(v: any) => setV("price", v)} ariaLabel="Filter by price" triggerClassName="taw-filter-dd" hideOptionIcons />
           ) : null}
           <button
             className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
@@ -1081,14 +1145,48 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
             aria-pressed={view.refundable ? "true" : "false"}
           >
             <Icon name={view.refundable ? "x" : "shield"} size={12} />
-            Refundable
+            Free cancellation
+          </button>
+          <button
+            className={cx("taw-chip", "taw-chip--toggle", view.breakfast && "is-active")}
+            onClick={() => setV("breakfast", !view.breakfast)}
+            aria-pressed={view.breakfast ? "true" : "false"}
+          >
+            Breakfast included
+          </button>
+          <button className={cx("taw-chip", "taw-chip--toggle", showFilters && "is-active")} onClick={() => setShowFilters((x) => !x)} aria-expanded={showFilters ? "true" : "false"}>
+            <Icon name="sliders" size={12} />
+            Filters{nFilters ? " (" + nFilters + ")" : ""}
           </button>
         </div>
+        {showFilters ? (
+          <div className="taw-filter-more" style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "2px 2px 8px", flex: "none" }}>
+            {facets.boards.length > 1 ? <Dropdown value={view.board} options={boardOptions} onChange={(v: any) => setV("board", v)} ariaLabel="Filter by board" triggerClassName="taw-filter-dd" /> : null}
+            {facets.stayTypes.length > 1 ? <Dropdown value={view.stayType} options={stayOptions} onChange={(v: any) => setV("stayType", v)} ariaLabel="Filter by property type" triggerClassName="taw-filter-dd" hideOptionIcons /> : null}
+            {facets.amenities.slice(0, 12).map((a: any) => (
+              <button key={a.key} className={cx("taw-chip", "taw-chip--toggle", view.amenities.indexOf(a.key) >= 0 && "is-active")} onClick={() => toggleAmenity(a.key)} aria-pressed={view.amenities.indexOf(a.key) >= 0 ? "true" : "false"}>
+                {a.label}
+              </button>
+            ))}
+            {nFilters ? (
+              <button type="button" onClick={clearFilters} style={{ background: "none", border: "none", padding: "0 4px", color: "#8A5A2B", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        <div style={{ fontSize: 11.5, color: "var(--taupe)", margin: "0 2px 6px", flex: "none" }}>
+          {shown.length === offers.length ? offers.length + " hotels" : shown.length + " of " + offers.length + " hotels"}
+        </div>
+        </>
       ) : null}
+      {layout === "map" ? (
+        <HotelMap hotels={shown} selectedId={focusId} onPick={pickFromMap} fitKey={filterKey} city={city} />
+      ) : (
       <SleekScroll className="taw-results-scroll">
       <div className="taw-results">
         {shown.length ? (
-          shown.map((o: any) => {
+          shown.slice(0, visible).map((o: any) => {
             const d = o.detail || {};
             const net = offNet(o);
             const stars = d.stars || 0;
@@ -1097,7 +1195,7 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
             const isOpen = openOffer === o.id;
             const real = !!(o._tripsure && !o._isMock);
             return (
-              <div key={o.id} className="taw-res" style={{ display: "block" }}>
+              <div key={o.id} id={"taw-hotel-" + o.id} className="taw-res" style={{ display: "block", ...(focusId === String(o.id) ? { outline: "2px solid #B8945F", outlineOffset: -2 } : null) }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
                   <div className="taw-res-main">
                     <div className="taw-res-title">
@@ -1175,8 +1273,16 @@ function HotelResults({ offers, view, setV, openOffer, toggleDetail, checkIn, ad
         ) : (
           <Empty icon={<Icon name="hotel" size={28} />}>{offers.length ? "No stays match these filters — widen them to see more." : "No hotel offers for this stay."}</Empty>
         )}
+        {more ? (
+          <div ref={sentinel} style={{ padding: "10px 0 16px", textAlign: "center" }}>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setVisible((v) => v + HOTEL_PAGE_SIZE)}>
+              Show more hotels ({shown.length - visible} left)
+            </button>
+          </div>
+        ) : null}
       </div>
       </SleekScroll>
+      )}
     </div>
   );
 }

@@ -703,6 +703,12 @@ scrollbar-width:none;-ms-overflow-style:none;flex:none;}
    takes it out of the flex/shrink calculation entirely, sizing it by
    content again like a normal block. */
 .taw-filter-strip::-webkit-scrollbar{display:none;}
+/* Hotels (2026-10-27): with the List / Map switch, price and filter chips the strip is wider than the
+   panel, so it wraps to a second row instead of scrolling sideways. The dropdowns are height:100% of
+   the strip, which cannot grow once the strip wraps (a percentage of an auto height), so inside a
+   wrapping strip they take their own height. */
+.taw-filter-strip--wrap{flex-wrap:wrap;overflow-x:visible;row-gap:6px;}
+.taw-filter-strip--wrap .taw-dropdown,.taw-filter-more .taw-dropdown{height:auto;}
 .taw-filter-dd{flex:none;background:var(--card);border:1px solid var(--line2);border-radius:9px;
 padding:6px 10px;font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink);white-space:nowrap;}
 /* Departure time (2026-09-02) — wider than the other filter dropdowns so
