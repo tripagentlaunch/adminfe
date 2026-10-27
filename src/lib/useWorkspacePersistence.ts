@@ -15,6 +15,7 @@ import type { ProposalQueueEntry } from "./workbenchContext";
 
 const SAVE_DELAY_MS = 1200;
 const LOCAL_KEY = "taw.console.workspaces.v1";
+const LOCAL_NOTICE_KEY = "taw.console.localNoticeShown";
 
 // Browser-only fallback store: { [enquiryId]: { itinerary, proposal, at } }.
 function readLocal(): Record<string, any> {
@@ -84,7 +85,11 @@ export function useWorkspacePersistence({
           // Server store not set up here: restore what this browser kept.
           const local = readLocal();
           Object.keys(local).forEach((id) => adopt({ enquiry_id: id, version: 0, itinerary: local[id].itinerary, proposal: local[id].proposal }));
-          toast("Console work is kept in this browser only until database migration db/150 is applied (other advisors won't see it).", "warn");
+          // Once per browser session, in the advisor's words (the cause, db/150 not
+          // applied yet, is for the team, not the advisor).
+          let told = false;
+          try { told = !!window.sessionStorage.getItem(LOCAL_NOTICE_KEY); window.sessionStorage.setItem(LOCAL_NOTICE_KEY, "1"); } catch { /* storage blocked */ }
+          if (!told) toast("Your itinerary work is saved on this computer for now, so other advisors can't see it yet.", "info");
         } else {
           console.warn("Couldn't restore saved Console work: " + errText(e));
         }
