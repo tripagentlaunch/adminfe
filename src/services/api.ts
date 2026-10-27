@@ -1623,6 +1623,19 @@ function hotelListingV2(payload, signal?: AbortSignal) {
   return fastapiHotelCall("/hotels/listing", { method: "POST", body: payload, signal: signal });
 }
 
+// hotelListingStart(payload, signal?) — POST /hotels/listing/start: the first hotels of a
+// search in a few seconds ({hotels, docKey, token, totalCount, status, more: {token} | null}).
+// hotelListingMore({token, nextResultsKey?, countryCode?}) — POST /hotels/listing/more: the hotels
+// that finished since the cursor; call again with the returned nextResultsKey while status is
+// "InProgress". Same hotel shape as hotelListingV2.
+function hotelListingStart(payload, signal?: AbortSignal) {
+  return fastapiHotelCall("/hotels/listing/start", { method: "POST", body: payload, signal: signal });
+}
+
+function hotelListingMore(payload, signal?: AbortSignal) {
+  return fastapiHotelCall("/hotels/listing/more", { method: "POST", body: payload, signal: signal });
+}
+
 function hotelDetailsV2(payload) {
   return fastapiHotelCall("/hotels/details", { method: "POST", body: payload });
 }
@@ -2578,6 +2591,8 @@ export {
   acceptAdvisorInvite,
   hotelAutosuggestV2,
   hotelListingV2,
+  hotelListingStart,
+  hotelListingMore,
   hotelDetailsV2,
   hotelPriceCheckV2,
   hotelRecommendations,

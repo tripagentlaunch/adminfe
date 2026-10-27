@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
-import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingV2, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
+import { hotelProperty, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
@@ -685,7 +685,19 @@ export function HotelDesk(props: any) {
   // Replaced on every run(); anything finishing for a handle that is no longer
   // current (cancelled, superseded, unmounted) is ignored.
   const searchRef = useRef<any>(null);
-  useEffect(() => () => { if (searchRef.current) searchRef.current.cancel(); }, []);
+  // The rest of the city keeps loading behind the first hotels (TripSure's async listing).
+  // `moreRef` is the loop that is running; `moreInfo` is what the header says about it.
+  const moreRef = useRef<{ stop: () => void } | null>(null);
+  const [moreInfo, setMoreInfo] = useState<{ loaded: number; expected?: number; failed?: boolean } | null>(null);
+  function stopMore() {
+    if (moreRef.current) moreRef.current.stop();
+    moreRef.current = null;
+    setMoreInfo(null);
+  }
+  useEffect(() => () => {
+    if (searchRef.current) searchRef.current.cancel();
+    if (moreRef.current) moreRef.current.stop();
+  }, []);
   // Hotel shop controls (HTL filters + sort), client-side over hotel-search offers.
   const [view, setView] = useState({ sort: "best", stars: "any", refundable: false, board: "all" });
   function setV(k: string, v: any) {
@@ -752,7 +764,7 @@ export function HotelDesk(props: any) {
         fetchFromCache: false,
       };
 
-      return hotelListingV2(listingPayload, signal).then((listRes: any) => {
+      return hotelListingStart(listingPayload, signal).then((listRes: any) => {
         const ctx = {
           international: countryCode !== "IN",
           nights: nights,
@@ -761,9 +773,55 @@ export function HotelDesk(props: any) {
           token: listRes.token,
         };
         const offers = (listRes.hotels || []).map((h: any) => mapTripSureHotel(h, ctx));
-        return { offers: offers, count: listRes.totalCount != null ? listRes.totalCount : offers.length };
+        const more = listRes.more && listRes.more.token ? { token: listRes.more.token, countryCode: countryCode, ctx: ctx } : null;
+        return { offers: offers, count: listRes.totalCount != null ? listRes.totalCount : offers.length, more: more };
       });
     });
+  }
+
+  // The first hotels are on screen; fetch the rest of the city behind them. Each page of
+  // results brings its own docKey/token (details and price check need the pair that came
+  // with the hotel), a hotel seen twice keeps the later copy, and the loop ends when
+  // TripSure says the search is no longer in progress (or after 15 polls, as its own site does).
+  function loadMoreHotels(first: any) {
+    stopMore();
+    const more = first.more;
+    const ctl = new AbortController();
+    let stopped = false;
+    let timer: any = null;
+    const handle = { stop: () => { stopped = true; if (timer) clearTimeout(timer); ctl.abort(); } };
+    moreRef.current = handle;
+    const byId = new Map<string, any>();
+    first.offers.forEach((o: any) => byId.set(o.id, o));
+    let key: string | undefined;
+    let polls = 0;
+    setMoreInfo({ loaded: byId.size });
+    const finish = (failed?: boolean) => {
+      if (moreRef.current === handle) moreRef.current = null;
+      setMoreInfo(failed ? { loaded: byId.size, failed: true } : null);
+    };
+    const tick = () => {
+      if (stopped) return;
+      polls += 1;
+      hotelListingMore({ token: more.token, nextResultsKey: key, countryCode: more.countryCode }, ctl.signal)
+        .then((pg: any) => {
+          if (stopped) return;
+          const ctx = { ...more.ctx, docKey: pg.docKey || more.ctx.docKey, token: pg.token || more.ctx.token };
+          (pg.hotels || []).forEach((h: any) => byId.set(h.hotelKey, mapTripSureHotel(h, ctx)));
+          if (pg.nextResultsKey) key = pg.nextResultsKey;
+          const all = Array.from(byId.values());
+          setRes((prev: any) => (prev ? { ...prev, offers: all, count: all.length } : prev));
+          const expected = pg.expectedHotelCount != null ? Number(pg.expectedHotelCount) : undefined;
+          if (pg.status !== "InProgress" || polls >= 15) { finish(); return; }
+          setMoreInfo({ loaded: all.length, expected: expected });
+          timer = setTimeout(tick, 1500);
+        })
+        .catch((e: any) => {
+          if (stopped || (e && e.aborted)) return;
+          finish(true);
+        });
+    };
+    tick();
   }
 
   function cancelSearch() {
@@ -771,12 +829,14 @@ export function HotelDesk(props: any) {
     if (!s) return;
     searchRef.current = null; // its late rejection is then ignored
     s.cancel();
+    stopMore();
     setLoading(false);
     setErr(null);
   }
 
   function run() {
     if (searchRef.current) searchRef.current.cancel();
+    stopMore();
     setErr(null);
     setLoading(true);
     setRes(null);
@@ -794,6 +854,7 @@ export function HotelDesk(props: any) {
           setRes(r);
           setLoading(false);
           toast((r.count || (r.offers || []).length) + " hotel offers loaded", "success");
+          if (r.more) loadMoreHotels(r);
         })
         .catch((e: any) => {
           if (searchRef.current !== search) return;
@@ -850,6 +911,7 @@ export function HotelDesk(props: any) {
   // underneath a form that's still sitting there taking up room.
   const showResults = loading || res != null;
   function backToSearch() {
+    stopMore();
     setRes(null);
     setErr(null);
   }
@@ -932,7 +994,7 @@ export function HotelDesk(props: any) {
         ) : (
           <>
             <button className="taw-btn taw-btn--sm" onClick={cancelSearch}>Cancel</button>
-            <span style={{ fontSize: 12, color: "var(--taupe)" }}>Searching hotels in {form.city || "your city"} — large cities can take 20–45s.</span>
+            <span style={{ fontSize: 12, color: "var(--taupe)" }}>Searching hotels in {form.city || "your city"} — the first hotels appear in a few seconds.</span>
           </>
         )}
         {res ? (
@@ -941,6 +1003,13 @@ export function HotelDesk(props: any) {
               {form.city} · {fmtDate(form.checkIn)} – {fmtDate(form.checkOut)}
             </span>
           </div>
+        ) : null}
+        {moreInfo ? (
+          <span role="status" style={{ fontSize: 12, color: moreInfo.failed ? "var(--danger, #B03434)" : "var(--taupe)" }}>
+            {moreInfo.failed
+              ? "Couldn't load the rest of the hotels. Showing " + moreInfo.loaded + "."
+              : "Loading more hotels… " + moreInfo.loaded + " so far"}
+          </span>
         ) : null}
       </div>
       {err ? (
