@@ -118,29 +118,23 @@ const STOPS_OPTIONS = [
   { key: "multi", label: "Multiple connections" },
 ];
 
-const DEFAULT_AIRPORT_SUGGESTIONS = [
-  { country: "India", country_code: "IN", city: "New Delhi", airport_name: "Indira Gandhi International Airport", airport_code: "DEL", location: { lat: 28.5665, lon: 77.1031 }, popularity_score: 100, aliases: ["delhi"] },
-  { country: "India", country_code: "IN", city: "Mumbai", airport_name: "Chhatrapati Shivaji Maharaj International Airport", airport_code: "BOM", location: { lat: 19.0896, lon: 72.8656 }, popularity_score: 98, aliases: ["mumbai", "bombay"] },
-  { country: "India", country_code: "IN", city: "Bengaluru", airport_name: "Kempegowda International Airport", airport_code: "BLR", location: { lat: 13.1986, lon: 77.7066 }, popularity_score: 95, aliases: ["bangalore", "bengaluru"] },
-  { country: "India", country_code: "IN", city: "Hyderabad", airport_name: "Rajiv Gandhi International Airport", airport_code: "HYD", location: { lat: 17.2403, lon: 78.4294 }, popularity_score: 90, aliases: ["hyderabad"] },
-  { country: "India", country_code: "IN", city: "Chennai", airport_name: "Chennai International Airport", airport_code: "MAA", location: { lat: 12.9941, lon: 80.1709 }, popularity_score: 88, aliases: ["chennai", "madras"] },
-  { country: "India", country_code: "IN", city: "Goa", airport_name: "Goa International Airport", airport_code: "GOI", location: { lat: 15.3808, lon: 73.8314 }, popularity_score: 85, aliases: ["goa", "dabolim"] },
-];
-
-// airportSuggestions(query) — AutosuggestInput's fetchSuggestions for both
-// From/To fields. Live TripSure results with a built-in-directory fallback
-// live in lib/airportSuggest.ts (shared with the order page's "Add flight
-// itinerary" modal). Empty query (showDefaultsOnFocus's on-focus/on-clear
-// call) never reaches the network — see DEFAULT_AIRPORT_SUGGESTIONS above.
+// airportSuggestions(query) — AutosuggestInput's fetchSuggestions for both From/To fields, the
+// same one the New Booking flight search uses (lib/airportSuggest.ts): live TripSure airports with
+// the built-in directory as fallback. Nothing is listed until the advisor types (no fixed "popular"
+// cities), and what is listed is what matches what was typed.
 function airportSuggestions(query: string) {
-  if (!query) return Promise.resolve(DEFAULT_AIRPORT_SUGGESTIONS);
   return airportAutosuggest(query, 8);
 }
 
+// The same row as New Booking: plane icon, airport name with its code, then "City — Country".
 function renderAirportSuggestion(a: any) {
   return (
-    <span>
-      {a.city} — {a.airport_name} <span className="taw-muted">({a.airport_code})</span>
+    <span className="ow-sug">
+      <span className="ow-sug-ic"><Icon name="flight" size={16} /></span>
+      <span className="ow-sug-t">
+        <b>{a.airport_name || a.city} <span className="ow-sug-code">({a.airport_code})</span></b>
+        <small>{[a.city, a.country].filter(Boolean).join(" — ")}</small>
+      </span>
     </span>
   );
 }
@@ -860,7 +854,7 @@ export function FlightDesk(props: any) {
               fetchSuggestions={airportSuggestions}
               renderSuggestion={renderAirportSuggestion}
               getKey={(a: any) => a.airport_code}
-              showDefaultsOnFocus
+              floating
               placeholder="DEL"
             />
           </Field>
@@ -878,7 +872,7 @@ export function FlightDesk(props: any) {
               fetchSuggestions={airportSuggestions}
               renderSuggestion={renderAirportSuggestion}
               getKey={(a: any) => a.airport_code}
-              showDefaultsOnFocus
+              floating
               placeholder="e.g. LHR"
             />
           </Field>
