@@ -32,7 +32,7 @@
  *      there is none.
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getDestinationPhoto, inr } from "../../services/api";
+import { getDestinationPhoto, hotelPhoto, inr } from "../../services/api";
 import "../../styles/proposal-preview.css";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
@@ -208,6 +208,7 @@ function RecommendedFlightRow({ f }: { f: any }) {
         <div style={{ textAlign: "right" }}>
           <div className="pv-recflight-time">{f.arrivalTime || ""}</div>
           {f.arrCity ? <div className="pv-recflight-city">{f.arrCity}</div> : null}
+          {f.arrivalDate && f.arrivalDate !== "Same day" ? <div className="pv-recflight-city">Arrives {f.arrivalDate}</div> : null}
         </div>
       </div>
     </div>
@@ -230,8 +231,81 @@ function PendingFlightRow({ f }: { f: any }) {
   );
 }
 
+// What the stay is really like: a photo strip and the specifics that take
+// effort to find (what the rate includes, check-in window, cancellation,
+// must-read rules, nearby). From adminbe's /hotels/facts; nothing invented.
+function StayDetails({ facts }: { facts: any }) {
+  const [big, setBig] = useState<string | null>(null);
+  if (!facts) return null;
+  const room = facts.room || {};
+  const photos: string[] = [...(room.images || []), ...(facts.images || [])].filter((u, i, a) => a.indexOf(u) === i).slice(0, 10);
+  const lines: [string, string][] = [];
+  if ((room.inclusions || []).length) lines.push(["Included", room.inclusions.join(" · ")]);
+  const roomBits = [room.view, room.bed, room.size].filter(Boolean).join(" · ");
+  if (roomBits) lines.push(["Room", roomBits]);
+  if (facts.checkIn || facts.checkOut)
+    lines.push(["Check-in / out", [facts.checkIn ? facts.checkIn + (facts.checkInUntil ? " – " + facts.checkInUntil : "") : null, facts.checkOut].filter(Boolean).join(" / ")]);
+  if ((room.cancellation || []).length) lines.push(["Cancellation", room.cancellation[0]]);
+  if ((facts.highlights || []).length) lines.push(["Highlights", facts.highlights.slice(0, 6).join(" · ")]);
+  if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 3).join(" · ")]);
+  if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 4).join(" · ")]);
+  if (facts.guestRating && facts.guestRating.rating) lines.push(["Guest rating", facts.guestRating.rating + (facts.guestRating.count ? " (" + facts.guestRating.count + " reviews)" : "")]);
+  return (
+    <div className="pv-staydetails">
+      {photos.length > 1 ? (
+        <div className="pv-staygallery" aria-label="More photos">
+          {photos.map((u) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={u} src={u} alt="" onClick={() => setBig(u)} onError={hideBrokenImage} />
+          ))}
+        </div>
+      ) : null}
+      {lines.length ? (
+        <dl className="pv-stayfacts">
+          {lines.map(([k, v]) => (
+            <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+          ))}
+        </dl>
+      ) : null}
+      {big ? (
+        <div className="pv-lightbox" role="dialog" aria-label="Photo" onClick={() => setBig(null)}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={big} alt="" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// The stay's photos, one at a time with previous / next — the chosen hotel's
+// gallery from /hotels/facts (or its single listing photo).
+function PhotoCarousel({ images, className }: { images: string[]; className: string }) {
+  const [i, setI] = useState(0);
+  if (!images.length) return null;
+  const at = Math.min(i, images.length - 1);
+  return (
+    <div className="pv-carousel">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img className={className} src={images[at]} alt="" onError={hideBrokenImage} />
+      {images.length > 1 ? (
+        <>
+          <button type="button" className="pv-carousel-btn is-prev" aria-label="Previous photo" onClick={() => setI((at - 1 + images.length) % images.length)}>‹</button>
+          <button type="button" className="pv-carousel-btn is-next" aria-label="Next photo" onClick={() => setI((at + 1) % images.length)}>›</button>
+          <span className="pv-carousel-count">{at + 1} / {images.length}</span>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function stayImages(st: any): string[] {
+  const list = [st.image, ...((st.facts && st.facts.images) || []), ...((st.facts && st.facts.room && st.facts.room.images) || [])].filter(Boolean);
+  return list.filter((u: string, k: number) => list.indexOf(u) === k).slice(0, 12);
+}
+
 function RecommendedStayRow({ st }: { st: any }) {
   return (
+    <>
     <div className="pv-recstay">
       <div className="pv-recstay-body">
         <div className="pv-recflight-head">
@@ -247,11 +321,10 @@ function RecommendedStayRow({ st }: { st: any }) {
           {st.priceIsEstimate ? <EstimateBadge /> : null}
         </div>
       </div>
-      {st.image ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img className="pv-recstay-photo" src={st.image} alt="" />
-      ) : null}
+      <PhotoCarousel images={stayImages(st)} className="pv-recstay-photo" />
     </div>
+    <StayDetails facts={st.facts} />
+    </>
   );
 }
 
@@ -282,10 +355,7 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
   const chosen = (
     <div className="pv-recstay-stacked">
       <div className="pv-recstay-stacked-media">
-        {st.image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img className="pv-recstay-stacked-photo" src={st.image} alt="" onError={hideBrokenImage} />
-        ) : null}
+        <PhotoCarousel images={stayImages(st)} className="pv-recstay-stacked-photo" />
         <div className="pv-recstay-chip-overlay">
           <span className="pv-chip pv-chip--choice">
             <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -306,6 +376,7 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
           {inr(st.price)}
           {st.priceIsEstimate ? <EstimateBadge /> : null}
         </div>
+        <StayDetails facts={st.facts} />
       </div>
     </div>
   );
@@ -376,31 +447,25 @@ export function ProposalPreviewPage({
   const visibleTabs: Tab[] = hasVisa ? [...TABS] : TABS.filter((t) => t !== "Decisions");
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
-  // usePlacesPhotos — fetch real Google Places photos for each stay
-  // that doesn't already have an image, using the backend's existing
-  // /api/places/lookup endpoint (customerbe.onrender.com).
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "https://customerbe.onrender.com";
+  // A Google Places photo for each stay without one — through our own adminbe
+  // (GET /hotels/photo), not by calling customerbe from the browser (which also
+  // fell back to the PROD customerbe when its env var was unset).
   const [stayPhotos, setStayPhotos] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!data.stays?.length) return;
     data.stays.forEach(async (st: any) => {
-      if (st.image || stayPhotos[st.name]) return;
+      if (st.image || (st.facts && st.facts.images && st.facts.images.length) || stayPhotos[st.name]) return;
       try {
-        const city = data.cities?.[0] || data.destination || "";
-        const res = await fetch(
-          `${API_BASE}/api/places/lookup?name=${encodeURIComponent(st.name)}&city=${encodeURIComponent(city)}`
-        );
-        const json = await res.json();
-        if (json.found && json.photo_url) {
-          setStayPhotos((prev) => ({ ...prev, [st.name]: json.photo_url }));
-        }
+        const city = st.city || data.cities?.[0] || data.destination || "";
+        const json: any = await hotelPhoto(st.name, city);
+        if (json && json.url) setStayPhotos((prev) => ({ ...prev, [st.name]: json.url }));
       } catch {}
     });
   }, [data.stays]);
 
   const enrichedStays = data.stays?.map((st: any) => ({
     ...st,
-    image: st.image || stayPhotos[st.name] || null,
+    image: st.image || (st.facts && st.facts.images && st.facts.images[0]) || stayPhotos[st.name] || null,
   }));
   const enrichedData = { ...data, stays: enrichedStays };
 
@@ -468,7 +533,7 @@ export function ProposalPreviewPage({
               <div className="pv-subtitle">
                 {data.dateRange}
                 {data.nights ? ` · ${data.nights} night${data.nights === 1 ? "" : "s"}` : ""}
-                {data.pax ? ` · ${data.pax} traveller${data.pax === 1 ? "" : "s"}` : ""}
+                {data.paxLabel ? ` · ${data.paxLabel}` : data.pax ? ` · ${data.pax} traveller${data.pax === 1 ? "" : "s"}` : ""}
               </div>
               {data.cities?.length ? (
                 <p className="pv-summary">
@@ -510,9 +575,9 @@ export function ProposalPreviewPage({
                       </span>
                     </div>
                     <div className="pv-defrow">
-                      <span className="pv-deflabel">Traveller</span>
+                      <span className="pv-deflabel">Travellers</span>
                       <span className="pv-defvalue">
-                        {data.pax || 1}
+                        {data.paxLabel || data.pax || 1}
                         {data.flights?.[0]?.cabin ? ` · ${data.flights[0].cabin} cabin` : ""}
                       </span>
                     </div>
@@ -548,7 +613,10 @@ export function ProposalPreviewPage({
                     </>
                   ) : null}
 
-                  {data.costRange && data.costRange.lines.length ? (
+                  {/* One "What it costs" for the customer: the priced quote (costLines,
+                      with markup and taxes) when there is one; the as-chosen supplier
+                      prices only until the quote has been priced. */}
+                  {data.costRange && data.costRange.lines.length && !data.costLines?.length ? (
                     <>
                       <h2 className="pv-section-title">What it costs</h2>
                       <div className="pv-costtable">
@@ -594,6 +662,16 @@ export function ProposalPreviewPage({
                           <span>{inr(data.grandTotal)}</span>
                         </div>
                       </div>
+                      {data.costRange && (data.costRange.unpriced.length || data.costRange.budgetCap) ? (
+                        <div className="pv-costrange-note">
+                          {data.costRange.budgetCap
+                            ? data.costRange.withinBudget
+                              ? `Within the ${inr(data.costRange.budgetCap)} budget.`
+                              : `Above the ${inr(data.costRange.budgetCap)} budget — swap to a lower option or confirm the budget with the traveller.`
+                            : ""}
+                          {data.costRange.unpriced.length ? ` Not yet priced, so left out: ${data.costRange.unpriced.join(", ")}.` : ""}
+                        </div>
+                      ) : null}
                     </>
                   ) : null}
 
@@ -635,9 +713,13 @@ export function ProposalPreviewPage({
                   <div className="pv-days">
                     {(data.calendarBlocks || []).map((b: any, i: number) => (
                       <div className="pv-day" key={i}>
-                        <div className="pv-day-num">{i + 1}</div>
+                        {/* Calendar day numbers: "1", "2–4" (a stay's nights), "5". */}
+                        <div className="pv-day-num">{b.span > 1 ? `${b.startIdx + 1}–${b.startIdx + b.span}` : b.startIdx + 1}</div>
                         <div>
-                          <div className="pv-day-head">{b.isHome ? "Home" : b.label}</div>
+                          <div className="pv-day-head">
+                            {(b.span > 1 ? `Days ${b.startIdx + 1}–${b.startIdx + b.span}` : `Day ${b.startIdx + 1}`) + " · "}
+                            {b.label}
+                          </div>
                           {b.sub ? <div className="pv-day-body">{b.sub}</div> : null}
                           {data.calendarCaptions?.[b.startIdx] ? <div className="pv-day-body">{data.calendarCaptions[b.startIdx]}</div> : null}
                         </div>

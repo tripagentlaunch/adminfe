@@ -200,3 +200,9 @@
 }
 .acct-item:hover { background: var(--bone); }
 .acct-sep { height: 1px; background: var(--line); margin: 4px; }
+
+/* Sidebar sections (ShellChrome NAV_SECTIONS) */
+.ta-shell-section { display: flex; flex-direction: column; gap: inherit; }
+.ta-shell-section-label { font-family: var(--eyebrow, var(--sans)); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); padding: 12px 8px 4px; }
+.ta-shell-section:first-child .ta-shell-section-label { padding-top: 2px; }
+.ta-shell-section-rule { height: 1px; background: var(--line); margin: 8px 6px; }

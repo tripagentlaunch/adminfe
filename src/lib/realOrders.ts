@@ -2,7 +2,7 @@
  * Adapters: booking_* rows (GET /booking-orders, /booking-orders/{id}) ->
  * the Order shape the Orders workspace UI renders.
  * ===========================================================================*/
-import type { Flight, Hotel, Itinerary, Order, OrderStatus, PaymentStatus } from "./orderTypes";
+import type { Flight, Fulfilment, Hotel, Itinerary, Order, OrderStatus, PaymentStatus, Traveller } from "./orderTypes";
 
 /** An order as the Orders workspace renders it (what summaryToOrder/detailToOrder return). */
 export type RealOrder = Order;
@@ -42,6 +42,15 @@ function travelDates(start?: string | null, end?: string | null) {
 
 const STATUS: Record<string, OrderStatus> = { pending: "Pending", confirmed: "Confirmed", cancelled: "Cancelled" };
 
+// "Paid" only when recorded payments cover the whole order; the view's own
+// payment_status label is used when it has no paid_total to go on.
+function paymentStatusOf(s: any): PaymentStatus {
+  const total = Number(s.total_amount) || 0;
+  if (s.paid_total != null && total > 0) return Number(s.paid_total) >= total - 0.5 ? "Paid" : "Pending";
+  const label = String(s.payment_status || "").toLowerCase();
+  return label === "paid" ? "Paid" : label === "refunded" ? "Refunded" : "Pending";
+}
+
 /** One row of v_booking_order_summary -> list entry (itineraries filled in on open). */
 export function summaryToOrder(s: any): Order {
   return {
@@ -52,9 +61,9 @@ export function summaryToOrder(s: any): Order {
     email: s.customer_email || "",
     destination: s.destination || "—",
     travelDates: travelDates(s.travel_start, s.travel_end),
-    travellers: [], // real passengers arrive with Update Itinerary (not built yet)
+    travellers: [], // filled in by detailToOrder when the order is opened
     amount: Number(s.total_amount) || 0,
-    paymentStatus: (s.payment_status as PaymentStatus) || "Pending",
+    paymentStatus: paymentStatusOf(s),
     status: STATUS[s.status] || "Pending",
     tone: LIVE_TONE,
     itineraries: [{ id: "pending", label: s.first_label || "Itinerary 1", title: "", dates: "", flights: [], hotel: null, visa: null }],
@@ -79,6 +88,29 @@ function flightToUi(f: any, cabinFallback: string): Flight {
       seat: f.seat_text || "Not selected yet",
       terminal: f.terminal_text || "Not provided",
     },
+    pnr: f.pnr || null,
+  };
+}
+
+function travellerToUi(t: any): Traveller {
+  return {
+    id: t.id,
+    name: t.full_name || [t.first_name, t.last_name].filter(Boolean).join(" "),
+    relation: t.relation || (t.is_lead ? "Lead" : ""),
+    age: t.age ?? null,
+    title: t.title || undefined,
+    firstName: t.first_name || undefined,
+    lastName: t.last_name || undefined,
+    gender: t.gender || undefined,
+    paxType: t.pax_type || "adult",
+    dateOfBirth: t.date_of_birth || null,
+    isLead: !!t.is_lead,
+    email: t.email || null,
+    phone: t.phone || null,
+    nationality: t.nationality || null,
+    passportLast4: t.passport_last4 || null,
+    passportExpiry: t.passport_expiry || null,
+    hasPan: !!t.has_pan,
   };
 }
 
@@ -104,6 +136,8 @@ function hotelToUi(h: any): Hotel {
     lock: h.tripsure_partner_ref_id
       ? { partnerRef: h.tripsure_partner_ref_id, total: h.locked_total != null ? Number(h.locked_total) : null, at: h.locked_at || null, guest: h.guest_name || null }
       : null,
+    confirmationNumber: h.confirmation_number || null,
+    bookingStatus: h.booking_status || null,
   };
 }
 
@@ -134,10 +168,14 @@ export function detailToOrder(d: any): Order {
     .map((it: any) => it.search_pax)
     .filter(Boolean)
     .reduce((m: number, p: any) => Math.max(m, (p.adults || 0) + (p.children || 0) + (p.infants || 0)), 0);
+  const f = d.fulfilment as Fulfilment | undefined;
   return {
     ...base,
     itineraries: itineraries.length ? itineraries : base.itineraries,
-    travellers: (d.travellers || []).map((t: any) => ({ name: t.full_name, relation: t.relation || (t.is_lead ? "Lead" : ""), age: t.age ?? 0 })),
+    travellers: (d.travellers || []).map(travellerToUi),
     paxCount: pax || undefined,
+    fulfilment: f,
+    paymentStatus: f ? (f.payment.due <= 0.5 && f.payment.total > 0 ? "Paid" : "Pending") : base.paymentStatus,
+    email: base.email || f?.customer.email || "",
   };
 }

@@ -1405,6 +1405,7 @@ background:var(--card);border:1px solid var(--line2);border-left:3px solid var(-
 .ta-toast.is-in{transform:translateY(0);opacity:1;}
 .ta-toast--success{border-left-color:var(--sage);}
 .ta-toast--error{border-left-color:var(--terracotta);}
+.ta-toast--warn{border-left-color:var(--warn);}
 .ta-toast--info{border-left-color:var(--info);}
 
 .taw-muted{color:var(--muted);}
@@ -1776,3 +1777,82 @@ transition:background .14s var(--ease),border-color .14s var(--ease),box-shadow 
 .tm-near-i b{display:block;font-size:13px;color:#1F2430;}
 .tm-near-i small{display:block;font-size:12px;color:var(--taupe);}
 .tm-near-more{margin-top:12px;background:#fff;border:1px solid var(--line,#E1E4E8);border-radius:9px;padding:8px 14px;font:600 13px var(--sans,Arial,sans-serif);cursor:pointer;}
+
+/* Flight desk: travellers mix, return toggle, results travellers line, Add panel (FlightDesk.tsx) */
+.taw-paxbtn{display:flex;align-items:center;gap:7px;width:100%;text-align:left;cursor:pointer;}
+.taw-paxbtn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.taw-addreturn{width:100%;text-align:left;color:var(--taupe);cursor:pointer;}
+.taw-pax{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:6px 10px;margin-bottom:11px;display:grid;}
+.taw-pax-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:6px 0;font-size:13px;}
+.taw-pax-row+.taw-pax-row{border-top:1px solid var(--line);}
+.taw-pax-row small{color:var(--taupe);font-size:11px;margin-left:4px;}
+.taw-stepper{display:inline-flex;align-items:center;gap:10px;}
+.taw-stepper button{width:26px;height:26px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;color:var(--ink);}
+.taw-stepper button:disabled{opacity:.35;cursor:default;}
+.taw-stepper b{min-width:14px;text-align:center;font-size:13px;}
+.taw-paxline{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--taupe);margin:-4px 0 9px;}
+.taw-paxline>span{display:inline-flex;align-items:center;gap:6px;}
+.taw-paxedit{border:1px solid var(--gold);background:var(--gold-bg);border-radius:10px;padding:8px 10px;margin-bottom:10px;}
+.taw-paxedit .taw-pax{margin-bottom:8px;}
+.taw-paxedit-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.taw-paxedit-foot small{color:var(--taupe);font-size:11.5px;}
+.taw-addpanel{border:1px solid var(--gold);background:var(--gold-bg);border-radius:10px;padding:9px 11px;margin:6px 0 4px;display:grid;gap:8px;font-size:12.5px;}
+.taw-addpanel-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
+.taw-addpanel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;}
+.taw-addpanel-grid label{display:grid;gap:4px;font-size:11px;color:var(--taupe);}
+.taw-addpanel-hint{color:var(--taupe);font-size:11px;}
+.taw-dx-policy{margin-top:8px;display:grid;gap:5px;font-size:11px;line-height:1.4;color:var(--taupe);}
+.taw-dx-policy b{color:var(--ink);font-weight:600;margin-right:4px;}
+.taw-modify{border:1px solid var(--gold);background:var(--gold-bg);border-radius:12px;padding:10px 12px 12px;margin-bottom:12px;}
+
+/* Resizable Console columns (components/ResizableColumns.tsx). The handles are
+   their own 10px grid tracks, so the column gap moves into them. */
+.taw-resizable{grid-template-columns:var(--cols);gap:0;}
+.taw-colhandle{position:relative;cursor:col-resize;display:flex;justify-content:center;align-items:stretch;touch-action:none;outline:none;}
+.taw-colhandle>span{width:2px;margin:24px 0;border-radius:2px;background:transparent;transition:background .15s;}
+.taw-colhandle:hover>span,.taw-colhandle:focus-visible>span,body.taw-resizing .taw-colhandle>span{background:var(--gold);}
+.taw-colhandle::after{content:"";position:absolute;top:50%;left:50%;width:4px;height:28px;margin:-14px 0 0 -2px;border-radius:3px;background:var(--line);}
+body.taw-resizing{cursor:col-resize;user-select:none;}
+@media(max-width:1100px){.taw-resizable{grid-template-columns:1fr;gap:8px;}.taw-colhandle{display:none;}}
+/* Hotel desk: rooms editor, location type tags, requests (HotelDesk.tsx) */
+.taw-room{display:grid;padding:4px 0 6px;}
+.taw-room+.taw-room{border-top:1px solid var(--line);}
+.taw-childages{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;padding:2px 0 4px;}
+.taw-childages label{display:grid;gap:3px;font-size:11px;color:var(--taupe);}
+.taw-nights{font-size:11.5px;color:var(--taupe);margin:-6px 0 8px;}
+.taw-locsug{display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%;}
+.taw-locsug>span{min-width:0;display:grid;}
+.taw-locsug small{color:var(--taupe);font-size:11px;}
+.taw-locsug em{font-style:normal;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--taupe);border:1px solid var(--line);border-radius:99px;padding:1px 7px;flex:none;}
+.taw-locsug em.is-hotel{color:var(--gold-ink,#785c12);border-color:var(--gold);background:var(--gold-bg);}
+.taw-reqchecks{display:flex;flex-wrap:wrap;gap:6px 14px;}
+/* Hotel desk: distance from a place (HotelDesk.tsx DistanceFrom) */
+.taw-distbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:6px 10px;margin-bottom:9px;font-size:12.5px;}
+.taw-distbar>svg{flex:none;color:var(--gold);}
+.taw-distbar small{color:var(--taupe);font-size:11px;}
+.taw-dist-err{flex-basis:100%;font-size:11.5px;color:var(--terracotta);}
+.taw-dist{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink);margin:2px 0 4px;}
+.taw-dist>svg{color:var(--gold);flex:none;}
+.taw-itin-dist{color:var(--taupe);}
+.taw-namesearch{display:flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:0 10px;margin-bottom:8px;}
+.taw-namesearch>svg{color:var(--taupe);flex:none;}
+.taw-namesearch input{flex:1;min-width:0;border:0;background:transparent;font:inherit;font-size:13px;padding:8px 0;outline:none;color:var(--ink);}
+
+/* Workbench second-row pages for the active group ((workbench)/layout.tsx) */
+.taw-subtabs{display:flex;flex-wrap:wrap;gap:6px;padding:8px 0 10px;}
+.taw-subtab{font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--taupe);text-decoration:none;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);transition:background .15s,color .15s,border-color .15s;}
+.taw-subtab:hover{color:var(--ink);border-color:var(--taupe);}
+.taw-subtab.is-active{color:var(--gold-ink,#785c12);border-color:var(--gold);background:var(--gold-bg);font-weight:600;}
+/* Itinerary Builder: swap options + stay facts (ItineraryView.tsx) */
+.taw-itin-alts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 2px;font-size:11.5px;}
+.taw-itin-alts-l{color:var(--taupe);text-transform:uppercase;letter-spacing:.08em;font-size:10px;}
+.taw-itin-alt{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 9px;background:var(--card);}
+.taw-itin-alt em{font-style:normal;color:var(--taupe);}
+.taw-itin-alt button{border:0;background:none;padding:2px;display:grid;place-items:center;cursor:pointer;color:var(--taupe);border-radius:50%;}
+.taw-itin-alt button:hover{color:var(--terracotta);background:var(--danger-bg);}
+.taw-itin-facts{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0 2px;}
+.taw-itin-fact{font-size:11px;border-radius:6px;padding:2px 7px;background:var(--success-bg);color:var(--success-ink);}
+.taw-itin-fact.is-muted{background:var(--bone,#F4EFE3);color:var(--taupe);}
+.taw-itin-facts .taw-itin-item-meta{flex-basis:100%;}
+.taw-itin-gap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--taupe);padding:8px 4px 10px 26px;border-bottom:1px dashed var(--line);margin-bottom:4px;}
+.taw-itin-gap svg{color:var(--gold);}

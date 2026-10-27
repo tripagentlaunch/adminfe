@@ -7,7 +7,8 @@
  * ===========================================================================*/
 import { useState } from "react";
 import { searchVisa, inr } from "../../services/api";
-import { toast, visaCartItem } from "../../lib/advisorHelpers";
+import { errText, toast, visaCartItem } from "../../lib/advisorHelpers";
+import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { Empty, Field, Spinner, SkeletonResults, Icon } from "../ui";
 import { buildMockVisaOffer } from "../../lib/mockVisaSearch";
 
@@ -106,11 +107,15 @@ export function VisaDesk(props: any) {
         setLoading(false);
         toast("Visa requirement resolved", "success");
       })
-      .catch(() => {
-        // Same fallback contract as FlightDesk/HotelDesk (see
-        // mockVisaSearch.ts's own docblock) — the real call above always
-        // runs first; only on failure does the UI fall back to mock data
-        // instead of a bare error banner.
+      .catch((e: any) => {
+        // The real error, unless demo data is explicitly enabled for an
+        // offline demo (lib/env.ts ALLOW_DEMO_DATA).
+        if (!ALLOW_DEMO_DATA) {
+          setErr("Visa search failed: " + errText(e));
+          setLoading(false);
+          toast("Visa search failed: " + errText(e), "error");
+          return;
+        }
         const mock = buildMockVisaOffer({ nationality: form.nationality.trim(), destination: form.destination.trim(), pax: Number(form.pax) || 1 });
         setRes(mock);
         setLoading(false);
@@ -168,7 +173,7 @@ export function VisaDesk(props: any) {
 
   const resultsView = (
     <div className="taw-results-view">
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 11 }}>
         {!loading ? (
           <button className="taw-icon-btn" onClick={backToSearch} aria-label="New search" title="New search">
             <Icon name="chevron" size={20} style={{ transform: "rotate(90deg)" }} />

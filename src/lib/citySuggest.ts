@@ -14,7 +14,9 @@ import { hotelAutosuggestV2 } from "../services/api";
 import { searchAirports } from "./airports";
 
 const LIVE_MIN_CHARS = 2;
-const LIVE_WAIT_MS = 2500;
+// 4s, not 2.5s: TripSure's live list is the only one with areas and single hotels
+// (search by hotel name), and it often needs a retry or two to answer.
+const LIVE_WAIT_MS = 4000;
 const LIVE_RETRY_MS = 60_000;
 let liveDownUntil = 0;
 

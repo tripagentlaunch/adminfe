@@ -268,8 +268,8 @@ export function QuoteBuilder(props: any) {
               disabled={!quoteId || props.creating}
               onClick={createOrder}
             >
-              {props.creating ? <Spinner /> : <Icon name="note" size={15} />}
-              {props.creating ? "Creating order…" : "Create order now"}
+              {props.creating ? <Spinner /> : <Icon name="flight" size={15} />}
+              {props.creating ? "Creating order…" : "Book this trip"}
             </button>
           </div>
         </div>

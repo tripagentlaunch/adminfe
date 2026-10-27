@@ -58,6 +58,7 @@
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
+import { ResizableColumns } from "../ResizableColumns";
 import { useRouter } from "next/navigation";
 import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
 
@@ -371,7 +372,7 @@ export function WorkbenchTab(props: any) {
   // this screen — kept in the destructure since the parent still passes
   // them and they'll be needed again once it returns.
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, onCreateOrder, member, selEnqId, onSelectEnquiry, onPickMember, onEnsureEnquiry } = props;
-  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, parkTaraItinerary } = useWorkbench();
+  const { itinerariesByEnquiry, generatingItinerary, initItinerary, addSearchItemToItinerary, addSwapOptionToItinerary, travellerProfile, travellerProfileLoading, analyzeConversation, travellers, convoTarget, setConvoTarget, summaryDismissedFor, backToSummaryFor, parkTaraItinerary } = useWorkbench();
 
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   // selectedEnquiryWithAsk (2026-09-10, bug fix) — `selectedEnquiry` above
@@ -498,7 +499,8 @@ export function WorkbenchTab(props: any) {
   );
 
   return (
-    <div className="taw-grid taw-cols-3">
+    // Drag the handles between columns to widen the Itinerary Builder or Search (saved per browser).
+    <ResizableColumns storageKey="taw.console.columns.v1" defaults={[3, 4, 3]} className="taw-grid taw-cols-3">
       {profileColumn}
 
       <Card
@@ -556,8 +558,9 @@ export function WorkbenchTab(props: any) {
         tripDates={tripDatesFor(itineraryData, selectedEnquiryWithAsk.ask)}
         advisorId={advisorId}
         onAdd={(item: any) => selEnqId && addSearchItemToItinerary(selEnqId, item, selectedEnquiryWithAsk)}
+        onAddSwap={(item: any) => selEnqId && addSwapOptionToItinerary(selEnqId, item)}
       />
-    </div>
+    </ResizableColumns>
   );
 }
 

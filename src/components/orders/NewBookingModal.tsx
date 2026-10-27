@@ -12,8 +12,19 @@ import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
+import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
-type Customer = { member_id: string | null; name: string; email: string };
+type Customer = { member_id: string | null; name: string; email: string; phone?: string; enquiry_id?: string | null };
+
+/** Opening New Booking from an enquiry (Console / Pipeline): who, and the trip they asked for. */
+export type BookingPreset = {
+  customer: Customer;
+  from?: string; fromCity?: string; to?: string; toCity?: string;
+  date?: string; returnDate?: string;
+  adults?: number; children?: number; infants?: number;
+  /** What the customer asked for in the Console (extra bag / seat / meal); shown while choosing extras. */
+  requests?: FlightRequests;
+};
 type Step = "customer" | "search" | "results" | "seats" | "flightDone" | "hotel";
 
 const CABINS = [
@@ -61,21 +72,22 @@ function fmtDay(ts?: string) {
   });
 }
 
-export function NewBookingModal({ onClose, onCreated, addToOrder }: {
+export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   onClose: () => void;
   onCreated: (orderId: string) => void;
   addToOrder?: { dbId: string; customerName: string; email: string };
+  preset?: BookingPreset;
 }) {
-  const [step, setStep] = useState<Step>(addToOrder ? "search" : "customer");
+  const [step, setStep] = useState<Step>(addToOrder || preset ? "search" : "customer");
   const [customer, setCustomer] = useState<Customer | null>(
-    addToOrder ? { member_id: null, name: addToOrder.customerName, email: addToOrder.email } : null
+    addToOrder ? { member_id: null, name: addToOrder.customerName, email: addToOrder.email } : preset ? preset.customer : null
   );
 
   // ── Step 1: customer ──────────────────────────────────────────────────────
   const [custQuery, setCustQuery] = useState("");
   const [custHits, setCustHits] = useState<any[]>([]);
   const [custBusy, setCustBusy] = useState(false);
-  const [manual, setManual] = useState({ name: "", email: "" });
+  const [manual, setManual] = useState({ name: "", email: "", phone: "" });
 
   useEffect(() => {
     const q = custQuery.trim();
@@ -93,14 +105,20 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
   // ── Step 2: search ────────────────────────────────────────────────────────
   const [form, setForm] = useState({
-    from: "", to: "", fromCity: "", toCity: "",
-    date: todayISO(), returnDate: "", adults: 1, cabin: "economy",
+    from: preset?.from || "", to: preset?.to || "", fromCity: preset?.fromCity || "", toCity: preset?.toCity || "",
+    date: preset?.date && preset.date >= todayISO() ? preset.date : todayISO(),
+    returnDate: preset?.returnDate || "",
+    adults: Math.min(9, Math.max(1, preset?.adults || 1)),
+    children: Math.min(8, Math.max(0, preset?.children || 0)),
+    infants: Math.min(4, Math.max(0, preset?.infants || 0)),
+    cabin: "economy",
   });
+  const paxTotal = form.adults + form.children + form.infants;
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
   // One way vs round trip. A round trip is ONE search whose offers come back tagged
   // ONWARD / RETURN: the advisor picks a fare on each side and both are locked
   // together as a single itinerary (see goToSeats).
-  const [tripType, setTripType] = useState<"oneway" | "round">("oneway");
+  const [tripType, setTripType] = useState<"oneway" | "round">(preset?.returnDate ? "round" : "oneway");
   const [searching, setSearching] = useState(false);
   const [allOffers, setAllOffers] = useState<any[] | null>(null);
   // Whether the results on screen came from a round-trip search (the form can't change
@@ -162,7 +180,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
       originCode: form.from, destCode: form.to,
-      date: form.date, returnDate: round ? form.returnDate : undefined, pax: form.adults, cabin: form.cabin,
+      date: form.date, returnDate: round ? form.returnDate : undefined,
+      pax: form.adults, children: form.children, infants: form.infants, cabin: form.cabin,
     })
       .then((r: any) => {
         if (seq !== searchSeq.current) return;
@@ -293,12 +312,15 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
     let created: { itineraryId: string; tripsureId: string } | null = null;
     try {
       const r: any = await bookingCreateFlightItinerary({
-        customer: { member_id: customer.member_id, name: customer.name, email: customer.email || null },
+        customer: {
+          member_id: customer.member_id, name: customer.name, email: customer.email || null,
+          phone: customer.phone || null, enquiry_id: customer.enquiry_id || null,
+        },
         order_id: addToOrder ? addToOrder.dbId : null,
         offer: onward.offer,
         snapshot: onward.snapshot,
         ...(back ? { return_offer: back.offer, return_snapshot: back.snapshot } : {}),
-        adults: form.adults, children: 0, infants: 0,
+        adults: form.adults, children: form.children, infants: form.infants,
         cabin_class: form.cabin.toUpperCase(),
         origin_city: form.fromCity || null,
         destination_city: form.toCity || null,
@@ -448,7 +470,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 key={m.id}
                 type="button"
                 className="ow-pick"
-                onClick={() => { setCustomer({ member_id: m.id, name: m.name, email: m.email || "" }); setStep("search"); }}
+                onClick={() => { setCustomer({ member_id: m.id, name: m.name, email: m.email || "", phone: m.phone || "" }); setStep("search"); }}
               >
                 <span className="ow-av">{String(m.name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("")}</span>
                 <span className="who">{m.name}<small>{m.email || m.phone || ""}</small></span>
@@ -462,12 +484,19 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
               <Field label="Email" htmlFor="nb-email">
                 <input className="taw-input" type="email" value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
               </Field>
+              <Field label="Mobile" htmlFor="nb-phone">
+                <input className="taw-input" inputMode="tel" placeholder="98xxxxxxxx" value={manual.phone} onChange={(e) => setManual({ ...manual, phone: e.target.value })} />
+              </Field>
             </div>
+            <div className="ow-sub" style={{ whiteSpace: "normal" }}>Tickets and vouchers go to this email and mobile.</div>
             <button
               type="button"
               className="taw-btn taw-btn--primary"
-              disabled={!manual.name.trim()}
-              onClick={() => { setCustomer({ member_id: null, name: manual.name.trim(), email: manual.email.trim() }); setStep("search"); }}
+              disabled={!manual.name.trim() || !manual.email.includes("@") || manual.phone.replace(/\D/g, "").length < 10}
+              onClick={() => {
+                setCustomer({ member_id: null, name: manual.name.trim(), email: manual.email.trim(), phone: manual.phone.replace(/\D/g, "") });
+                setStep("search");
+              }}
             >
               Continue with this customer
             </button>
@@ -535,7 +564,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 <span className="ow-pill-l">Travellers &amp; Cabin</span>
                 <button type="button" className="ow-pillbtn" aria-expanded={panel === "trav"} onClick={() => setPanel(panel === "trav" ? null : "trav")}>
                   <Icon name="people" size={14} />
-                  <span>{form.adults} Adult{form.adults === 1 ? "" : "s"} · {cabinLabel}</span>
+                  <span>{paxTotal} Traveller{paxTotal === 1 ? "" : "s"} · {cabinLabel}</span>
                 </button>
               </div>
 
@@ -560,14 +589,27 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
 
             {panel === "trav" ? (
               <div className="ow-gpanel">
-                <div className="ow-gstep">
-                  <span>Adults</span>
-                  <div className="ow-step">
-                    <button type="button" disabled={form.adults <= 1} aria-label="Fewer adults" onClick={() => set("adults", form.adults - 1)}><Icon name="minus" size={13} /></button>
-                    <b>{form.adults}</b>
-                    <button type="button" disabled={form.adults >= 9} aria-label="More adults" onClick={() => set("adults", form.adults + 1)}><Icon name="plus" size={13} /></button>
-                  </div>
-                </div>
+                {([
+                  { k: "adults", label: "Adults", hint: "12+ yrs", min: 1 },
+                  { k: "children", label: "Children", hint: "2-11 yrs", min: 0 },
+                  { k: "infants", label: "Infants", hint: "under 2, on lap", min: 0 },
+                ] as const).map((x) => {
+                  const v = form[x.k];
+                  // Airlines cap a booking at 9 seated passengers; each infant needs an adult lap.
+                  const canAdd = x.k === "infants" ? form.infants < form.adults : form.adults + form.children < 9;
+                  return (
+                    <div className="ow-gstep" key={x.k}>
+                      <span>{x.label} <small className="ow-sub">{x.hint}</small></span>
+                      <div className="ow-step">
+                        <button type="button" disabled={v <= x.min || (x.k === "adults" && form.infants >= form.adults)} aria-label={`Fewer ${x.label.toLowerCase()}`}
+                          onClick={() => set(x.k, v - 1)}><Icon name="minus" size={13} /></button>
+                        <b>{v}</b>
+                        <button type="button" disabled={!canAdd} aria-label={`More ${x.label.toLowerCase()}`}
+                          onClick={() => set(x.k, v + 1)}><Icon name="plus" size={13} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
                 <div className="ow-gstep">
                   <span>Cabin</span>
                   <div className="ow-cabins">
@@ -580,7 +622,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
               </div>
             ) : null}
 
-            <div className="ow-sub" style={{ whiteSpace: "normal" }}>One-way, live Tripsure search.</div>
+            <div className="ow-sub" style={{ whiteSpace: "normal" }}>Live Tripsure fares for the whole group. Passenger names are added on the order before ticketing.</div>
             <button type="button" className="taw-btn taw-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => { setErr(null); setLock(null); setHotelBack("search"); setStep("hotel"); }}>
               <Icon name="hotel" size={13} /> Hotel only (no flight)
             </button>
@@ -780,7 +822,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
         {step === "flightDone" && lock ? (
           <>
             <div className="taw-banner taw-banner--info">
-              Flight itinerary created and the fare is locked. Add a hotel to this itinerary, or finish.
+              Fare locked and saved to the order. Add a hotel to this itinerary, or finish — then add the travellers, record the payment and issue the ticket from the order&apos;s Booking progress. The fare lock is short-lived, so ticket soon.
             </div>
             <div className="ow-modal-foot">
               <button type="button" className="taw-btn" onClick={() => onCreated(lock.orderId)}>Finish</button>
@@ -849,9 +891,15 @@ export function NewBookingModal({ onClose, onCreated, addToOrder }: {
                 );
               })}
 
+              {preset?.requests && (requestChips(preset.requests).length || preset.requests.note) ? (
+                <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
+                  The customer asked for: {[...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ")}.
+                  {" "}Meals are arranged with the airline after ticketing.
+                </div>
+              ) : null}
               <div className="ow-info">
                 <Icon name="shield" size={15} />
-                <span>Seat and baggage preferences are saved with the booking. Actual assignment happens at ticketing.</span>
+                <span>Seat and baggage choices are priced by the airline and sent with the passengers when the ticket is issued.</span>
               </div>
 
               {noneAtAll ? (

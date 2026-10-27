@@ -1,13 +1,12 @@
 "use client";
-/* Order detail (mock data): header, itinerary tabs, Flights / Hotels / Visa
-   sub-tabs, trip summary side card and traveller list. Buttons are placeholders. */
+/* Order detail (real booking_* data): header, booking progress checklist
+   (travellers -> payment -> ticket / confirm), itinerary tabs, Flights /
+   Hotels / Visa sub-tabs, trip summary side card and traveller list. */
 import { useState } from "react";
 import { Icon } from "../ui";
-import { toast } from "../../lib/advisorHelpers";
 import { fmtINR, type Flight, type Hotel, type Itinerary, type Order, type Visa } from "../../lib/orderTypes";
 import { statusClass } from "./orderUi";
-
-const soon = (what: string) => toast(what + " — placeholder (mock data, not wired yet)", "info");
+import { OrderFulfilment } from "./OrderFulfilment";
 
 function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
   const [open, setOpen] = useState(false);
@@ -15,7 +14,7 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
     <div className="ow-seg">
       <div className="ow-seg-top">
         <span><Icon name="calendar" size={13} /> {f.dateLabel}</span>
-        <span>{f.airline} · {f.flightNo}</span>
+        <span>{f.airline} · {f.flightNo}{f.pnr ? <> · PNR <b>{f.pnr}</b></> : null}</span>
       </div>
       <div className="ow-route">
         <div className="ow-city"><div className="code">{f.from}</div><div className="time">{f.dep}</div><div className="nm">{f.fromCity}</div></div>
@@ -68,15 +67,23 @@ function HotelTab({ h }: { h: Hotel | null }) {
           <div className="ow-tags">{h.amenities.map((a) => <span key={a} className="ow-amen">{a}</span>)}</div>
         </div>
       </div>
-      {h.lock ? (
+      {h.bookingStatus === "confirmed" ? (
+        <div className="ow-lock">
+          <b>Confirmed with the hotel</b>
+          {h.confirmationNumber ? <div>Confirmation {h.confirmationNumber}</div> : null}
+          {h.lock?.guest ? <div>Guest {h.lock.guest}</div> : null}
+        </div>
+      ) : h.lock ? (
         <div className="ow-lock">
           <b>Room locked with Tripsure</b>
           <div>Reference {h.lock.partnerRef}{h.lock.guest ? " · Guest " + h.lock.guest : ""}</div>
           {h.lock.total != null ? <div>Locked amount {fmtINR(h.lock.total)}</div> : null}
-          <div className="ow-sub" style={{ whiteSpace: "normal" }}>Not booked — nothing is paid.</div>
+          <div className="ow-sub" style={{ whiteSpace: "normal" }}>Not booked yet — confirm it from Booking progress once the order is paid.</div>
         </div>
       ) : (
-        <div className="ow-sub" style={{ whiteSpace: "normal", margin: "8px 0" }}>Room not locked yet (no guest details).</div>
+        <div className="ow-sub" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          Room not locked yet (no guest details). Add it again with guest details (Add flight or hotel → Hotel only) to lock it before booking.
+        </div>
       )}
       <div className="ow-sum">
         <div><div className="k">Check-in</div><div className="v">{h.checkIn}</div></div>
@@ -118,14 +125,14 @@ function VisaTab({ v }: { v: Visa | null }) {
   );
 }
 
-export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?: () => void }) {
+export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; onAddFlight?: () => void; onChanged?: () => void }) {
   const [itinId, setItinId] = useState(order.itineraries[0].id);
   const first = order.itineraries[0];
   // A hotel-only itinerary has nothing under Flights, so open on Hotels.
   const [sub, setSub] = useState<"flights" | "hotels" | "visa">(first.flights.length === 0 && first.hotel ? "hotels" : "flights");
   const it = order.itineraries.find((i) => i.id === itinId) || order.itineraries[0];
-  // Live orders have no passengers until Update Itinerary is built; fall back to
-  // the searched passenger count so per-traveller totals still add up.
+  // Before travellers are entered, fall back to the searched passenger count so
+  // per-traveller totals still add up.
   const n = order.travellers.length || order.paxCount || 0;
   const lead = order.travellers[0];
 
@@ -137,7 +144,6 @@ export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?
             <span><span className="num">Order #{order.number} ·</span> {order.id}</span>
             <span className={statusClass(order.status)}>{order.status}</span>
           </div>
-          <button type="button" className="taw-btn" onClick={() => soon("View Invoice")}><Icon name="note" size={15} /> View Invoice</button>
         </div>
         <div className="ow-facts">
           <div className="ow-fact"><div className="k">Customer</div><div className="v">{order.customerName}<small>{order.email}</small></div></div>
@@ -146,6 +152,8 @@ export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?
           <div className="ow-fact"><div className="k">Total amount</div><div className="v">{fmtINR(order.amount)}<small><span className={statusClass(order.paymentStatus)}>{order.paymentStatus}</span></small></div></div>
         </div>
       </div>
+
+      {order.fulfilment ? <OrderFulfilment order={order} onChanged={onChanged || (() => undefined)} /> : null}
 
       {order.itineraries.length > 1 ? (
         <div className="ow-itins" role="tablist" aria-label="Itineraries">
@@ -167,7 +175,7 @@ export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?
         <div>
           {sub === "flights" ? <FlightsTab it={it} travellers={n} /> : null}
           {sub === "flights" && onAddFlight ? (
-            <button type="button" className="taw-btn taw-btn--block" style={{ marginTop: 8 }} onClick={onAddFlight}><Icon name="plus" size={15} /> Add another flight itinerary</button>
+            <button type="button" className="taw-btn taw-btn--block" style={{ marginTop: 8 }} onClick={onAddFlight}><Icon name="plus" size={15} /> Add flight or hotel</button>
           ) : null}
           {sub === "hotels" ? <HotelTab h={it.hotel} /> : null}
           {sub === "visa" ? <VisaTab v={it.visa} /> : null}
@@ -184,23 +192,24 @@ export function OrderDetail({ order, onAddFlight }: { order: Order; onAddFlight?
                 <b>Fare locked with Tripsure</b>
                 <div>Itinerary {it.tripsure.itineraryId}</div>
                 {it.tripsure.totalFare != null ? <div>Fare {fmtINR(it.tripsure.totalFare)}{it.tripsure.priceChanged ? " (price changed since search)" : ""}</div> : null}
-                <div className="ow-sub" style={{ whiteSpace: "normal" }}>Fare lock is short-lived. Passengers and ticketing are not built yet — nothing is paid or issued.</div>
+                <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                  The fare lock is short-lived: add travellers, record payment and issue the ticket from Booking progress.
+                </div>
               </div>
             ) : null}
-            <div className="ow-actions">
-              <button type="button" className="taw-btn taw-btn--primary taw-btn--block" onClick={() => soon("Download Itinerary")}><Icon name="download" size={15} /> Download Itinerary</button>
-              <button type="button" className="taw-btn taw-btn--block" onClick={() => soon("Share")}><Icon name="arrowUR" size={15} /> Share</button>
-            </div>
           </div>
           <div className="ow-card">
             <h4>Traveller Information</h4>
             {order.travellers.length === 0 ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>No passengers added yet.</div> : null}
             <ul className="ow-trav">
               {order.travellers.map((t) => (
-                <li key={t.name}>
+                <li key={t.id || t.name}>
                   <span className="ow-av">{t.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}</span>
-                  <span className="who">{t.name}<small>{t.relation}</small></span>
-                  <span className="ow-sub">{t.age} yrs</span>
+                  <span className="who">
+                    {t.title ? t.title + " " : ""}{t.name}
+                    <small>{[t.isLead ? "Lead" : t.relation, t.paxType && t.paxType !== "adult" ? t.paxType : "", t.passportLast4 ? "Passport •••• " + t.passportLast4 : ""].filter(Boolean).join(" · ")}</small>
+                  </span>
+                  {t.age != null ? <span className="ow-sub">{t.age} yrs</span> : null}
                 </li>
               ))}
             </ul>

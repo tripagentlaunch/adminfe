@@ -20,7 +20,7 @@ import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
 import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
 import { HotelLocationMap } from "../panels/HotelLocationMap";
 
-type Customer = { member_id: string | null; name: string; email: string };
+type Customer = { member_id: string | null; name: string; email: string; phone?: string };
 type Sub = "search" | "results" | "rooms" | "guest" | "locked";
 
 
@@ -119,7 +119,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; label: string } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
-    mobile: "", email: customer.email || "", pan: "",
+    mobile: customer.phone || "", email: customer.email || "", pan: "",
   });
   const [lockInfo, setLockInfo] = useState<any | null>(null);
   const setG = (k: string, v: string) => setGuest((g) => ({ ...g, [k]: v }));
@@ -588,7 +588,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     return (
       <>
         <div className="taw-banner taw-banner--info">
-          {added.label} is recorded on the order. Enter the lead guest to lock the room with Tripsure — nothing is booked or charged yet.
+          {added.label} is recorded on the order. Enter the lead guest to lock the room with Tripsure now — a room can only be locked from this search, and only a locked room can be confirmed later. Nothing is booked or charged yet.
         </div>
         <div className="ow-grid2">
           <Field label="Title" htmlFor="nbg-title">
@@ -608,7 +608,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         </Field>
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>PAN is sent to Tripsure only and is never stored.</div>
         <div className="ow-modal-foot">
-          <button type="button" className="taw-btn" onClick={() => onAdded(added.orderId)} disabled={adding}>Skip for now</button>
+          <button type="button" className="taw-btn" onClick={() => onAdded(added.orderId)} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
+            Skip (lock later by searching again)
+          </button>
           <button type="button" className="taw-btn taw-btn--primary" onClick={lockRoom} disabled={adding || !ready}>
             {adding ? "Locking room…" : "Lock room"}
           </button>
@@ -625,7 +627,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           <div>Reference {lockInfo.partner_reference_id}</div>
           <div>Locked amount {inr(Number(lockInfo.locked_total))}</div>
           <div className="ow-sub" style={{ whiteSpace: "normal" }}>
-            The lock is short-lived. The room is not booked and nothing is paid — booking is a separate step.
+            The lock is short-lived. Next, on the order: add the travellers, record the payment and confirm the hotel from Booking progress.
           </div>
         </div>
         <div className="ow-modal-foot">

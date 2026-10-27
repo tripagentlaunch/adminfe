@@ -40,6 +40,28 @@ import "../styles/app-shell.css";
 // every route under it shares WorkbenchContext, so splitting it further
 // would be a much larger refactor than this rename.
 
+// Sidebar, grouped by what an advisor is doing (2026-10-27). Work = the daily
+// flow (enquiry -> itinerary -> proposal -> booking); Tools = occasional
+// helpers; Admin = access requests etc., one click from anywhere (admins only).
+const NAV_SECTIONS: { label: string; adminOnly?: boolean; items: { key: string; href: string; label: string; icon: string; hint: string }[] }[] = [
+  { label: "Work", items: [
+    { key: "console", href: "/console", label: "Enquiries", icon: "inbox", hint: "Customer requests, itineraries and proposals" },
+    { key: "workbench", href: "/orders", label: "Advisor Workbench", icon: "sliders", hint: "Bookings, servicing, approvals and visas" },
+  ] },
+  { label: "Tools", items: [
+    { key: "copilot", href: "/copilot", label: "Call Copilot", icon: "chat", hint: "Live help while on a call" },
+    { key: "broadcast", href: "/broadcast", label: "Supplier Broadcast", icon: "send", hint: "Ask suppliers for quotes" },
+    { key: "pulse", href: "/pulse", label: "Trending & Deals", icon: "trend", hint: "Offers to share with customers" },
+    { key: "journeys", href: "/journeys", label: "Journeys", icon: "compass", hint: "Automated customer touchpoints" },
+  ] },
+  { label: "Insights", items: [
+    { key: "analytics", href: "/analytics", label: "Analytics", icon: "radar", hint: "Platform and your own performance" },
+  ] },
+  { label: "Admin", adminOnly: true, items: [
+    { key: "admin", href: "/admin", label: "Admin", icon: "people", hint: "Approve access requests, manage advisors" },
+  ] },
+];
+
 export function ShellChrome({
   advisorId,
   role,
@@ -52,19 +74,13 @@ export function ShellChrome({
   children: React.ReactNode;
 }) {
   const pathname = usePathname() || "/";
-  const activeTop = pathname.startsWith("/console")
-    ? "console"
-    : pathname.startsWith("/broadcast")
-    ? "broadcast"
-    : pathname.startsWith("/journeys")
-      ? "journeys"
-      : pathname.startsWith("/pulse")
-        ? "pulse"
-        : pathname.startsWith("/copilot")
-          ? "copilot"
-          : pathname.startsWith("/analytics")
-            ? "analytics"
-            : "workbench";
+  const first = pathname.split("/")[1] || "";
+  const activeTop =
+    first === "console" ? "console"
+    : first === "admin" ? "admin"
+    : first === "analytics" || first === "advisor-analytics" ? "analytics"
+    : ["broadcast", "journeys", "pulse", "copilot"].includes(first) ? first
+    : "workbench";
 
   // Sidebar is a collapsed icon-only rail by default, and opens as an
   // OVERLAY (position:fixed, doesn't reflow page content — see
@@ -115,90 +131,27 @@ export function ShellChrome({
             </div>
           </div>
           <div className="ta-shell-tabs" role="tablist" aria-label="TripAgent sections" onClick={() => setPinned(false)}>
-            <Link
-              href="/console"
-              className={"ta-shell-tab" + (pathname.startsWith("/console") ? " is-active" : "")}
-              role="tab"
-              aria-selected={pathname.startsWith("/console")}
-              title="Enquiries"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="inbox" size={20} />
-                <span className="ta-shell-tab-label">Enquiries</span>
-              </span>
-            </Link>
-            <Link
-              href="/orders"
-              className={"ta-shell-tab" + (activeTop === "workbench" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "workbench"}
-              title="Advisor Workbench"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="sliders" size={20} />
-                <span className="ta-shell-tab-label">Advisor Workbench</span>
-              </span>
-            </Link>
-            <Link
-              href="/broadcast"
-              className={"ta-shell-tab" + (activeTop === "broadcast" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "broadcast"}
-              title="Supplier Broadcast"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="send" size={20} />
-                <span className="ta-shell-tab-label">Supplier Broadcast</span>
-              </span>
-            </Link>
-            <Link
-              href="/journeys"
-              className={"ta-shell-tab" + (activeTop === "journeys" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "journeys"}
-              title="Journeys"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="compass" size={20} />
-                <span className="ta-shell-tab-label">Journeys</span>
-              </span>
-            </Link>
-            <Link
-              href="/pulse"
-              className={"ta-shell-tab" + (activeTop === "pulse" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "pulse"}
-              title="Trending & Deals"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="trend" size={20} />
-                <span className="ta-shell-tab-label">Trending & Deals</span>
-              </span>
-            </Link>
-            <Link
-              href="/copilot"
-              className={"ta-shell-tab" + (activeTop === "copilot" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "copilot"}
-              title="Call Copilot"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="chat" size={20} />
-                <span className="ta-shell-tab-label">Call Copilot</span>
-              </span>
-            </Link>
-            <Link
-              href="/analytics"
-              className={"ta-shell-tab" + (activeTop === "analytics" ? " is-active" : "")}
-              role="tab"
-              aria-selected={activeTop === "analytics"}
-              title="Analytics"
-            >
-              <span className="ta-shell-tab-inner">
-                <Icon name="radar" size={20} />
-                <span className="ta-shell-tab-label">Analytics</span>
-              </span>
-            </Link>
+            {NAV_SECTIONS.filter((sec) => !sec.adminOnly || String(role).toLowerCase() === "admin").map((sec, si) => (
+              <div key={sec.label} className="ta-shell-section">
+                {/* Section name when the sidebar is open; a thin divider on the icon rail. */}
+                {expanded ? <div className="ta-shell-section-label">{sec.label}</div> : si > 0 ? <div className="ta-shell-section-rule" /> : null}
+                {sec.items.map((item) => (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    className={"ta-shell-tab" + (activeTop === item.key ? " is-active" : "")}
+                    role="tab"
+                    aria-selected={activeTop === item.key}
+                    title={item.label + " — " + item.hint}
+                  >
+                    <span className="ta-shell-tab-inner">
+                      <Icon name={item.icon} size={20} />
+                      <span className="ta-shell-tab-label">{item.label}</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            ))}
           </div>
           <div className="ta-shell-footer">
             <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />

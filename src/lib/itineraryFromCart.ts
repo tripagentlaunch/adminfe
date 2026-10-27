@@ -20,6 +20,9 @@
  * same tiering/collapsing/editing behavior in ItineraryView — not a
  * lesser stand-in for one.
  * ===========================================================================*/
+import { paxText, requestChips } from "./flightRequests";
+import { hotelRequestChips, occText } from "./hotelOccupancy";
+import { AIRPORTS } from "./airports";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -166,11 +169,36 @@ function monthIndex(name: string): number {
 
 // tripDatesFor — the dates the Search panel should pre-fill: the itinerary's own real dates when it
 // has them (the backend parsed them; or Tara's plan, or Search-first), else whatever the enquiry's
-// own date text parses to. null when neither is known. `endIso` is null for a single known date.
-export function tripDatesFor(itinerary: any, ask: any): { startIso: string; endIso: string | null } | null {
-  if (itinerary && itinerary.startIso) return { startIso: itinerary.startIso, endIso: itinerary.endIso || null };
-  const b = boundFromDateRange(ask && ask.dateRange, new Date().getFullYear());
-  return b && b.startIso ? { startIso: b.startIso, endIso: b.endIso || null } : null;
+// own date text parses to. `endIso` is null for a single known date; `startIso` is "" when no date is
+// known. Also carries what the itinerary already knows that an enquiry started from scratch doesn't:
+// the destination city (an airport code becomes its city) and the travellers (from the flight's
+// fare mix — children default to age 8, infants to 1, for the advisor to correct), so the Hotels
+// desk opens on Goa for 2 adults + 1 child instead of Dubai for 1 adult. null when nothing is known.
+export type TripContext = { startIso: string; endIso: string | null; city?: string; persons?: { age: number }[] };
+export function tripDatesFor(itinerary: any, ask: any): TripContext | null {
+  const out: TripContext = { startIso: "", endIso: null };
+  if (itinerary && itinerary.startIso) {
+    out.startIso = itinerary.startIso;
+    out.endIso = itinerary.endIso || null;
+  } else {
+    const b = boundFromDateRange(ask && ask.dateRange, new Date().getFullYear());
+    if (b && b.startIso) { out.startIso = b.startIso; out.endIso = b.endIso || null; }
+  }
+  const dest = itinerary && itinerary.destination && itinerary.destination !== "New itinerary" ? String(itinerary.destination) : "";
+  if (dest) {
+    const airport = /^[A-Z]{3}$/.test(dest) ? AIRPORTS.find((a) => a.airport_code === dest) : null;
+    out.city = airport ? airport.city : dest;
+  }
+  const flight = itinerary && (itinerary.days || []).flatMap((d: any) => d.items || []).find((it: any) => it.type === "flight" && it.paxMix);
+  if (flight) {
+    const m = flight.paxMix;
+    out.persons = [
+      ...Array.from({ length: m.adults || 0 }, () => ({ age: 30 })),
+      ...Array.from({ length: m.children || 0 }, () => ({ age: 8 })),
+      ...Array.from({ length: m.infants || 0 }, () => ({ age: 1 })),
+    ];
+  }
+  return out.startIso || out.city || out.persons ? out : null;
 }
 
 // fmtDateRangeIso — the same "D – D Mon" shape as above (or "D Mon – D
@@ -210,9 +238,23 @@ function fmtSegDuration(min: number) {
 // the existing day objects it was resorting, which happened to be
 // harmless only because callers always also swap in a new top-level
 // array reference).
+// Day numbers follow the calendar from the first dated day (17 Nov = Day 1,
+// 21 Nov = Day 5 — the nights between are the hotel stay), not the position in
+// the list. Days without a real date are numbered after the dated ones.
+export function dayNumberOf(iso: string, startIso: string | null | undefined): number | null {
+  if (!startIso || !/^\d{4}-\d{2}-\d{2}$/.test(iso || "") || !/^\d{4}-\d{2}-\d{2}$/.test(startIso)) return null;
+  return Math.round((Date.parse(iso) - Date.parse(startIso)) / 86_400_000) + 1;
+}
+
 export function resortDays(days: any[]) {
   const sorted = days.slice().sort((a: any, b: any) => (a._iso || "").localeCompare(b._iso || ""));
-  return sorted.map((d: any, i: number) => ({ ...d, label: "Day " + (i + 1) }));
+  const first = sorted.map((d: any) => d._iso).find((x: any) => /^\d{4}-\d{2}-\d{2}$/.test(x || ""));
+  let fallback = 0;
+  return sorted.map((d: any) => {
+    const n = dayNumberOf(d._iso, first);
+    fallback = n != null ? n : fallback + 1;
+    return { ...d, label: "Day " + (n != null ? n : fallback) };
+  });
 }
 
 // Finds the day matching `iso` (by date, not by id) or creates+inserts one
@@ -252,7 +294,8 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
   let item: any;
 
   if (cartItem.type === "flight") {
-    iso = d.date || null;
+    // d.date: the offer's departure day (api.ts); _searchDate: the day it was searched for.
+    iso = d.date || cartItem._searchDate || null;
     route = (d.originCode || cartItem.originCode || "") + " → " + (d.destCode || cartItem.destCode || "");
     item = {
       id: cartItem._cid,
@@ -260,6 +303,16 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       time: d.depTime || null,
       duration: d.duration,
       title: cartItem._title,
+      // carrier/flightNo/arrTime/stops: what Swap (swapFlightAlternative) and
+      // the proposal read for a flight; alternatives are in the same shape.
+      carrier: cartItem.airlineName || cartItem.airline || null,
+      flightNo: cartItem.flightNo || null,
+      origin: d.originCode || cartItem.originCode || null,
+      dest: d.destCode || cartItem.destCode || null,
+      arrTime: d.arrTime || null,
+      stops: d.stops ?? 0,
+      baggageKg: d.baggageKg ?? null,
+      refundable: cartItem.refundable ?? null,
       status: "on_hold",
       price: cartItem.baseNet,
       // international (2026-09-04) — carried straight off the cart item
@@ -273,15 +326,19 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
         route: (seg.from || "") + " " + (seg.depTime || "") + " → " + (seg.to || "") + " " + (seg.arrTime || ""),
         duration: fmtSegDuration(seg.durationMin),
       })),
-      chips: [cartItem.refundable ? "Refundable" : "Non-refundable"],
-      meta: "Added from Search",
+      chips: [cartItem.refundable ? "Refundable" : "Non-refundable", ...requestChips(cartItem.requests)],
+      meta: cartItem.paxMix ? "Fare for " + paxText(cartItem.paxMix) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "") : "Added from Search",
+      // Carried into "Book this trip" (lib/bookingHandoff.ts): who the fare is for, and what was asked for.
+      paxMix: cartItem.paxMix || null,
+      requests: cartItem.requests || null,
       alternatives: cartItem.alternatives || [],
     };
   } else {
     // hotel — checkIn is stamped onto the item by HotelResults' Add button
     // (see HotelDesk.tsx), since hotel offers themselves don't carry a date.
     iso = cartItem.checkIn || null;
-    route = d.cityName || "";
+    const city = niceCity(d.cityName);
+    route = city;
     item = {
       id: cartItem._cid,
       type: "hotel",
@@ -291,13 +348,20 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       status: "on_hold",
       price: cartItem.baseNet,
       international: !!cartItem.international,
-      sub: [d.cityName, d.stars ? d.stars + "★" : null, d.board].filter(Boolean).join(" · "),
+      sub: [city, d.stars ? d.stars + "★" : null, d.board].filter(Boolean).join(" · "),
       roomType: d.roomType || undefined,
       detailRest: [d.nights ? d.nights + " nights" : null, d.nightlyFrom ? "from ₹" + Math.round(d.nightlyFrom).toLocaleString("en-IN") + "/night" : null]
         .filter(Boolean)
         .join(" · "),
-      chips: [cartItem.refundable ? "Refundable" : "Non-refundable"],
-      meta: "Added from Search",
+      chips: [cartItem.refundable ? "Refundable" : "Non-refundable", ...hotelRequestChips(cartItem.requests)],
+      meta: cartItem.occupancy
+        ? "For " + occText(cartItem.occupancy) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "")
+        : "Added from Search",
+      // Rooms/guests the rate was priced for, and the guest's requests (HotelDesk).
+      occupancy: cartItem.occupancy || null,
+      requests: cartItem.requests || null,
+      // "18 min by car · 7.2 km from Gateway Of India" — the hotel desk's "Distance from" place, if one was set.
+      distance: cartItem.distance || null,
       // hotelKey/image (2026-09-10) — carried straight off the cart item
       // (hotelCartItem already keeps them from the real TripSure offer),
       // same "round-trippable real field" posture as `international` above
@@ -313,6 +377,12 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       address: d.address,
       lat: d.lat,
       lng: d.lng,
+      stars: d.stars ?? null,
+      board: d.board || null,
+      city: city || null,
+      // The stay's specifics from POST /hotels/facts (photos, inclusions, check-in
+      // window, must-read rules, cancellation) — shown in the builder and proposal.
+      facts: cartItem.facts || null,
     };
   }
 
@@ -325,11 +395,116 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
 
   const { days, day } = findOrCreateDay(base.days, iso, route);
   const dayIdx = days.indexOf(day);
-  const updatedDay = { ...day, items: day.items.concat([item]) };
+  // The same hotel (or flight) added again on the same day replaces the one
+  // there — a new room or fare for the same stay, not a second booking.
+  const sameAt = day.items.findIndex((x: any) => isSameBooking(x, item));
+  const old = sameAt >= 0 ? day.items[sameAt] : null;
+  const updatedDay = { ...day, items: old ? day.items.map((x: any, i: number) => (i === sameAt ? { ...item, id: x.id } : x)) : day.items.concat([item]) };
   const nextDays = days.slice();
   nextDays[dayIdx] = updatedDay;
+  const oldPrice = old ? Number(old.price) || 0 : 0;
+  const oldHeld = old && old.status === "on_hold" ? oldPrice : 0;
 
-  return { ...base, days: nextDays, totals: { ...base.totals, grand: base.totals.grand + cartItem.baseNet, held: base.totals.held + cartItem.baseNet } };
+  return withTripSummary({
+    ...base,
+    days: nextDays,
+    totals: { ...base.totals, grand: base.totals.grand - oldPrice + cartItem.baseNet, held: base.totals.held - oldHeld + cartItem.baseNet },
+  });
+}
+
+// Same stay or same flight: a hotel by its hotel key, a flight by flight number and route.
+export function isSameBooking(a: any, b: any): boolean {
+  if (!a || !b || a.type !== b.type || a.status === "confirmed") return false;
+  if (a.type === "hotel") return !!a.hotelKey && a.hotelKey === b.hotelKey;
+  if (a.type === "flight") return !!a.flightNo && a.flightNo === b.flightNo && a.origin === b.origin && a.dest === b.dest;
+  return false;
+}
+
+// Whether adding this cart item would replace one already on its day.
+export function replacesExisting(data: any, cartItem: any): boolean {
+  if (!data || !cartItem || cartItem.type === "visa") return false;
+  const probe = addCartItemToItinerary({ ...data, days: [] }, cartItem);
+  const item = probe.days[0] && probe.days[0].items[0];
+  const iso = probe.days[0] && probe.days[0]._iso;
+  return !!item && (data.days || []).some((d: any) => d._iso === iso && (d.items || []).some((x: any) => isSameBooking(x, item)));
+}
+
+// A trip built from Search (blank itinerary) has no destination, dates, nights
+// or traveller count of its own — the proposal showed "New itinerary", empty
+// Dates and "0 nights · 0 adults". Fill whichever of those are still empty from
+// the items themselves; an AI-generated itinerary keeps its own values.
+export function withTripSummary(data: any): any {
+  const iso = (x: any) => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x);
+  // Fields this function filled before are recomputed on every change (a hotel
+  // added after the flight moves the destination to the stay's city); a value
+  // set by the AI draft or the advisor is never touched.
+  const auto: Record<string, boolean> = { ...(data._autoSummary || {}) };
+  const open = (k: string, empty: boolean) => auto[k] || empty;
+  const days: any[] = data.days || [];
+  const items = days.flatMap((d: any) => (d.items || []).map((it: any) => ({ ...it, _iso: d._iso })));
+  const hotels = items.filter((it: any) => it.type === "hotel");
+  const flights = items.filter((it: any) => it.type === "flight");
+  const dates = days.map((d: any) => d._iso).filter(iso).sort();
+  const hotelEnds = hotels.filter((h: any) => iso(h._iso)).map((h: any) => addDaysIso(h._iso, parseInt(String(h.duration || "1"), 10) || 1));
+  const out = { ...data };
+  const setAuto = (k: string, v: any) => { out[k] = v; auto[k] = true; };
+
+  const start = open("startIso", !data.startIso) ? dates[0] || null : data.startIso;
+  const end = open("endIso", !data.endIso) ? [...dates, ...hotelEnds].sort().pop() || null : data.endIso;
+  if (open("startIso", !data.startIso) && start) setAuto("startIso", start);
+  if (open("endIso", !data.endIso) && end && end !== start) setAuto("endIso", end);
+  if (open("dateRange", !data.dateRange) && start) setAuto("dateRange", end && end !== start ? fmtDateRangeIso(start, end) : fmtDayDate(start));
+  if (open("nights", !data.nights) && start && end) setAuto("nights", Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000)));
+  if (open("destination", !data.destination || data.destination === "New itinerary")) {
+    // The stay's real city; `sub` is only a fallback (after a swap it starts with "5-star").
+    const subCity = hotels.length ? String(hotels[0].sub || "").split(" · ")[0] : "";
+    const stayCity = hotels.length ? hotels[0].city || (/star|★/i.test(subCity) ? "" : subCity) : "";
+    // A flight's arrival is an airport code; the customer reads the city ("Goa", not "GOI").
+    const arrCode = flights.length ? String(days.find((d: any) => d.route)?.route || "").split("→").pop()?.trim() || "" : "";
+    const flightDest = (arrCode && AIRPORTS.find((a) => a.airport_code === arrCode)?.city) || arrCode;
+    // The flight's city names the trip ("Goa"); a stay's locality ("Arpora") only when there's no flight.
+    if (stayCity || flightDest) setAuto("destination", flightDest || niceCity(stayCity));
+  }
+  if (open("pax", !data.pax)) {
+    const f = flights.find((x: any) => x.paxMix);
+    const h = hotels.find((x: any) => x.occupancy);
+    if (f) setAuto("pax", f.paxMix.adults + f.paxMix.children + f.paxMix.infants);
+    else if (h) setAuto("pax", h.occupancy.reduce((n: number, r: any) => n + r.adults + r.childAges.length, 0));
+  }
+  // "2 adults, 1 child" — the party as the customer reads it (a bare count says "3 adults").
+  if (open("paxLabel", !data.paxLabel)) {
+    const f = flights.find((x: any) => x.paxMix);
+    const h = hotels.find((x: any) => x.occupancy);
+    if (f) setAuto("paxLabel", paxText(f.paxMix));
+    else if (h) setAuto("paxLabel", occGuestsText(h.occupancy));
+  }
+  out._autoSummary = auto;
+  return out;
+}
+
+// The party as text for any itinerary, including ones saved before paxLabel existed.
+export function tripPaxLabel(data: any): string | null {
+  if (!data) return null;
+  if (data.paxLabel) return data.paxLabel;
+  const items = (data.days || []).flatMap((d: any) => d.items || []);
+  const f = items.find((x: any) => x.type === "flight" && x.paxMix);
+  if (f) return paxText(f.paxMix);
+  const h = items.find((x: any) => x.type === "hotel" && x.occupancy);
+  return h ? occGuestsText(h.occupancy) : null;
+}
+
+function occGuestsText(rooms: any[]): string {
+  const adults = rooms.reduce((n: number, r: any) => n + (r.adults || 0), 0);
+  const children = rooms.reduce((n: number, r: any) => n + ((r.childAges || []).length), 0);
+  return paxText({ adults, children, infants: 0 });
+}
+
+// TripSure sends some localities in capitals ("ARPORA"): show them as "Arpora".
+export function niceCity(name: any): string {
+  const s = String(name || "").trim();
+  return s.length > 3 && s === s.toUpperCase() && /[A-Z]/.test(s)
+    ? s.toLowerCase().replace(/(^|[\s\-(])([a-z])/g, (_m, p1, c) => p1 + c.toUpperCase())
+    : s;
 }
 
 export function addDaysIso(iso: string, n: number) {
@@ -547,6 +722,8 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           lat: it.lat ?? null,
           lng: it.lng ?? null,
           detail: null,
+          facts: it.facts ?? null, // the facts belong to this hotel: they swap with it
+          images: (it.facts && it.facts.images) || [],
         };
         const roomType = alt.stars ? `${alt.stars}-star` : null;
         const { note: _staleNote, detailLine: _oldLine, ...rest } = it;
@@ -570,6 +747,8 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           lng: alt.lng ?? null,
           stars: alt.stars ?? null,
           board: alt.board ?? null,
+          // An alternative priced at add time brings its photos; full facts only if it had them.
+          facts: alt.facts ?? (alt.images && alt.images.length ? { images: alt.images } : null),
           roomType,
           sub: [roomType, alt.address, alt.board].filter(Boolean).join(" · "),
           alternatives: alts
@@ -603,6 +782,7 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           carrier: it.carrier, flightNo: it.flightNo, origin: origin || alt.origin, dest: dest || alt.dest,
           depTime: it.time ?? null, arrTime: it.arrTime ?? null, arrDayOffset: it.arrDayOffset ?? 0,
           stops: it.stops ?? 0, price: it.price, baggageKg: it.baggageKg ?? null, refundable: it.refundable ?? null,
+          segments: itemSegmentsToLegs(it.segments),
         };
         const rest = alts.map((a, i) => (i === altIndex ? demoted : a)).map((a) => {
           const gap = a.price - alt.price;
@@ -623,6 +803,11 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           baggageKg: alt.baggageKg ?? null,
           refundable: alt.refundable ?? null,
           sub: `${alt.origin} ${alt.depTime || ""} → ${alt.dest} ${alt.arrTime || ""} · ${stopsLabel(alt.stops ?? 0)}`,
+          // The legs belong to the flight: the old ones went down with it (an
+          // alternative without legs shows none rather than the previous flight's).
+          segments: legsToItemSegments(alt.segments),
+          origin: alt.origin || it.origin || null,
+          dest: alt.dest || it.dest || null,
           alternatives: rest,
         };
       }),
@@ -699,4 +884,86 @@ export function mergeRefreshedItinerary(baseline: any, current: any, refreshed: 
     out.totals = totals;
   }
   return out;
+}
+
+
+// ---- Flight legs in the two shapes they travel in ---------------------------
+// An offer's legs ({flightNo, from, to, depTime, arrTime, durationMin}) vs an
+// itinerary item's display rows ({flightNo, route: "DEL 08:30 → BOM 10:45", duration}).
+function legsToItemSegments(legs: any[] | undefined): any[] {
+  return (legs || []).map((g: any) =>
+    g && g.route
+      ? g
+      : {
+          flightNo: g.flightNo,
+          route: (g.from || "") + " " + (g.depTime || "") + " → " + (g.to || "") + " " + (g.arrTime || ""),
+          duration: fmtSegDuration(g.durationMin),
+        }
+  );
+}
+function itemSegmentsToLegs(rows: any[] | undefined): any[] {
+  return (rows || []).map((r: any) => {
+    const m = /^([A-Z]{3})\s+(\d{1,2}:\d{2})?\s*→\s*([A-Z]{3})\s+(\d{1,2}:\d{2})?/.exec(String(r.route || ""));
+    return m ? { flightNo: r.flightNo, from: m[1], depTime: m[2] || null, to: m[3], arrTime: m[4] || null, route: r.route, duration: r.duration } : r;
+  });
+}
+
+// ---- Advisor-chosen swap options ---------------------------------------------
+// "+ Swap option" on a Search result attaches it to the matching itinerary item
+// (flight: same route and day; hotel: same check-in day) instead of adding a new
+// item. Shapes match what swapFlightAlternative / swapHotelAlternative read.
+export const MAX_SWAP_OPTIONS = 4;
+
+function itemRoute(it: any): { origin: string | null; dest: string | null } {
+  if (it.origin && it.dest) return { origin: it.origin, dest: it.dest };
+  const leg = itemSegmentsToLegs(it.segments || [])[0] || {};
+  const last = itemSegmentsToLegs(it.segments || []).slice(-1)[0] || {};
+  const t = /([A-Z]{3})\s*→\s*([A-Z]{3})/.exec(String(it.title || "") + " " + String(it.sub || ""));
+  return { origin: leg.from || (t && t[1]) || null, dest: last.to || (t && t[2]) || null };
+}
+
+export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolean; message: string } {
+  if (!data || !Array.isArray(data.days)) return { data, ok: false, message: "Add a main flight or hotel first, then add swap options to it." };
+  const d = cartItem._detail || {};
+  const isFlight = cartItem.type === "flight";
+  const iso = isFlight ? d.date || cartItem._searchDate : cartItem.checkIn;
+  const day = data.days.find((x: any) => x._iso === iso);
+  const target = day && (day.items || []).find((it: any) => {
+    if (it.type !== cartItem.type) return false;
+    if (!isFlight) return true;
+    const r = itemRoute(it);
+    return (!r.origin || r.origin === d.originCode) && (!r.dest || r.dest === d.destCode);
+  });
+  const what = isFlight ? (d.originCode || "") + " → " + (d.destCode || "") : "this stay";
+  if (!target) {
+    return { data, ok: false, message: "No " + (isFlight ? "flight " + what : "hotel") + " on " + (iso ? fmtDayDate(iso) : "that day") + " in the itinerary yet — add the main one first, then its swap options." };
+  }
+  const alts: any[] = target.alternatives || [];
+  const alt = isFlight
+    ? {
+        carrier: cartItem.airlineName || cartItem.airline || "Flight", flightNo: cartItem.flightNo || "",
+        origin: d.originCode, dest: d.destCode, depTime: d.depTime || null, arrTime: d.arrTime || null, arrDayOffset: 0,
+        stops: d.stops ?? 0, price: cartItem.baseNet, baggageKg: d.baggageKg ?? null, refundable: cartItem.refundable ?? null,
+        segments: d.segments || [],
+        detail: [d.duration, stopsLabel(d.stops ?? 0)].filter(Boolean).join(" · "),
+      }
+    : {
+        hotelKey: cartItem.hotelKey, name: cartItem._title || cartItem.hotelName || "Hotel", image: d.image || null,
+        images: cartItem.images || [], price: cartItem.baseNet || 0, stars: d.stars ?? null, address: d.address || null,
+        board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
+        detail: [d.stars ? d.stars + "-star" : null, cartItem.roomTitle, d.board].filter(Boolean).join(" · "),
+      };
+  const same = (a: any) => (isFlight ? a.flightNo === alt.flightNo && a.depTime === alt.depTime : a.hotelKey && a.hotelKey === (alt as any).hotelKey);
+  if (same(target) || (isFlight ? target.flightNo === alt.flightNo && target.time === alt.depTime : target.hotelKey === (alt as any).hotelKey)) {
+    return { data, ok: false, message: "That's already the main choice." };
+  }
+  if (alts.some(same)) return { data, ok: false, message: "Already a swap option." };
+  if (alts.length >= MAX_SWAP_OPTIONS) return { data, ok: false, message: "This item already has " + MAX_SWAP_OPTIONS + " swap options — remove one first." };
+  const next = {
+    ...data,
+    days: data.days.map((x: any) =>
+      x.id !== day.id ? x : { ...x, items: x.items.map((it: any) => (it.id === target.id ? { ...it, alternatives: alts.concat([alt]) } : it)) }
+    ),
+  };
+  return { data: next, ok: true, message: "Added as a swap option for " + (isFlight ? what : target.title) + "." };
 }

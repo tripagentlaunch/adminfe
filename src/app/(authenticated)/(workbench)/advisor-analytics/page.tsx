@@ -13,11 +13,15 @@
  * instead of "/workbench/analytics" — see (workbench)/layout.tsx's TABS
  * `path` override on the "analytics" entry, which points here now.
  * ===========================================================================*/
-import { AnalyticsPanel } from "../../../../components/panels/AnalyticsPanel";
-import { useWorkbench } from "../../../../lib/workbenchContext";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
+// The per-advisor analytics moved into the sidebar's Analytics page
+// ("My performance" view); old links to /advisor-analytics land there.
 export default function AdvisorAnalyticsPage() {
-  const { advisorId, advisors, currentAdvisor } = useWorkbench();
-
-  return <AnalyticsPanel advisorId={advisorId} advisorRole={currentAdvisor ? currentAdvisor.role : null} advisors={advisors} />;
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/analytics?view=mine");
+  }, [router]);
+  return null;
 }

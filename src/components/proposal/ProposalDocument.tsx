@@ -84,7 +84,7 @@ function SectionTitle({ children, first }: { children: string; first?: boolean }
 function Hero({ data, heroImage }: { data: any; heroImage: string | null }) {
   const photo = data.coverPhoto && data.coverPhoto.url ? data.coverPhoto : null;
   const pax = data.pax || 0;
-  const subtitle = [data.dateRange, data.nights ? `${data.nights} night${data.nights === 1 ? "" : "s"}` : null, pax ? `${pax} traveller${pax === 1 ? "" : "s"}` : null]
+  const subtitle = [data.dateRange, data.nights ? `${data.nights} night${data.nights === 1 ? "" : "s"}` : null, data.paxLabel || (pax ? `${pax} traveller${pax === 1 ? "" : "s"}` : null)]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -186,6 +186,7 @@ function FlightRow({ f, heading }: { f: any; heading?: ReactNode }) {
           <View style={{ alignItems: "flex-end" }}>
             <Text style={{ fontFamily: "Proposal Serif", fontSize: 16 }}>{f.arrivalTime || ""}</Text>
             {f.arrCity ? <Text style={{ fontSize: 7.5, color: MUTED, marginTop: 2 }}>{f.arrCity}</Text> : null}
+            {f.arrivalDate && f.arrivalDate !== "Same day" ? <Text style={{ fontSize: 7, color: MUTED, marginTop: 1 }}>Arrives {f.arrivalDate}</Text> : null}
           </View>
         </View>
       </View>
@@ -304,7 +305,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       <SectionTitle first>The shape</SectionTitle>
       <View>
         <DefRow label="Dates" value={`${data.dateRange || ""}${data.nights ? ` · ${data.nights} nights` : ""}`} />
-        <DefRow label="Traveller" value={`${data.pax || 1}${data.flights?.[0]?.cabin ? ` · ${data.flights[0].cabin} cabin` : ""}`} />
+        <DefRow label="Travellers" value={`${data.paxLabel || data.pax || 1}${data.flights?.[0]?.cabin ? ` · ${data.flights[0].cabin} cabin` : ""}`} />
         {data.cities?.length ? <DefRow label="Route" value={data.cities.join(" → ")} /> : null}
       </View>
 
@@ -361,7 +362,7 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
         return (
           <View key={i} wrap={false} style={[s.panel, { marginBottom: 10, padding: 13 }]}>
             <Text style={s.eyebrow}>{b.span > 1 ? `Days ${b.startIdx + 1}–${b.startIdx + b.span}` : `Day ${b.startIdx + 1}`}</Text>
-            <Text style={[s.dayHead, { marginTop: 3, fontSize: 11 }]}>{[when, b.isHome ? "Home" : b.label.charAt(0) + b.label.slice(1).toLowerCase()].filter(Boolean).join(" · ")}</Text>
+            <Text style={[s.dayHead, { marginTop: 3, fontSize: 11 }]}>{[when, b.isHome ? b.label : b.label.charAt(0) + b.label.slice(1).toLowerCase()].filter(Boolean).join(" · ")}</Text>
             {b.sub ? <Text style={s.dayBody}>{b.sub}</Text> : null}
             {notes.map((n: string, k: number) => (
               <Text key={k} style={s.dayBody}>{`Flight · ${n}`}</Text>

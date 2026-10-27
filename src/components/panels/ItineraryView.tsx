@@ -50,7 +50,7 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary } from "../../lib/itineraryFromCart";
+import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -200,6 +200,9 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // so `data` is never undefined here in practice — the fallback below
   // is just a defensive guard, not a real code path.
   const data = itinerariesByEnquiry[enquiryId] || { destination: "", dateRange: "", cities: [], nights: 0, pax: 0, purpose: "", totals: { grand: 0, confirmed: 0, held: 0 }, visa: null, alerts: [], days: [] };
+  // Header facts filled in from the items themselves (flight date, stay nights,
+  // travellers) for any itinerary that doesn't carry its own — no typing needed.
+  const summary = withTripSummary(data);
   function setData(updater: (d: any) => any) {
     updateItineraryData(enquiryId, updater);
   }
@@ -378,7 +381,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // Flights tab would show just those days: open it on "All" (re-applied when another Tara plan is
   // loaded into this already-mounted view).
   const taraPlanId = data.taraPlan ? String(data.taraPlan.planId || "tara") : null;
-  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">(taraPlanId ? "all" : "flights");
+  // Every itinerary opens on "All": a hotel added from Search must show up without a tab switch.
+  const [category, setCategory] = useState<"all" | "flights" | "hotels" | "visa">("all");
   const [seenTaraPlanId, setSeenTaraPlanId] = useState(taraPlanId);
   if (taraPlanId !== seenTaraPlanId) {
     setSeenTaraPlanId(taraPlanId);
@@ -462,10 +466,15 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         <div className="taw-itin-summary-head">
           <div>
             <div className="taw-itin-summary-title">
-              {data.destination} · {data.dateRange}
+              {[summary.destination, summary.dateRange].filter(Boolean).join(" · ") || "New itinerary"}
             </div>
             <div className="taw-itin-summary-sub">
-              {data.cities.join(" · ")} · {data.nights} night{data.nights === 1 ? "" : "s"} · {data.pax} adult{data.pax === 1 ? "" : "s"} · {data.purpose}
+              {[
+                (summary.cities || []).join(" · "),
+                summary.nights ? summary.nights + " night" + (summary.nights === 1 ? "" : "s") : "",
+                summary.pax ? summary.pax + " traveller" + (summary.pax === 1 ? "" : "s") : "",
+                summary.purpose,
+              ].filter(Boolean).join(" · ")}
             </div>
           </div>
           {/* "Send to Proposal" (2026-09-03) — opens the Summary window
@@ -644,17 +653,39 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         // at the very start or end of the sorted list — the bound is
         // contiguous) never steals a number from the real sequence.
         let inBoundCounter = 0;
+        let prevIso: string | null = null;
+        // Hotel stays as date ranges, to name the nights between two planned days.
+        const stays = data.days.flatMap((d: any) =>
+          (d.items || []).filter((it: any) => it.type === "hotel" && /^\d{4}-\d{2}-\d{2}$/.test(d._iso || "")).map((it: any) => ({
+            from: d._iso, to: addDaysIso(d._iso, parseInt(String(it.duration || "1"), 10) || 1), name: it.title,
+          }))
+        );
         return visibleDays.map((day: any) => {
         const open = dayOpenFor(day);
         const attention = dayHasAttention(day);
         const inBound = dayInBound(day, data);
-        const dayNumber = inBound ? ++inBoundCounter : null;
+        // Calendar day number from the trip's first day (17 Nov = Day 1, 21 Nov = Day 5).
+        const calNumber = dayNumberOf(day._iso, summary.startIso);
+        const dayNumber = inBound ? (calNumber != null ? (inBoundCounter = calNumber) : ++inBoundCounter) : null;
+        // The days in between this one and the previous planned day.
+        let gapNote: string | null = null;
+        if (inBound && prevIso && calNumber != null) {
+          const prevNumber = dayNumberOf(prevIso, summary.startIso);
+          if (prevNumber != null && calNumber - prevNumber > 1) {
+            const firstGap = addDaysIso(prevIso, 1);
+            const stay = stays.find((st: any) => firstGap >= st.from && firstGap < st.to);
+            const range = calNumber - prevNumber === 2 ? "Day " + (prevNumber + 1) : "Days " + (prevNumber + 1) + "–" + (calNumber - 1);
+            gapNote = range + " · " + (stay ? "Staying at " + stay.name : "Nothing planned yet");
+          }
+        }
+        if (calNumber != null) prevIso = day._iso;
         const suggestedNumber = inBound ? dayNumber! : day._iso < (data.startIso || day._iso) ? 1 : totalInBoundCount + 1;
         function toggle() {
           setOpenDays((s) => ({ ...s, [day.id]: !open }));
         }
         return (
           <div className={cx("taw-itin-day", !inBound && "taw-itin-day--outbound")} key={day.id} ref={(el) => { dayRefs.current[day.id] = el; }}>
+            {gapNote ? <div className="taw-itin-gap"><Icon name="hotel" size={12} /> {gapNote}</div> : null}
             {/* role="button" div, not a real <button> (2026-09-03) —
                 the editable date (EditableText) below renders an
                 <input> when clicked, and nesting an input inside a
@@ -811,6 +842,29 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
+                          {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}
+                          {item.facts ? <StayFacts facts={item.facts} /> : null}
+                          {item.alternatives && item.alternatives.length ? (
+                            // Swap options picked when the item was added (shown in the proposal);
+                            // the advisor can drop any of them.
+                            <div className="taw-itin-alts">
+                              <span className="taw-itin-alts-l">Swap options</span>
+                              {item.alternatives.map((a: any, ai: number) => (
+                                <span key={ai} className="taw-itin-alt">
+                                  {item.type === "flight" ? [a.carrier, a.flightNo].filter(Boolean).join(" ") || "Flight" : a.name || "Hotel"}
+                                  {a.price ? <em>{inr(a.price)}</em> : null}
+                                  <button
+                                    type="button"
+                                    aria-label="Remove this swap option"
+                                    title="Remove this swap option"
+                                    onClick={() => updateItem(day.id, item.id, { alternatives: item.alternatives.filter((_: any, j: number) => j !== ai) })}
+                                  >
+                                    <Icon name="x" size={11} />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                           {item.note ? <div className="taw-itin-note">{item.note}</div> : null}
                           {/* Remove (2026-09-03, flow-testing hurdle) —
                               there was NO way to undo a wrongly-added
@@ -851,6 +905,27 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       </SleekScroll>
 
       {summaryOpen ? <ItinerarySummaryModal data={data} onClose={() => setSummaryOpen(false)} onContinue={sendToProposal} /> : null}
+    </div>
+  );
+}
+
+
+// The stay's specifics (POST /hotels/facts), compact: what the rate includes,
+// check-in window, cancellation, and how many more photos the proposal shows.
+function StayFacts({ facts }: { facts: any }) {
+  const room = facts.room || {};
+  const bits = [
+    ...(room.inclusions || []).slice(0, 3),
+    room.view,
+    room.bed,
+    facts.checkIn ? "Check-in " + facts.checkIn + (facts.checkInUntil ? " – " + facts.checkInUntil : "") : null,
+  ].filter(Boolean);
+  const photos = (facts.images || []).length + (room.images || []).length;
+  return (
+    <div className="taw-itin-facts">
+      {bits.map((b: string, i: number) => <span key={i} className="taw-itin-fact">{b}</span>)}
+      {photos > 1 ? <span className="taw-itin-fact is-muted">{photos} photos in the proposal</span> : null}
+      {room.cancellation && room.cancellation[0] ? <div className="taw-itin-item-meta">{room.cancellation[0]}</div> : null}
     </div>
   );
 }

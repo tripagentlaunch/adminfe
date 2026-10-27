@@ -26,3 +26,9 @@ export const IS_DEV = APP_ENV === "development";
 export const DEV_AUTOFILL_EMAIL = process.env.NEXT_PUBLIC_DEV_AUTOFILL_EMAIL || "";
 export const DEV_AUTOFILL_PASSWORD = process.env.NEXT_PUBLIC_DEV_AUTOFILL_PASSWORD || "";
 export const DEV_AUTOFILL_AVAILABLE = IS_DEV && !!DEV_AUTOFILL_EMAIL && !!DEV_AUTOFILL_PASSWORD;
+
+// Demo search data (mock flights / hotels / visas) when the live call fails.
+// OFF unless explicitly enabled for an offline demo: in a booking portal a
+// made-up fare that looks real is worse than an error, so by default the
+// Search desks show the real failure and nothing else.
+export const ALLOW_DEMO_DATA = process.env.NEXT_PUBLIC_ALLOW_DEMO_DATA === "1";

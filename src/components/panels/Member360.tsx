@@ -35,6 +35,7 @@ import { getDestinationPhoto } from "../../services/api";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { fmtDate } from "../../lib/advisorHelpers";
 import { buildTripFields, emptyLabel } from "../../lib/tripFields";
+import { tripPaxLabel } from "../../lib/itineraryFromCart";
 
 // 2026-09-02: was "Mr"/"Ms" — changed to a bare gender letter per direct
 // feedback. Keeping the lookup (rather than printing m.gender directly)
@@ -188,7 +189,12 @@ export function Member360(props: any) {
 
   // Service badge ("Hotel & Flight", "Flight", "Hotel") — derived from
   // which legs this enquiry actually asked for, not a stored field.
-  const serviceBadge = ask
+  // An advisor-created enquiry starts with an empty `ask` shell: no badge and no
+  // "AI Collected" until something was actually collected.
+  const askCollected = !!(ask && (
+    (ask.destinations && ask.destinations.length) || (ask.persons && ask.persons.length) || ask.dateRange || ask.from || ask.purpose || ask.groupType
+  ));
+  const serviceBadge = askCollected
     ? [ask.flight ? "Flight" : null, ask.hotel ? "Hotel" : null].filter(Boolean).reverse().join(" & ") || null
     : null;
 
@@ -198,7 +204,17 @@ export function Member360(props: any) {
     return field.state === "value" ? field.value : null;
   }
 
-  const tripFields = buildTripFields(ask);
+  // Empty trip fields fall back to what the itinerary already says (a trip
+  // built from Search: destination, travellers, origin, dates).
+  const itin = enquiry ? itinerariesByEnquiry[enquiry.id] : null;
+  const firstFlight = itin && (itin.days || []).flatMap((d: any) => d.items || []).find((it: any) => it.type === "flight");
+  const fromItinerary: Record<string, string | null> = {
+    travellers: tripPaxLabel(itin),
+    destination: (itin && itin.destination && itin.destination !== "New itinerary" ? itin.destination : null),
+    origin: (firstFlight && firstFlight.origin) || null,
+    dates: (itin && itin.dateRange) || null,
+  };
+  const tripFields = buildTripFields(ask).map((f: any) => (f.value || !fromItinerary[f.key] ? f : { ...f, value: fromItinerary[f.key] }));
 
   const heroPill: React.CSSProperties = {
     fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 999,
@@ -255,7 +271,7 @@ export function Member360(props: any) {
               {serviceBadge}
             </span>
           ) : null}
-          {ask ? <span className="taw-chip taw-chip--star">AI Collected</span> : null}
+          {askCollected ? <span className="taw-chip taw-chip--star">AI Collected</span> : null}
           {m.tier ? <span className="taw-chip taw-chip--tier">{m.tier}</span> : null}
         </div>
         <div style={{ fontSize: 12, color: onDark ? "rgba(255,255,255,0.85)" : "var(--muted)", marginTop: 1 }}>
