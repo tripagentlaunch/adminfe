@@ -279,7 +279,9 @@ export function ChatbotConversationPanel({ member }: any) {
   const [sendError, setSendError] = useState<string | null>(null);
   // Idempotency key for the message being composed: kept across retries of the
   // same text so a retry after a timeout can't send it to WhatsApp twice.
-  const pendingSendRef = useRef<{ code: string; text: string; id: string } | null>(null);
+  const pendingSendRef = useRef<{ code: string; text: string; id: string; channel: "whatsapp" | "web" } | null>(null);
+  // Which button was pressed, for its spinner.
+  const [sendingTo, setSendingTo] = useState<"whatsapp" | "web" | null>(null);
   const takenOver = mode !== "tara";
   // The newest message is the customer's and nobody has answered it yet: while Tara is
   // about to reply the advisor sees a countdown and can press "I'll reply".
@@ -299,6 +301,7 @@ export function ChatbotConversationPanel({ member }: any) {
     const m = messages[i];
     if ((m.role === "user" || m.role === "customer") && (m.channel === "web" || m.channel === "whatsapp")) { lastCustomerChannel = m.channel; break; }
   }
+  const defaultChannel: "whatsapp" | "web" = websiteOnly || lastCustomerChannel === "web" ? "web" : "whatsapp";
   const replyGoesTo = websiteOnly || lastCustomerChannel === "web" ? "the website chat" : lastCustomerChannel === "whatsapp" ? "WhatsApp" : null;
   const waitedS = awaitingReply && lastMessage && lastMessage.at ? (nowMs - (lastMessage.at < 1e12 ? lastMessage.at * 1000 : lastMessage.at)) / 1000 : 0;
   let waitingLine = "";
@@ -494,16 +497,18 @@ export function ChatbotConversationPanel({ member }: any) {
       .finally(() => { setModeSaving(false); setPendingMode(null); });
   }
 
-  function handleSend() {
+  // The advisor picks where the reply goes: "whatsapp" or "web" (the website chat), there only.
+  function handleSend(channel: "whatsapp" | "web") {
     const text = draft.trim();
     if (!text || !code || sending) return;
     setSending(true);
+    setSendingTo(channel);
     setSendError(null);
     const pending = pendingSendRef.current;
-    if (!pending || pending.code !== code || pending.text !== text) {
-      pendingSendRef.current = { code, text, id: newClientMsgId() };
+    if (!pending || pending.code !== code || pending.text !== text || pending.channel !== channel) {
+      pendingSendRef.current = { code, text, id: newClientMsgId(), channel };
     }
-    sendChatbotReply(code, text, pendingSendRef.current!.id)
+    sendChatbotReply(code, text, pendingSendRef.current!.id, channel)
       .then((data: any) => {
         pendingSendRef.current = null;
         // Defensive: an older backend answered 200 with whatsapp.ok === false.
@@ -517,7 +522,7 @@ export function ChatbotConversationPanel({ member }: any) {
         atBottomRef.current = true;
         setNewFor("");
         setConvo((prev) => prev.code === code
-          ? { ...prev, messages: [...prev.messages, { id: "local-" + newClientMsgId(), role: "assistant", content: text, at: Date.now() }] }
+          ? { ...prev, messages: [...prev.messages, { id: "local-" + newClientMsgId(), role: "assistant", content: text, at: Date.now(), channel: "advisor" }] }
           : prev);
         requestAnimationFrame(() => {
           if (listRef.current) listRef.current.scrollToIndex({ index: "LAST", align: "end", behavior: "smooth" });
@@ -527,7 +532,7 @@ export function ChatbotConversationPanel({ member }: any) {
         // Keep the draft so the advisor can retry; show the real reason inline.
         setSendError((err && err.message) || "Could not send reply.");
       })
-      .finally(() => setSending(false));
+      .finally(() => { setSending(false); setSendingTo(null); });
   }
 
   return (
@@ -777,20 +782,32 @@ export function ChatbotConversationPanel({ member }: any) {
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
-                        handleSend();
+                        // Enter sends where the customer last wrote; the buttons let the advisor choose.
+                        handleSend(defaultChannel);
                       }
                     }}
                     placeholder="Type your message..."
                     style={{ flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, outline: "none" }}
                   />
-                  <button
-                    className="taw-btn taw-btn--primary"
-                    disabled={!draft.trim() || sending}
-                    onClick={handleSend}
-                    style={{ padding: "9px 16px" }}
-                  >
-                    {sending ? <Spinner /> : "Send"}
-                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  {([
+                    { ch: "whatsapp" as const, label: "Send to WhatsApp", off: websiteOnly },
+                    { ch: "web" as const, label: "Send to website", off: false },
+                  ]).map((b) => (
+                    <button
+                      key={b.ch}
+                      type="button"
+                      className={"taw-btn" + (b.ch === defaultChannel ? " taw-btn--primary" : "")}
+                      disabled={!draft.trim() || sending || b.off}
+                      title={b.off ? "No WhatsApp number on file for this traveller" : b.ch === "whatsapp" ? "Send this message to the customer's WhatsApp only" : "Send this message to the customer's website chat only"}
+                      onClick={() => handleSend(b.ch)}
+                      style={{ flex: 1, padding: "9px 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
+                    >
+                      {sendingTo === b.ch ? <Spinner /> : null}
+                      {b.label}
+                    </button>
+                  ))}
                 </div>
                 {sendError ? (
                   <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#B03434", lineHeight: 1.35 }}>{sendError}</div>
@@ -798,7 +815,7 @@ export function ChatbotConversationPanel({ member }: any) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, fontSize: 11.5, color: "#8A8070" }}>
                   <span>
                     {mode === "both" ? "You and Tara are both replying" : "You are currently in advisor mode"}
-                    {replyGoesTo ? ` · your reply goes to ${replyGoesTo}` : ""}
+                    {replyGoesTo ? ` · the customer last wrote on ${replyGoesTo}` : ""}
                   </span>
                   <button
                     type="button"
