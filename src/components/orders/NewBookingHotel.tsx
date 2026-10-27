@@ -17,7 +17,8 @@ import {
   DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, sortHotels, viewKey, type HotelView,
 } from "../../lib/hotelListing";
 import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
-import { HotelMap } from "../panels/HotelMap";
+import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
+import { HotelLocationMap } from "../panels/HotelLocationMap";
 
 type Customer = { member_id: string | null; name: string; email: string };
 type Sub = "search" | "results" | "rooms" | "guest" | "locked";
@@ -128,7 +129,6 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // ── Detail view (hero gallery, feature rows) ──────────────────────────────
   const [imgIdx, setImgIdx] = useState(0);
   const [allThumbs, setAllThumbs] = useState(false);
-  const [allNear, setAllNear] = useState(false);
   const [allAmen, setAllAmen] = useState(false);
   const [shared, setShared] = useState(false);
   const [moreDesc, setMoreDesc] = useState(false);
@@ -146,7 +146,6 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [layout, setLayout] = useState<"list" | "map">("list");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
-  const [focusId, setFocusId] = useState<string | null>(null);
   const [moreInfo, setMoreInfo] = useState<{ loaded: number; failed?: boolean } | null>(null);
   const moreRef = useRef<MoreHandle | null>(null);
   const searchKeyRef = useRef("");
@@ -171,15 +170,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, visible]);
-  // "View in list" on a map card: back to the list, that hotel drawn, scrolled to and outlined.
-  useEffect(() => {
-    if (!focusId || layout !== "list") return;
-    const at = shown.findIndex((o: any) => String(o.id) === focusId);
-    if (at >= visible) { setVisible(at + 1); return; }
-    const t = setTimeout(() => { const el = document.getElementById("nb-hotel-" + focusId); if (el) el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 60);
-    const clear = setTimeout(() => setFocusId(null), 3500);
-    return () => { clearTimeout(t); clearTimeout(clear); };
-  }, [focusId, layout, visible, shown]);
+  const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
   const sessOf = (h: any) => (h && h._session) || session;
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
   const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
@@ -222,16 +213,17 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           partnerCall: true,
           currency: "INR",
           fetchFromCache: false,
-        }).then((r: any) => ({ r, countryCode }));
+        }).then((r: any) => ({ r, countryCode, top }));
       })
       .then((out: any) => {
         stopMore();
-        setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE); setFocusId(null);
+        setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
         if (out.kept) {
-          setSession(out.kept.session); setSearched(out.kept.searched); setHotels(out.kept.hotels); setSub("results");
+          setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setHotels(out.kept.hotels); setSub("results");
           return;
         }
-        const { r, countryCode } = out;
+        const { r, countryCode, top } = out;
+        setPlaces(placesFromSuggestion(top));
         const first = (r.hotels || []).map((h: any) => ({ ...h, _session: { docKey: r.docKey, token: r.token } }));
         setSession({ docKey: r.docKey, token: r.token });
         const when = { checkIn: form.checkIn, checkOut: form.checkOut };
@@ -249,13 +241,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             onDone: (all) => {
               if (moreRef.current === handle) moreRef.current = null;
               setMoreInfo(null);
-              keepSearch(searchKeyRef.current, { hotels: all, session: { docKey: r.docKey, token: r.token }, searched: when });
+              keepSearch(searchKeyRef.current, { hotels: all, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
             },
             onFail: (all) => { if (moreRef.current === handle) moreRef.current = null; setMoreInfo({ loaded: all.length, failed: true }); },
           });
           moreRef.current = handle;
         } else {
-          keepSearch(searchKeyRef.current, { hotels: first, session: { docKey: r.docKey, token: r.token }, searched: when });
+          keepSearch(searchKeyRef.current, { hotels: first, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
         }
       })
       .catch((e: any) => onError(errText(e)))
@@ -269,7 +261,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const req = ++pickReq.current;
     const current = () => req === pickReq.current; // false once another pick / leaving the page superseded this one
     setHotel(h);
-    setImgIdx(0); setAllThumbs(false); setAllNear(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
+    setImgIdx(0); setAllThumbs(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
     setDetails(null);
     setChecks({});
     setSub("rooms");
@@ -538,7 +530,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         ) : null}
 
         {layout === "map" && shown.length > 0 ? (
-          <HotelMap hotels={shown} selectedId={focusId} onPick={(id: string) => { setLayout("list"); setFocusId(id); }} fitKey={filterKey} city={form.city} />
+          <HotelMap hotels={shown} onAction={(id: string) => { const h = hotels.find((x) => String(x.hotelKey) === id); if (h) pickHotel(h); }} actionLabel="Select" fitKey={filterKey} city={form.city} places={places} />
         ) : (
           <div className="ow-hgrid">
             {shown.slice(0, visible).map((o: any) => {
@@ -547,8 +539,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               const best = cheapest(h.priceSummary);
               const stars = hStars(h);
               return (
-                <div className="ow-hcard" key={h.hotelKey} id={"nb-hotel-" + h.hotelKey}
-                  style={focusId === String(h.hotelKey) ? { outline: "2px solid #B8945F", outlineOffset: -2 } : undefined}>
+                <div className="ow-hcard" key={h.hotelKey}>
                   <HotelImage src={info.image} alt={info.name || "Hotel"} />
                   <div className="ow-hcard-body">
                     <div className="ow-hcard-name" title={info.name}>{info.name}</div>
@@ -779,15 +770,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                 </span>
               </div>
             ) : null}
-            {near.length ? (
-              <div className="ow-frow">
-                <b>Nearby</b>
-                <span>
-                  {(allNear ? near : near.slice(0, 3)).map((n: any) => `${n.name}${n.distance ? ` · ${n.distance} ${n.unit || "Km"}` : ""}`).join("  |  ")}
-                  {!allNear && near.length > 3 ? <> <button type="button" className="ow-link" onClick={() => setAllNear(true)}>+{near.length - 3} more</button></> : null}
-                </span>
-              </div>
-            ) : null}
+            <HotelLocationMap
+              name={name}
+              address={listInfo.address || info.address}
+              lat={info.latitude != null ? Number(info.latitude) : listInfo.latitude != null ? Number(listInfo.latitude) : null}
+              lng={info.longitude != null ? Number(info.longitude) : listInfo.longitude != null ? Number(listInfo.longitude) : null}
+              nearby={near}
+            />
             {amenList.length ? (
               <div className="ow-frow">
                 <b>Amenities</b>

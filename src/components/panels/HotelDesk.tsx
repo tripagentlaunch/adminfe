@@ -18,7 +18,8 @@ import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, S
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
 import { loadRestOfCity } from "../../lib/hotelMore";
-import { HotelMap } from "./HotelMap";
+import { HotelMap, placesFromSuggestion } from "./HotelMap";
+import { HotelLocationMap } from "./HotelLocationMap";
 
 // SORT_OPTIONS/STAR_OPTIONS (2026-09-04) — the filter/sort row rebuilt to
 // match FlightDesk's `.taw-filter-strip` (a row of Dropdown pills + one
@@ -403,6 +404,7 @@ function RealHotelDetail({ offer, checkIn, onAdd }: any) {
             {amenities.map((a) => <span key={a} className="taw-chip taw-chip--dom">{a}</span>)}
           </div>
         ) : null}
+        <HotelLocationMap name={info.hotelName} address={info.address} lat={info.latitude != null ? Number(info.latitude) : (offer.detail || {}).lat} lng={info.longitude != null ? Number(info.longitude) : (offer.detail || {}).lng} nearby={info.nearByAttractions} />
         <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
         {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
         {shownOpts.map((opt) => {
@@ -732,7 +734,7 @@ export function HotelDesk(props: any) {
         };
         const offers = (listRes.hotels || []).map((h: any) => mapTripSureHotel(h, ctx));
         const more = listRes.more && listRes.more.token ? { token: listRes.more.token, countryCode: countryCode, ctx: ctx } : null;
-        return { offers: offers, count: listRes.totalCount != null ? listRes.totalCount : offers.length, more: more };
+        return { offers: offers, count: listRes.totalCount != null ? listRes.totalCount : offers.length, more: more, places: placesFromSuggestion(top) };
       });
     });
   }
@@ -755,7 +757,7 @@ export function HotelDesk(props: any) {
       onDone: (all) => {
         if (moreRef.current === handle) moreRef.current = null;
         setMoreInfo(null);
-        if (searchKeyRef.current) keepSearch(searchKeyRef.current, { offers: all, count: all.length, more: null });
+        if (searchKeyRef.current) keepSearch(searchKeyRef.current, { offers: all, count: all.length, more: null, places: first.places });
       },
       onFail: (all) => {
         if (moreRef.current === handle) moreRef.current = null;
@@ -970,7 +972,7 @@ export function HotelDesk(props: any) {
       ) : null}
       {loading ? <SkeletonResults /> : null}
       {!loading && res ? (
-        <HotelResults offers={offers} view={view} setV={setV} clearFilters={clearFilters} city={form.city} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
+        <HotelResults offers={offers} places={(res && res.places) || []} view={view} setV={setV} clearFilters={clearFilters} city={form.city} openOffer={openOffer} toggleDetail={toggleDetail} checkIn={form.checkIn} advisorId={props.advisorId} onAdd={props.onAdd} />
       ) : null}
     </div>
   );
@@ -980,7 +982,7 @@ export function HotelDesk(props: any) {
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
 // as one block, mirroring the original's inline IIFE at the same spot.
-function HotelResults({ offers, view, setV, clearFilters, city, openOffer, toggleDetail, checkIn, advisorId, onAdd }: any) {
+function HotelResults({ offers, places, view, setV, clearFilters, city, openOffer, toggleDetail, checkIn, advisorId, onAdd }: any) {
   const offNet = offerNet;
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
   const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
@@ -1090,7 +1092,7 @@ function HotelResults({ offers, view, setV, clearFilters, city, openOffer, toggl
         </>
       ) : null}
       {layout === "map" ? (
-        <HotelMap hotels={shown} selectedId={focusId} onPick={pickFromMap} fitKey={filterKey} city={city} />
+        <HotelMap hotels={shown} onAction={pickFromMap} actionLabel="View in list" fitKey={filterKey} city={city} places={places} />
       ) : (
       <SleekScroll className="taw-results-scroll">
       <div className="taw-results">
