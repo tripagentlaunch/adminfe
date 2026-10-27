@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { fastapiFlightSearch, flightFares, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
-import { searchAirports } from "../../lib/airports";
+import { AIRPORTS, searchAirports } from "../../lib/airports";
 import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
 import { cx } from "../../lib/cx";
 import { toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
@@ -118,29 +118,23 @@ const STOPS_OPTIONS = [
   { key: "multi", label: "Multiple connections" },
 ];
 
-const DEFAULT_AIRPORT_SUGGESTIONS = [
-  { country: "India", country_code: "IN", city: "New Delhi", airport_name: "Indira Gandhi International Airport", airport_code: "DEL", location: { lat: 28.5665, lon: 77.1031 }, popularity_score: 100, aliases: ["delhi"] },
-  { country: "India", country_code: "IN", city: "Mumbai", airport_name: "Chhatrapati Shivaji Maharaj International Airport", airport_code: "BOM", location: { lat: 19.0896, lon: 72.8656 }, popularity_score: 98, aliases: ["mumbai", "bombay"] },
-  { country: "India", country_code: "IN", city: "Bengaluru", airport_name: "Kempegowda International Airport", airport_code: "BLR", location: { lat: 13.1986, lon: 77.7066 }, popularity_score: 95, aliases: ["bangalore", "bengaluru"] },
-  { country: "India", country_code: "IN", city: "Hyderabad", airport_name: "Rajiv Gandhi International Airport", airport_code: "HYD", location: { lat: 17.2403, lon: 78.4294 }, popularity_score: 90, aliases: ["hyderabad"] },
-  { country: "India", country_code: "IN", city: "Chennai", airport_name: "Chennai International Airport", airport_code: "MAA", location: { lat: 12.9941, lon: 80.1709 }, popularity_score: 88, aliases: ["chennai", "madras"] },
-  { country: "India", country_code: "IN", city: "Goa", airport_name: "Goa International Airport", airport_code: "GOI", location: { lat: 15.3808, lon: 73.8314 }, popularity_score: 85, aliases: ["goa", "dabolim"] },
-];
-
-// airportSuggestions(query) — AutosuggestInput's fetchSuggestions for both
-// From/To fields. Live TripSure results with a built-in-directory fallback
-// live in lib/airportSuggest.ts (shared with the order page's "Add flight
-// itinerary" modal). Empty query (showDefaultsOnFocus's on-focus/on-clear
-// call) never reaches the network — see DEFAULT_AIRPORT_SUGGESTIONS above.
+// airportSuggestions(query) — AutosuggestInput's fetchSuggestions for both From/To fields, the
+// same one the New Booking flight search uses (lib/airportSuggest.ts): live TripSure airports with
+// the built-in directory as fallback. Nothing is listed until the advisor types (no fixed "popular"
+// cities), and what is listed is what matches what was typed.
 function airportSuggestions(query: string) {
-  if (!query) return Promise.resolve(DEFAULT_AIRPORT_SUGGESTIONS);
   return airportAutosuggest(query, 8);
 }
 
+// The same row as New Booking: plane icon, airport name with its code, then "City — Country".
 function renderAirportSuggestion(a: any) {
   return (
-    <span>
-      {a.city} — {a.airport_name} <span className="taw-muted">({a.airport_code})</span>
+    <span className="ow-sug">
+      <span className="ow-sug-ic"><Icon name="flight" size={16} /></span>
+      <span className="ow-sug-t">
+        <b>{a.airport_name || a.city} <span className="ow-sug-code">({a.airport_code})</span></b>
+        <small>{[a.city, a.country].filter(Boolean).join(" — ")}</small>
+      </span>
     </span>
   );
 }
@@ -470,6 +464,9 @@ export function FlightDesk(props: any) {
   // ITSELF pulls flights from ±3 days around the chosen date, not just a
   // price comparison you then have to act on separately.
   const [includeNearbyDates, setIncludeNearbyDates] = useState(false);
+  // While the other dates of a nearby-dates search are still coming in (the first date's flights
+  // are already on screen): how many of the searches have answered.
+  const [nearby, setNearby] = useState<{ settled: number; total: number } | null>(null);
   // leg (2026-09-02) — which direction's offers are currently shown, for
   // a round-trip search. Reset to "outbound" on every new run().
   const [leg, setLeg] = useState<"outbound" | "return">("outbound");
@@ -607,8 +604,28 @@ export function FlightDesk(props: any) {
   // if every real call for this leg failed — so different dates/legs
   // actually look different from each other when compared, per direct
   // request, instead of the same canned data reappearing everywhere.
-  function fetchLeg(dates: string[], fromCode: string, toCode: string, signal?: AbortSignal) {
-    return Promise.allSettled(dates.map((dt) => fetchOffersForDate(dt, fromCode, toCode, signal).then((r: any) => ({ dt, r })))).then((results) => {
+  function fetchLeg(dates: string[], fromCode: string, toCode: string, signal?: AbortSignal, onProgress?: (offersSoFar: any[], settled: number) => void) {
+    // Offers are handed to onProgress as each date answers (the nearby-dates search shows the
+    // first date's flights while the others are still being fetched).
+    const sofar: any[] = [];
+    let settled = 0;
+    return Promise.allSettled(
+      dates.map((dt) =>
+        fetchOffersForDate(dt, fromCode, toCode, signal).then(
+          (r: any) => {
+            settled += 1;
+            ((r && r.offers) || []).forEach((o: any) => sofar.push({ ...o, _searchDate: dt }));
+            if (onProgress) onProgress(sofar.slice(), settled);
+            return { dt, r };
+          },
+          (err: any) => {
+            settled += 1;
+            if (onProgress) onProgress(sofar.slice(), settled);
+            throw err;
+          }
+        )
+      )
+    ).then((results) => {
       const ok = results.filter((x: any) => x.status === "fulfilled").map((x: any) => x.value);
       // Aborted (cancel / deadline): the caller handles it. Fabricating demo
       // offers here would present them as if the search had worked.
@@ -626,11 +643,39 @@ export function FlightDesk(props: any) {
         return { offers: merged, usedMock: true, reason };
       }
       const merged: any[] = [];
+      let sourceErrors = 0;
       ok.forEach(({ dt, r }: any) => {
         ((r && r.offers) || []).forEach((o: any) => merged.push({ ...o, _searchDate: dt }));
+        sourceErrors += ((r && r.errors) || []).length;
       });
-      return { offers: merged, usedMock: false };
+      // A date that failed while others answered: the advisor is told the list may be short.
+      sourceErrors += results.length - ok.length;
+      return { offers: merged, usedMock: false, sourceErrors };
     });
+  }
+
+  // A DOMESTIC round trip is ONE search with both directions (TripSure answers it with separate
+  // ONWARD and RETURN lists), not two one-way searches: half the supplier calls, and it is how
+  // TripSure's own site searches. An international round trip comes back as paired "COMBO" fares
+  // this desk has no pair view for, so it keeps the two one-way searches. Any surprise in the
+  // answer (or a failure) also falls back to the two one-way searches.
+  function isIndianAirport(code: string) {
+    return AIRPORTS.some((a) => a.airport_code === code && a.country_code === "IN");
+  }
+  function fetchRoundTrip(dep: string, ret: string, fromCode: string, toCode: string, signal?: AbortSignal): Promise<any[]> {
+    const twoOneWay = (): Promise<any[]> => Promise.all([fetchLeg([dep], fromCode, toCode, signal), fetchLeg([ret], toCode, fromCode, signal)]);
+    return fastapiFlightSearch({ originCode: fromCode, destCode: toCode, date: dep, returnDate: ret, pax: Number(form.pax) || 1, cabin: form.cabin, signal })
+      .then((r: any): Promise<any[]> | any[] => {
+        const offersIn = (r && r.offers) || [];
+        if (offersIn.some((o: any) => o.leg !== "ONWARD" && o.leg !== "RETURN")) return twoOneWay();
+        const out = offersIn.filter((o: any) => o.leg === "ONWARD").map((o: any) => ({ ...o, _searchDate: dep }));
+        const back = offersIn.filter((o: any) => o.leg === "RETURN").map((o: any) => ({ ...o, _searchDate: ret }));
+        return [{ offers: out, usedMock: false, sourceErrors: ((r && r.errors) || []).length }, { offers: back, usedMock: false, sourceErrors: 0 }];
+      })
+      .catch((e: any) => {
+        if ((signal && signal.aborted) || (e && e.aborted)) throw e;
+        return twoOneWay();
+      });
   }
 
   // run(dateOverride?) — 2026-09-02: fetches the outbound leg always, and
@@ -661,14 +706,46 @@ export function FlightDesk(props: any) {
     const search = startSearch();
     searchRef.current = search;
     const signal = search.signal;
+    setNearby(null);
 
-    Promise.all([fetchLeg(outboundDates, originCode, destCode, signal), roundTrip ? fetchLeg(returnDates, destCode, originCode, signal) : Promise.resolve({ offers: [], usedMock: false })])
-      .then(([outboundResult, returnResult]) => {
+    // Nearby dates: seven searches per direction. The flights of the first date to answer go on
+    // screen at once and the rest are added as they arrive, instead of waiting for the slowest.
+    let early = false;
+    const partial = { out: [] as any[], back: [] as any[], outSettled: 0, backSettled: 0 };
+    const total = includeNearbyDates ? outboundDates.length + returnDates.length : 0;
+    const showPartial = () => {
+      if (searchRef.current !== search) return;
+      if (!partial.out.length && !partial.back.length) return;
+      setRes({ outbound: partial.out, return: roundTrip ? partial.back : null, nearbyDates: true, roundTrip });
+      if (!early) {
+        early = true;
+        setLoading(false);
+      }
+      setNearby({ settled: partial.outSettled + partial.backSettled, total });
+    };
+
+    const legs: Promise<any[]> =
+      !includeNearbyDates && roundTrip && isIndianAirport(originCode) && isIndianAirport(destCode)
+        ? fetchRoundTrip(searchDate, form.returnDate, originCode, destCode, signal)
+        : Promise.all([
+            fetchLeg(outboundDates, originCode, destCode, signal, includeNearbyDates ? (o, n) => { partial.out = o; partial.outSettled = n; showPartial(); } : undefined),
+            roundTrip ? fetchLeg(returnDates, destCode, originCode, signal, includeNearbyDates ? (o, n) => { partial.back = o; partial.backSettled = n; showPartial(); } : undefined) : Promise.resolve({ offers: [], usedMock: false }),
+          ]);
+
+    legs
+      .then(([outboundResult, returnResult]: any[]) => {
         if (searchRef.current !== search) return; // cancelled, superseded or unmounted
         search.done();
         searchRef.current = null;
-        // Deadline hit: back to the form (fields untouched) with an error,
-        // not partial results presented as the whole answer.
+        setNearby(null);
+        // Deadline hit with nothing on screen yet: back to the form (fields untouched) with an
+        // error, not partial results presented as the whole answer. With the first dates already
+        // shown, they stay and the advisor is told the rest did not finish.
+        if (search.timedOut() && early) {
+          setLoading(false);
+          toast("Some nearby dates did not finish in time. The flights shown are the ones that did.", "error");
+          return;
+        }
         if (search.timedOut()) {
           const msg = "Flight search timed out after " + Math.round(SEARCH_TIMEOUT_MS / 1000) + "s — the flight supplier is responding slowly. Your search is kept; try again.";
           setErr(msg);
@@ -681,6 +758,9 @@ export function FlightDesk(props: any) {
           return: roundTrip ? returnResult.offers : null,
           nearbyDates: includeNearbyDates,
           roundTrip,
+          // Airline sources that did not answer: TripSure still returns the rest (HTTP 200 with a
+          // list of per-source errors), so the flights shown may be missing a few airlines.
+          sourceErrors: (outboundResult.sourceErrors || 0) + (returnResult.sourceErrors || 0),
         });
         setLoading(false);
         const anyMock = outboundResult.usedMock || returnResult.usedMock;
@@ -700,6 +780,11 @@ export function FlightDesk(props: any) {
         if (searchRef.current !== search) return;
         search.done();
         searchRef.current = null;
+        setNearby(null);
+        if (early) {
+          setLoading(false); // the first dates are on screen; keep them
+          return;
+        }
         const msg = "Flight search failed: " + ((e && e.message) || "unexpected error");
         setErr(msg);
         setLoading(false);
@@ -712,6 +797,7 @@ export function FlightDesk(props: any) {
     if (!s) return;
     searchRef.current = null; // its late settlement is then ignored
     s.cancel();
+    setNearby(null);
     setLoading(false);
     setErr(null);
   }
@@ -768,7 +854,7 @@ export function FlightDesk(props: any) {
               fetchSuggestions={airportSuggestions}
               renderSuggestion={renderAirportSuggestion}
               getKey={(a: any) => a.airport_code}
-              showDefaultsOnFocus
+              floating
               placeholder="DEL"
             />
           </Field>
@@ -786,7 +872,7 @@ export function FlightDesk(props: any) {
               fetchSuggestions={airportSuggestions}
               renderSuggestion={renderAirportSuggestion}
               getKey={(a: any) => a.airport_code}
-              showDefaultsOnFocus
+              floating
               placeholder="e.g. LHR"
             />
           </Field>
@@ -975,6 +1061,19 @@ export function FlightDesk(props: any) {
             Looking up real fares for {form.originCode || "your origin"} → {form.destCode || "your destination"} — this takes a few seconds.
           </div>
           <button className="taw-btn taw-btn--sm" onClick={cancelSearch}>Cancel</button>
+        </div>
+      ) : null}
+      {!loading && nearby ? (
+        <div className="taw-banner taw-banner--info" role="status">
+          <Spinner />
+          <span>Loading nearby dates… {nearby.settled} of {nearby.total} searches answered. More flights are added as they arrive.</span>
+          <button className="taw-btn taw-btn--sm" onClick={cancelSearch}>Stop</button>
+        </div>
+      ) : null}
+      {!loading && res && res.sourceErrors > 0 ? (
+        <div className="taw-banner taw-banner--info" role="status">
+          <Icon name="alert" size={16} />
+          {res.sourceErrors === 1 ? "One airline source didn't respond" : res.sourceErrors + " airline sources didn't respond"}, so a few airlines may be missing from these results. Search again to retry.
         </div>
       ) : null}
       {!loading && res ? (

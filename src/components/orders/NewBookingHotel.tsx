@@ -9,10 +9,16 @@ import { AutosuggestInput } from "../AutosuggestInput";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
-  bookingAddHotelStay, bookingLockHotelItinerary, hotelAutosuggestV2, hotelDetailsV2, hotelListingV2, hotelPriceCheckV2, inr,
+  bookingAddHotelStay, bookingLockHotelItinerary, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
+import {
+  DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, sortHotels, viewKey, type HotelView,
+} from "../../lib/hotelListing";
+import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
+import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
+import { HotelLocationMap } from "../panels/HotelLocationMap";
 
 type Customer = { member_id: string | null; name: string; email: string };
 type Sub = "search" | "results" | "rooms" | "guest" | "locked";
@@ -123,7 +129,6 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // ── Detail view (hero gallery, feature rows) ──────────────────────────────
   const [imgIdx, setImgIdx] = useState(0);
   const [allThumbs, setAllThumbs] = useState(false);
-  const [allNear, setAllNear] = useState(false);
   const [allAmen, setAllAmen] = useState(false);
   const [shared, setShared] = useState(false);
   const [moreDesc, setMoreDesc] = useState(false);
@@ -132,37 +137,43 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const roomsRef = useRef<HTMLDivElement>(null);
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
 
-  // ── Results: client-side sort / filters over the fetched listing ──────────
-  const [hSort, setHSort] = useState<"" | "star" | "priceAsc" | "priceDesc">("");
-  const [hFreeCancel, setHFreeCancel] = useState(false);
-  const [hBreakfast, setHBreakfast] = useState(false);
-  const [hWifiOnly, setHWifiOnly] = useState(false);
-  const [hStarsSel, setHStarsSel] = useState<number[]>([]);
-  const [hMax, setHMax] = useState<number | null>(null);
-  const [hFiltersOpen, setHFiltersOpen] = useState(false);
+  // ── Results: the same filters, sort, list/map and paging as the Search desk's Hotels ──────────
+  // `hotels` are TripSure's hotels, each carrying the docKey/token of the response it came from
+  // (`_session`): the first screen and every later page have their own, and details / price check
+  // need the pair that came with the hotel.
+  const [view, setView] = useState<HotelView>(DEFAULT_HOTEL_VIEW);
+  const setV = (k: keyof HotelView, v: any) => setView((f) => ({ ...f, [k]: v }));
+  const [layout, setLayout] = useState<"list" | "map">("list");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
+  const [moreInfo, setMoreInfo] = useState<{ loaded: number; failed?: boolean } | null>(null);
+  const moreRef = useRef<MoreHandle | null>(null);
+  const searchKeyRef = useRef("");
+  const sentinel = useRef<HTMLDivElement | null>(null);
+  const stopMore = () => { if (moreRef.current) moreRef.current.stop(); moreRef.current = null; setMoreInfo(null); };
+  useEffect(() => () => { if (moreRef.current) moreRef.current.stop(); }, []);
+  const offers = useMemo(
+    () => hotels.map((h) => mapTripSureHotel(h, { international: false, nights, rooms: form.rooms, docKey: h._session && h._session.docKey, token: h._session && h._session.token })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hotels, nights, form.rooms]
+  );
+  const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
+  const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
+  const filterKey = viewKey(view);
+  const nFilters = activeFilterCount(view);
+  useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
+  const hasMore = layout === "list" && visible < shown.length;
   useEffect(() => {
-    setHSort(""); setHFreeCancel(false); setHBreakfast(false); setHWifiOnly(false); setHStarsSel([]); setHMax(null); setHFiltersOpen(false);
-  }, [hotels]);
-  const hBounds = useMemo(() => {
-    const ps = hotels.map(hPrice).filter((n) => n > 0);
-    return ps.length ? { min: Math.floor(Math.min(...ps)), max: Math.ceil(Math.max(...ps)) } : { min: 0, max: 0 };
-  }, [hotels]);
-  const hMaxPrice = hMax == null ? hBounds.max : Math.min(hMax, hBounds.max);
-  const hExtraOn = hStarsSel.length > 0 || hMaxPrice < hBounds.max;
-  const hVisible = useMemo(() => {
-    const list = hotels.filter((h) =>
-      (!hFreeCancel || hOpt(h, "freeCancellation")) &&
-      (!hBreakfast || hOpt(h, "freeBreakfast")) &&
-      (!hWifiOnly || hWifi(h)) &&
-      (!hStarsSel.length || hStarsSel.some((n) => (n === 3 ? Math.round(hStars(h)) <= 3 : Math.round(hStars(h)) === n))) &&
-      (hMaxPrice >= hBounds.max || hPrice(h) <= hMaxPrice));
-    if (hSort === "star") list.sort((a, b) => hStars(b) - hStars(a) || hPrice(a) - hPrice(b));
-    else if (hSort === "priceAsc") list.sort((a, b) => (hPrice(a) || Infinity) - (hPrice(b) || Infinity));
-    else if (hSort === "priceDesc") list.sort((a, b) => hPrice(b) - hPrice(a));
-    return list;
-  }, [hotels, hFreeCancel, hBreakfast, hWifiOnly, hStarsSel, hMaxPrice, hBounds.max, hSort]);
-  const hAnyFilter = hFreeCancel || hBreakfast || hWifiOnly || hExtraOn;
-  const hReset = () => { setHFreeCancel(false); setHBreakfast(false); setHWifiOnly(false); setHStarsSel([]); setHMax(null); };
+    const el = sentinel.current;
+    if (!hasMore || !el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver((entries) => { if (entries.some((e) => e.isIntersecting)) setVisible((v) => v + HOTEL_PAGE_SIZE); }, { rootMargin: "300px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, visible]);
+  const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
+  const sessOf = (h: any) => (h && h._session) || session;
+  const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
+  const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
 
   function runSearch() {
     onError(null);
@@ -178,8 +189,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           return top;
         });
     withLoc
-      .then((top: any) =>
-        hotelListingV2({
+      .then((top: any): Promise<any> | any => {
+        const countryCode = top.country || "IN";
+        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, form.rooms, form.adults]);
+        searchKeyRef.current = key;
+        const kept = keptSearch(key);
+        if (kept) return { kept };
+        return hotelListingStart({
           checkIn: form.checkIn,
           checkOut: form.checkOut,
           rooms: Array.from({ length: form.rooms }, () => ({
@@ -193,34 +209,64 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           countryName: top.country || "IN",
           circularSearch: false,
           nationalityCode: "IN",
-          countryCode: top.country || "IN",
+          countryCode,
           partnerCall: true,
           currency: "INR",
           fetchFromCache: false,
-        })
-      )
-      .then((r: any) => {
+        }).then((r: any) => ({ r, countryCode, top }));
+      })
+      .then((out: any) => {
+        stopMore();
+        setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
+        if (out.kept) {
+          setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setHotels(out.kept.hotels); setSub("results");
+          return;
+        }
+        const { r, countryCode, top } = out;
+        setPlaces(placesFromSuggestion(top));
+        const first = (r.hotels || []).map((h: any) => ({ ...h, _session: { docKey: r.docKey, token: r.token } }));
         setSession({ docKey: r.docKey, token: r.token });
-        setSearched({ checkIn: form.checkIn, checkOut: form.checkOut });
-        setHotels(r.hotels || []);
+        const when = { checkIn: form.checkIn, checkOut: form.checkOut };
+        setSearched(when);
+        setHotels(first);
         setSub("results");
+        if (r.more && r.more.token) {
+          // The rest of the city loads behind the first hotels (TripSure's own site does the same).
+          const handle = loadRestOfCity<any>({
+            more: { token: r.more.token, countryCode, ctx: { docKey: r.docKey, token: r.token } },
+            first,
+            idOf: (h) => h.hotelKey,
+            mapHotel: (h, ctx) => ({ ...h, _session: { docKey: ctx.docKey, token: ctx.token } }),
+            onUpdate: (all, info) => { setHotels(all); setMoreInfo({ loaded: info.loaded }); },
+            onDone: (all) => {
+              if (moreRef.current === handle) moreRef.current = null;
+              setMoreInfo(null);
+              keepSearch(searchKeyRef.current, { hotels: all, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
+            },
+            onFail: (all) => { if (moreRef.current === handle) moreRef.current = null; setMoreInfo({ loaded: all.length, failed: true }); },
+          });
+          moreRef.current = handle;
+        } else {
+          keepSearch(searchKeyRef.current, { hotels: first, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
+        }
       })
       .catch((e: any) => onError(errText(e)))
       .finally(() => setBusy(false));
   }
 
   function pickHotel(h: any) {
-    if (!session) return;
+    const sess = sessOf(h);
+    if (!sess) return;
     onError(null);
     const req = ++pickReq.current;
     const current = () => req === pickReq.current; // false once another pick / leaving the page superseded this one
     setHotel(h);
-    setImgIdx(0); setAllThumbs(false); setAllNear(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
+    setImgIdx(0); setAllThumbs(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
     setDetails(null);
     setChecks({});
     setSub("rooms");
     setBusy(true);
-    hotelDetailsV2({ docKey: session.docKey, token: session.token, hotelId: String(h.hotelKey) })
+    hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
       .then((d: any) => { if (current()) setDetails(d || {}); })
       .catch((e: any) => { if (current()) { onError(errText(e)); setSub("results"); } })
       .finally(() => { if (current()) setBusy(false); });
@@ -234,9 +280,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   function priceCheck(opt: any) {
-    if (!session || !hotel) return;
+    const sess = sessOf(hotel);
+    if (!sess || !hotel) return;
     setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
-    hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: session.docKey, token: session.token, bookingCode: opt.code })
+    hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         if (!rate) throw new Error("Tripsure returned no rate for this room.");
@@ -252,7 +299,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   function confirmAdd(opt: any) {
-    if (!session || !hotel || !searched) return;
+    const sess = sessOf(hotel);
+    if (!sess || !hotel || !searched) return;
     const info = hotel.hotelInfo || {};
     const amenities: string[] = [];
     ((details && details.hotelInfo && details.hotelInfo.hotelAmenities) || []).forEach((a: any) =>
@@ -264,7 +312,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       customer: { member_id: customer.member_id, name: customer.name, email: customer.email || null },
       itinerary_id: itineraryId || null,
       order_id: itineraryId ? null : orderId || null,
-      handles: { hotelId: String(hotel.hotelKey), docKey: session.docKey, token: session.token, bookingCode: opt.code },
+      handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
       snapshot: {
         name: info.name || "Hotel",
         address: info.address || null,
@@ -284,7 +332,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       .then((r: any) => {
         setAdded({
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(checks[opt.code] || {}).panRequired,
-          handles: { hotelId: String(hotel.hotelKey), docKey: session.docKey, token: session.token, bookingCode: opt.code },
+          handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
         });
         setSub("guest");
@@ -411,93 +459,124 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         {icon ? <Icon name={icon} size={13} /> : null}{label}
       </button>
     );
+    const starOpts = [{ k: "any", l: "Any" }, { k: "3", l: "3★+" }, { k: "4", l: "4★+" }, { k: "5", l: "5★" }];
     return (
       <>
         <div className="ow-modal-foot" style={{ marginTop: 0 }}>
-          <span className="ow-sub">{form.city} · {nightsTxt} · {hVisible.length} of {hotels.length} hotels</span>
-          <button type="button" className="taw-btn taw-btn--sm" onClick={() => setSub("search")}>Change search</button>
+          <span className="ow-sub">
+            {form.city} · {nightsTxt} · {shown.length === offers.length ? offers.length : `${shown.length} of ${offers.length}`} hotels
+            {moreInfo ? (moreInfo.failed ? ` · couldn't load the rest, showing ${moreInfo.loaded}` : ` · loading more… ${moreInfo.loaded} so far`) : ""}
+          </span>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={() => { stopMore(); setSub("search"); }}>Change search</button>
         </div>
-
-        {hotels.length > 0 ? (
+        {offers.length > 0 ? (
           <div className="ow-fchips">
-            {chip(hSort === "star", "Star rating", () => setHSort(hSort === "star" ? "" : "star"), "star")}
-            {chip(hSort === "priceAsc" || hSort === "priceDesc", hSort === "priceDesc" ? "Price ↓" : hSort === "priceAsc" ? "Price ↑" : "Price",
-              () => setHSort(hSort === "" || hSort === "star" ? "priceAsc" : hSort === "priceAsc" ? "priceDesc" : ""))}
-            {chip(hFiltersOpen || hExtraOn, `Filters${hExtraOn ? " •" : ""}`, () => setHFiltersOpen(!hFiltersOpen), "sliders")}
-            {chip(hFreeCancel, "Free cancellation", () => setHFreeCancel(!hFreeCancel))}
-            {chip(hBreakfast, "Breakfast included", () => setHBreakfast(!hBreakfast))}
-            {chip(hWifiOnly, "WiFi", () => setHWifiOnly(!hWifiOnly), "wifi")}
-            {hAnyFilter ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
+            {chip(layout === "list", "List", () => setLayout("list"), "list")}
+            {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
+            {chip(view.sort === "best", "Best value", () => setV("sort", "best"))}
+            {chip(view.sort === "cheapest", "Price ↑", () => setV("sort", view.sort === "cheapest" ? "best" : "cheapest"))}
+            {chip(view.sort === "priceDesc", "Price ↓", () => setV("sort", view.sort === "priceDesc" ? "best" : "priceDesc"))}
+            {chip(view.sort === "toprated", "Star rating", () => setV("sort", view.sort === "toprated" ? "best" : "toprated"), "star")}
+            {chip(view.refundable, "Free cancellation", () => setV("refundable", !view.refundable))}
+            {chip(view.breakfast, "Breakfast included", () => setV("breakfast", !view.breakfast))}
+            {chip(view.amenities.indexOf("freeWiFi") >= 0, "WiFi", () => toggleAmenity("freeWiFi"), "wifi")}
+            {chip(filtersOpen || nFilters > 0, `Filters${nFilters ? ` (${nFilters})` : ""}`, () => setFiltersOpen(!filtersOpen), "sliders")}
+            {nFilters > 0 ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
           </div>
         ) : null}
 
-        {hFiltersOpen ? (
-          <div className="ow-gpanel">
-            <div className="ow-gstep">
-              <span>Star rating</span>
-              {[3, 4, 5].map((n) => (
-                <label key={n} className="ow-fopt">
-                  <input type="checkbox" checked={hStarsSel.includes(n)}
-                    onChange={() => setHStarsSel(hStarsSel.includes(n) ? hStarsSel.filter((x) => x !== n) : [...hStarsSel, n])} />
-                  <span>{n}★{n === 3 ? " & below" : ""}</span>
-                </label>
-              ))}
+        {filtersOpen && offers.length > 0 ? (
+          <div className="ow-gpanel" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+            <div className="ow-fchips">
+              <span className="ow-sub">Star rating</span>
+              {starOpts.map((o) => chip(view.stars === o.k, o.l, () => setV("stars", o.k)))}
             </div>
-            {hBounds.max > hBounds.min ? (
-              <div className="ow-gstep" style={{ flex: "1 1 220px" }}>
-                <span>Max price <b>{inr(hMaxPrice)}</b></span>
-                <input type="range" className="ow-range" aria-label="Maximum price" style={{ flex: 1 }}
-                  min={hBounds.min} max={hBounds.max} step={Math.max(1, Math.round((hBounds.max - hBounds.min) / 100))}
-                  value={hMaxPrice} onChange={(e) => setHMax(Number(e.target.value))} />
+            {facets.hasPrices && facets.priceBands.length ? (
+              <div className="ow-fchips">
+                <span className="ow-sub">Price</span>
+                {chip(view.price === "any", "Any price", () => setV("price", "any"))}
+                {facets.priceBands.map((b) => chip(view.price === b.key, b.label, () => setV("price", view.price === b.key ? "any" : b.key)))}
+              </div>
+            ) : null}
+            {facets.stayTypes.length > 1 ? (
+              <div className="ow-fchips">
+                <span className="ow-sub">Property type</span>
+                {chip(view.stayType === "all", "Any", () => setV("stayType", "all"))}
+                {facets.stayTypes.map((t) => chip(view.stayType === t, t, () => setV("stayType", view.stayType === t ? "all" : t)))}
+              </div>
+            ) : null}
+            {facets.boards.length > 1 ? (
+              <div className="ow-fchips">
+                <span className="ow-sub">Board</span>
+                {chip(view.board === "all", "Any", () => setV("board", "all"))}
+                {facets.boards.map((b) => chip(view.board === b, b, () => setV("board", view.board === b ? "all" : b)))}
+              </div>
+            ) : null}
+            {facets.amenities.length ? (
+              <div className="ow-fchips">
+                <span className="ow-sub">Amenities</span>
+                {facets.amenities.slice(0, 12).map((a) => chip(view.amenities.indexOf(a.key) >= 0, a.label, () => toggleAmenity(a.key)))}
               </div>
             ) : null}
           </div>
         ) : null}
 
-        {hotels.length === 0 ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
-        {hotels.length > 0 && hVisible.length === 0 ? (
+        {offers.length === 0 ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
+        {offers.length > 0 && shown.length === 0 ? (
           <div className="ow-empty">
             <b>No hotels match these filters</b>
             <button type="button" className="taw-btn taw-btn--sm" onClick={hReset}>Reset filters</button>
           </div>
         ) : null}
 
-        <div className="ow-hgrid">
-          {hVisible.map((h) => {
-            const info = h.hotelInfo || {};
-            const best = cheapest(h.priceSummary);
-            const stars = hStars(h);
-            return (
-              <div className="ow-hcard" key={h.hotelKey}>
-                <HotelImage src={info.image} alt={info.name || "Hotel"} />
-                <div className="ow-hcard-body">
-                  <div className="ow-hcard-name" title={info.name}>{info.name}</div>
-                  <div className="ow-hcard-sub">
-                    {stars ? <span className="ow-hcard-stars">{"★".repeat(Math.min(5, Math.round(stars)))}</span> : null}
-                    <span>{info.city || form.city}</span>
-                  </div>
-                  {info.address ? <div className="ow-hcard-addr">{info.address}</div> : null}
-                  <div className="ow-fcard-tags" style={{ border: 0, paddingTop: 0 }}>
-                    {hOpt(h, "freeCancellation") || (best && best.refundability === "Refundable") ? <span className="ow-tag ok">Free cancellation</span> : null}
-                    {hOpt(h, "freeBreakfast") ? <span className="ow-tag ok">Breakfast included</span> : null}
-                    {hWifi(h) ? <span className="ow-tag">Free WiFi</span> : null}
-                  </div>
-                  <div className="ow-hcard-foot">
-                    <div className="ow-hcard-price">
-                      {best ? (
-                        <>
-                          <b>{inr(Number(best.totalPrice))}</b><em>onwards</em>
-                          <small>{nightsTxt}</small>
-                        </>
-                      ) : <small>Price on selection</small>}
+        {layout === "map" && shown.length > 0 ? (
+          <HotelMap hotels={shown} onAction={(id: string) => { const h = hotels.find((x) => String(x.hotelKey) === id); if (h) pickHotel(h); }} actionLabel="Select" fitKey={filterKey} city={form.city} places={places} />
+        ) : (
+          <div className="ow-hgrid">
+            {shown.slice(0, visible).map((o: any) => {
+              const h = o._raw;
+              const info = h.hotelInfo || {};
+              const best = cheapest(h.priceSummary);
+              const stars = hStars(h);
+              return (
+                <div className="ow-hcard" key={h.hotelKey}>
+                  <HotelImage src={info.image} alt={info.name || "Hotel"} />
+                  <div className="ow-hcard-body">
+                    <div className="ow-hcard-name" title={info.name}>{info.name}</div>
+                    <div className="ow-hcard-sub">
+                      {stars ? <span className="ow-hcard-stars">{"★".repeat(Math.min(5, Math.round(stars)))}</span> : null}
+                      <span>{info.city || form.city}</span>
                     </div>
-                    <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => pickHotel(h)}>Select</button>
+                    {info.address ? <div className="ow-hcard-addr">{info.address}</div> : null}
+                    <div className="ow-fcard-tags" style={{ border: 0, paddingTop: 0 }}>
+                      {hOpt(h, "freeCancellation") || (best && best.refundability === "Refundable") ? <span className="ow-tag ok">Free cancellation</span> : null}
+                      {hOpt(h, "freeBreakfast") ? <span className="ow-tag ok">Breakfast included</span> : null}
+                      {hWifi(h) ? <span className="ow-tag">Free WiFi</span> : null}
+                    </div>
+                    <div className="ow-hcard-foot">
+                      <div className="ow-hcard-price">
+                        {best ? (
+                          <>
+                            <b>{inr(Number(best.totalPrice))}</b><em>onwards</em>
+                            <small>{nightsTxt}</small>
+                          </>
+                        ) : <small>Price on selection</small>}
+                      </div>
+                      <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => pickHotel(h)}>Select</button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
+        {hasMore ? (
+          <div ref={sentinel} style={{ padding: "12px 0 18px", textAlign: "center" }}>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setVisible((v) => v + HOTEL_PAGE_SIZE)}>
+              Show more hotels ({shown.length - visible} left)
+            </button>
+          </div>
+        ) : null}
       </>
     );
   }
@@ -691,15 +770,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                 </span>
               </div>
             ) : null}
-            {near.length ? (
-              <div className="ow-frow">
-                <b>Nearby</b>
-                <span>
-                  {(allNear ? near : near.slice(0, 3)).map((n: any) => `${n.name}${n.distance ? ` · ${n.distance} ${n.unit || "Km"}` : ""}`).join("  |  ")}
-                  {!allNear && near.length > 3 ? <> <button type="button" className="ow-link" onClick={() => setAllNear(true)}>+{near.length - 3} more</button></> : null}
-                </span>
-              </div>
-            ) : null}
+            <HotelLocationMap
+              name={name}
+              address={listInfo.address || info.address}
+              lat={info.latitude != null ? Number(info.latitude) : listInfo.latitude != null ? Number(listInfo.latitude) : null}
+              lng={info.longitude != null ? Number(info.longitude) : listInfo.longitude != null ? Number(listInfo.longitude) : null}
+              nearby={near}
+            />
             {amenList.length ? (
               <div className="ow-frow">
                 <b>Amenities</b>
