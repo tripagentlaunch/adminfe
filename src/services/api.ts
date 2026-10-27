@@ -2799,19 +2799,20 @@ function getMemberCode(phone, email) {
 }
 function setConversationHandoff(code, paused) { return conversationHandoffCall(code, "POST", { paused: !!paused }); }
 
-// sendChatbotReply(code, text, clientMsgId?) — send an advisor reply into a
+// sendChatbotReply(code, text, clientMsgId?, channel?) — send an advisor reply into a
 // customer's Tara conversation, via adminbe's POST /admin/conversation/{code}/reply.
 // It's stored in the member's chatbot history, so it shows in this panel and in
 // the customer's own chatbot. Pass the same clientMsgId when retrying the same
-// message: the backend then never sends it to WhatsApp twice.
-function sendChatbotReply(code, text, clientMsgId) {
+// message: the backend then never sends it to WhatsApp twice. `channel` ("whatsapp" | "web")
+// is the advisor's choice of where the reply goes — there only, never both.
+function sendChatbotReply(code, text, clientMsgId, channel) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
   return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/reply", {
     method: "POST",
     headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
-    body: JSON.stringify(clientMsgId ? { text: text, client_msg_id: clientMsgId } : { text: text }),
+    body: JSON.stringify(Object.assign({ text: text }, clientMsgId ? { client_msg_id: clientMsgId } : {}, channel ? { channel: channel } : {})),
   }, CONVERSATION_SEND_TIMEOUT_MS,
   // The request may have reached WhatsApp even though no answer came back.
   "No answer after " + Math.round(CONVERSATION_SEND_TIMEOUT_MS / 1000) + "s — the message may still have been delivered. Check the conversation before sending again" + (clientMsgId ? "; retrying is safe, it will not be sent twice." : ".")).then(function (res) {
