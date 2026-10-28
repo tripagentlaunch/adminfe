@@ -12,6 +12,7 @@ import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsPanel, type FareChoice } from "./FareOptionsPanel";
+import { SeatMap } from "./SeatMap";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
@@ -900,9 +901,6 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           const block = seg ? ssrNorm(ssr, seg.departureAirport, seg.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
           const bagOpts: any[] = (block?.baggage || []).map((b: any) => ({ ...b, text: b.label }));
           const mealOpts: any[] = block?.meals || [];
-          const seatOpts: any[] = (block?.seats || [])
-            .filter((x: any) => !x.booked)
-            .map((x: any) => ({ ...x, seatType: x.legroom ? "Extra legroom" : x.window ? "Window" : x.aisle ? "Aisle" : "" }));
           const noneAtAll = rows.every((s: any) => {
             const b = s ? ssrNorm(ssr, s.departureAirport, s.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
             return !b?.offered?.baggage && !b?.offered?.seats && !b?.offered?.meals;
@@ -1048,15 +1046,15 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                           <div className="ow-sub">One meal per segment, for the lead traveller.</div>
                         </div>
                       )
-                    ) : seatOpts.length === 0 ? (
-                      <div className="ow-sub">Seat selection is not offered for this segment.</div>
+                    ) : !block?.offered?.seats ? (
+                      <div className="ow-sub">The airline offers no seat selection for this segment.</div>
                     ) : (
-                      <SeatPicker
-                        seats={seatOpts}
+                      <SeatMap
+                        seats={block.seats}
+                        grid={block.grid || { rows: 0, cols: 0 }}
                         selected={cur.seat?.code || null}
                         disabled={busy}
-                        onPick={(x: any | null) =>
-                          pickSeat(si, x ? { code: x.code, label: `Seat ${x.code}`, price: Number(x.price) || 0 } : null)}
+                        onPick={(x) => pickSeat(si, x ? { code: x.code, label: `Seat ${x.code}`, price: Number(x.price) || 0 } : null)}
                       />
                     )}
                   </div>
@@ -1087,86 +1085,5 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         })() : null}
       </div>
     </div>
-  );
-}
-
-// Seat grid built from the SSR seat list. Rows/letters come from each seat's
-// code ("12A"); a letter that exists elsewhere in the cabin but is missing
-// from a row's list is shown as occupied. Falls back to plain tiles if codes
-// aren't row+letter. Seats priced 0 are "free", >0 "paid".
-function SeatPicker({ seats, selected, disabled, onPick }: {
-  seats: any[]; selected: string | null; disabled: boolean; onPick: (s: any | null) => void;
-}) {
-  const parsed = seats.map((s) => {
-    const m = /^(\d+)([A-Za-z])$/.exec(String(s.code));
-    return m ? { s, row: +m[1], col: m[2].toUpperCase() } : null;
-  });
-  const gridOk = parsed.every(Boolean);
-  const legend = (
-    <div className="ow-legend">
-      <span><i className="ow-seat free" /> Free</span>
-      <span><i className="ow-seat paid" /> Paid</span>
-      <span><i className="ow-seat leg" /> Extra legroom</span>
-      <span><i className="ow-seat on" /> Selected</span>
-      <span><i className="ow-seat occ" /> Occupied</span>
-    </div>
-  );
-  const cls = (s: any, on: boolean) =>
-    `ow-seat${on ? " on" : isLegroom(s) ? " leg" : (Number(s.price) || 0) > 0 ? " paid" : " free"}`;
-  const tip = (s: any) => `${s.code}${s.seatType ? ` · ${s.seatType}` : ""} · ${(Number(s.price) || 0) > 0 ? inr(Number(s.price)) : "Free"}`;
-
-  if (!gridOk) {
-    return (
-      <>
-        {legend}
-        <div className="ow-tiles">
-          {seats.map((s) => {
-            const on = selected === s.code;
-            return (
-              <button key={s.code} type="button" aria-pressed={on} disabled={disabled}
-                className={`ow-tile${on ? " on" : ""}`} onClick={() => onPick(on ? null : s)}>
-                <div className="ow-tile-t">{s.code}</div>
-                <div className="ow-tile-s">{s.seatType || "Seat"}</div>
-                <div className="ow-tile-p">{(Number(s.price) || 0) > 0 ? inr(Number(s.price)) : "Free"}</div>
-              </button>
-            );
-          })}
-        </div>
-      </>
-    );
-  }
-
-  const cols = Array.from(new Set(parsed.map((x: any) => x.col))).sort() as string[];
-  const rowNos = Array.from(new Set(parsed.map((x: any) => x.row))).sort((a: any, b: any) => a - b) as number[];
-  const byKey = new Map(parsed.map((x: any) => [`${x.row}${x.col}`, x.s]));
-  const aisleAfter = Math.ceil(cols.length / 2) - 1; // 3-3 → after C; 2-2 → after B
-  return (
-    <>
-      {legend}
-      <div className="ow-seatmap">
-        <div className="ow-seatrow ow-seathead">
-          <span className="ow-rowno" />
-          {cols.map((c, i) => (
-            <span key={c} className="ow-colhead" style={i === aisleAfter ? { marginRight: 14 } : undefined}>{c}</span>
-          ))}
-        </div>
-        {rowNos.map((r) => (
-          <div className="ow-seatrow" key={r}>
-            <span className="ow-rowno">{r}</span>
-            {cols.map((c, i) => {
-              const s = byKey.get(`${r}${c}`);
-              const gap = i === aisleAfter ? { marginRight: 14 } : undefined;
-              if (!s) return <span key={c} className="ow-seat occ" style={gap} title="Occupied / not available" />;
-              const on = selected === s.code;
-              return (
-                <button key={c} type="button" className={cls(s, on)} style={gap} title={tip(s)}
-                  aria-label={tip(s)} aria-pressed={on} disabled={disabled}
-                  onClick={() => onPick(on ? null : s)} />
-              );
-            })}
-          </div>
-        ))}
-      </div>
-    </>
   );
 }
