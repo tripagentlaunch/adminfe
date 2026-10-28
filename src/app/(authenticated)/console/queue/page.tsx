@@ -18,8 +18,11 @@ import { useWorkbench } from "../../../../lib/workbenchContext";
 export default function ConsoleQueuePage() {
   const { enquiries, members, membersById, inboxLoading, advisorId, creating, createOrder, member, selEnqId, pickEnquiry, pickMember, ensureEnquiryForMember } = useWorkbench();
 
+  // A fragment, not a <div>: the columns must be a direct child of .taw-main (a flex column capped at
+  // the screen height). A plain wrapper div has no height limit, so the columns grew to the full
+  // length of the itinerary and the whole page scrolled instead of each column.
   return (
-    <div>
+    <>
       <WorkbenchTab
         enquiries={enquiries}
         members={members}
@@ -34,6 +37,6 @@ export default function ConsoleQueuePage() {
         onPickMember={pickMember}
         onEnsureEnquiry={ensureEnquiryForMember}
       />
-    </div>
+    </>
   );
 }
