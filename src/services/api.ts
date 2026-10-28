@@ -2641,6 +2641,7 @@ export {
   getRealWhatsAppMessages,
   getConversationHandoff,
   getCustomerPresence,
+  getChatNotifications,
   setConversationHandoff,
   getMemberCode,
   sendChatbotReply,
@@ -2965,6 +2966,19 @@ function getCustomerPresence(code) {
     .then(function (res) { return res.ok ? res.json() : none; })
     .then(function (b) { return Object.assign({}, none, b || {}); })
     .catch(function () { return none; });
+}
+
+// getChatNotifications(sinceMs) — customers who wrote to Tara (website or WhatsApp) since `sinceMs`, for the
+// notification bell, via GET /admin/notifications/chats: { items: [{ code, name, channel ("web"|"whatsapp"),
+// text, at, first_at, count }], unavailable? }. Never rejects (a failed check is just an empty bell).
+function getChatNotifications(sinceMs) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.resolve({ items: [], unavailable: true });
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/notifications/chats?since=" + encodeURIComponent(Math.max(0, Math.floor(sinceMs || 0))),
+    { headers: { Authorization: "Bearer " + jwt } }, 12000)
+    .then(function (res) { return res.ok ? res.json() : { items: [], unavailable: true }; })
+    .then(function (b) { return { items: (b && b.items) || [], unavailable: !!(b && b.unavailable) }; })
+    .catch(function () { return { items: [], unavailable: true }; });
 }
 
 // getMemberCode(phone, email) — the Tara access code for a customer known only

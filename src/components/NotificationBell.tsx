@@ -1,0 +1,167 @@
+"use client";
+/* The advisor's notification bell (left rail, above the account menu): who is talking to Tara right now,
+   on the website or WhatsApp. Polls every 10s; a customer is "unread" until the advisor opens them (or marks
+   all read). A new chat also pops a toast, and a desktop notification when the tab is in the background and
+   the advisor allowed them. Click a customer to open their Conversation. */
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Icon } from "./ui";
+import { getChatNotifications } from "../services/api";
+import { toast } from "../lib/advisorHelpers";
+import { relTime } from "../lib/relTime";
+
+const POLL_MS = 10000;
+const WINDOW_MS = 24 * 3600 * 1000;      // chats from the last day
+const NEW_CHAT_GAP_MS = 30 * 60 * 1000;  // silence this long, then a message, is "started chatting"
+const ONLINE_MS = 5 * 60 * 1000;         // wrote within 5 minutes: "chatting now"
+const READ_KEY = "ta.notif.read.v1";
+
+type Item = { code: string; name: string; channel: string; text: string; at: number; first_at: number; count: number };
+
+function loadRead(): { all: number; by: Record<string, number> } {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(READ_KEY) || "null");
+    if (v && typeof v === "object") return { all: Number(v.all) || 0, by: v.by && typeof v.by === "object" ? v.by : {} };
+  } catch { /* storage blocked: nothing read yet */ }
+  return { all: 0, by: {} };
+}
+function saveRead(r: { all: number; by: Record<string, number> }) {
+  try { window.localStorage.setItem(READ_KEY, JSON.stringify(r)); } catch { /* not critical */ }
+}
+
+const channelLabel = (c: string) => (c === "whatsapp" ? "WhatsApp" : "Website");
+
+export function NotificationBell() {
+  const router = useRouter();
+  const [items, setItems] = useState<Item[]>([]);
+  const [read, setRead] = useState<{ all: number; by: Record<string, number> }>({ all: 0, by: {} });
+  const [open, setOpen] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [perm, setPerm] = useState<string>("unsupported");
+  const seen = useRef<Record<string, number> | null>(null); // code -> newest message time known (null until the first poll)
+  const box = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setRead(loadRead());
+    if (typeof Notification !== "undefined") setPerm(Notification.permission);
+  }, []);
+
+  const isUnread = useCallback((it: Item) => it.at > Math.max(read.all, read.by[it.code] || 0), [read]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      if (document.hidden && seen.current) return; // a background tab: wait until it is back (the first poll always runs)
+      const t = Date.now();
+      const r: any = await getChatNotifications(t - WINDOW_MS);
+      if (cancelled) return;
+      if (r.unavailable) return; // chatbot-be did not answer: keep what is shown, and treat the next good answer as the first
+      const list: Item[] = (r.items || []).slice().sort((a: Item, b: Item) => b.at - a.at);
+      setNow(t);
+      setItems(list);
+      const prev = seen.current;
+      const next: Record<string, number> = {};
+      for (const it of list) next[it.code] = it.at;
+      seen.current = next;
+      if (!prev) return; // first poll: just the badge, no alerts for what was already there
+      const mine = loadRead();
+      for (const it of list) {
+        const before = prev[it.code];
+        if (before !== undefined && it.at <= before) continue;
+        if (it.at <= Math.max(mine.all, mine.by[it.code] || 0)) continue; // already read
+        const started = before === undefined || it.at - before >= NEW_CHAT_GAP_MS;
+        const title = it.name + (started ? " started chatting" : " sent a new message") + " on " + channelLabel(it.channel);
+        toast(title + (it.text ? ': "' + it.text.slice(0, 80) + '"' : ""), "info");
+        try {
+          if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification(title, { body: it.text.slice(0, 120), tag: "ta-chat-" + it.code });
+          }
+        } catch { /* notifications blocked: the toast and badge still show */ }
+      }
+    }
+    poll();
+    const t = setInterval(poll, POLL_MS);
+    const onVisible = () => { if (!document.hidden) poll(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  const unread = items.filter(isUnread);
+
+  function openChat(it: Item) {
+    const next = { ...read, by: { ...read.by, [it.code]: it.at } };
+    setRead(next); saveRead(next); setOpen(false);
+    router.push("/console/conversation?code=" + encodeURIComponent(it.code));
+    // Already on the Conversation tab: it listens for this and switches customer.
+    window.dispatchEvent(new CustomEvent("ta:open-conversation", { detail: it.code }));
+  }
+  function markAllRead() {
+    const next = { all: Date.now(), by: read.by };
+    setRead(next); saveRead(next);
+  }
+  function enableDesktop() {
+    if (typeof Notification === "undefined") return;
+    Notification.requestPermission().then((p) => setPerm(p)).catch(() => {});
+  }
+
+  return (
+    <div className="ta-bell" ref={box}>
+      <button
+        type="button"
+        className={"ta-bell-btn" + (unread.length ? " has-unread" : "")}
+        onClick={() => { setOpen((v) => !v); setNow(Date.now()); }}
+        aria-label={unread.length ? unread.length + " customers chatting with Tara" : "Notifications"}
+        aria-expanded={open}
+        title="Customers chatting with Tara"
+      >
+        <Icon name="bell" size={18} />
+        {unread.length ? <span className="ta-bell-badge">{unread.length > 9 ? "9+" : unread.length}</span> : null}
+      </button>
+      {open ? (
+        <div className="ta-bell-pop" role="dialog" aria-label="Customers chatting with Tara">
+          <div className="ta-bell-head">
+            <strong>Customers chatting</strong>
+            {unread.length ? <button type="button" onClick={markAllRead}>Mark all read</button> : null}
+          </div>
+          <div className="ta-bell-list">
+            {items.length === 0 ? <div className="ta-bell-empty">No customer messages in the last 24 hours.</div> : null}
+            {items.map((it) => {
+              const live = now - it.at <= ONLINE_MS;
+              return (
+                <button key={it.code} type="button" className={"ta-bell-item" + (isUnread(it) ? " is-unread" : "")} onClick={() => openChat(it)}>
+                  <span className="ta-bell-ava">{(it.name || "?").trim().charAt(0).toUpperCase()}</span>
+                  <span className="ta-bell-main">
+                    <span className="ta-bell-top">
+                      <span className="ta-bell-name">{it.name}</span>
+                      <span className={"ta-bell-chan ch-" + it.channel}>{channelLabel(it.channel)}</span>
+                    </span>
+                    <span className="ta-bell-text">{it.text || "…"}</span>
+                    <span className="ta-bell-meta">
+                      {live ? <span className="ta-bell-live">● Chatting now</span> : relTime(it.at, now)}
+                      {it.count > 1 ? " · " + it.count + " messages" : ""}
+                    </span>
+                  </span>
+                  {isUnread(it) ? <span className="ta-bell-dot" aria-hidden="true" /> : null}
+                </button>
+              );
+            })}
+          </div>
+          {perm === "default" ? (
+            <button type="button" className="ta-bell-desktop" onClick={enableDesktop}>Turn on desktop alerts for new chats</button>
+          ) : perm === "denied" ? (
+            <div className="ta-bell-note">Desktop alerts are blocked in this browser.</div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}

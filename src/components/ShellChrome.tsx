@@ -27,6 +27,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "./ui";
 import { AccountMenu } from "./AccountMenu";
+import { NotificationBell } from "./NotificationBell";
 import { AdvisorSessionContext } from "../lib/advisorSessionContext";
 import { cx } from "../lib/cx";
 import "../styles/app-shell.css";
@@ -154,6 +155,7 @@ export function ShellChrome({
             ))}
           </div>
           <div className="ta-shell-footer">
+            <NotificationBell />
             <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />
           </div>
         </div>

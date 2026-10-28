@@ -60,7 +60,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ResizableColumns } from "../ResizableColumns";
 import { useRouter } from "next/navigation";
-import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
+import { getMessagesByPhone, sendMessageByPhone, siteMembers } from "../../services/api";
 
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { ChatbotConversationPanel, memberCode } from "./ChatbotConversationPanel";
@@ -571,9 +571,34 @@ export function WorkbenchTab(props: any) {
 export function ConversationTab() {
   const {
     enquiries, member, selEnqId, travellerProfile, travellers, analyzeConversation,
-    ensureEnquiryForMember, convoTarget, setSummaryDismissedFor,
+    ensureEnquiryForMember, convoTarget, setConvoTarget, setSummaryDismissedFor, membersById,
   } = useWorkbench();
   const router = useRouter();
+
+  // Opened from the notification bell: /console/conversation?code=<access code> (or the bell's event while this
+  // tab is already open) switches the conversation to that customer.
+  useEffect(() => {
+    let cancelled = false;
+    function openByCode(raw: string | null) {
+      const code = String(raw || "").trim().toUpperCase();
+      if (!code) return;
+      const known = Object.values(membersById || {}).find((m: any) => memberCode(m).toUpperCase() === code);
+      if (known) { setConvoTarget(known); return; }
+      siteMembers("select=*&invitation_code=eq." + encodeURIComponent(code) + "&limit=1")
+        .then((rows: any) => {
+          if (cancelled) return;
+          const m: any = Array.isArray(rows) && rows[0];
+          setConvoTarget(m ? { ...m, id: m.id || code, name: m.name || code, invitation_code: code } : { id: code, name: code, invitation_code: code });
+        })
+        .catch(() => { if (!cancelled) setConvoTarget({ id: code, name: code, invitation_code: code }); });
+    }
+    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    if (fromUrl) openByCode(fromUrl);
+    const onOpen = (e: Event) => openByCode((e as CustomEvent).detail);
+    window.addEventListener("ta:open-conversation", onOpen);
+    return () => { cancelled = true; window.removeEventListener("ta:open-conversation", onOpen); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersById]);
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   const askReady = !!(travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selEnqId);
   const baseAsk = askReady ? travellerProfile.enquiry.ask : (selectedEnquiry?.ask || {});
