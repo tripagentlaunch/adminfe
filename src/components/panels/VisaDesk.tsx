@@ -194,6 +194,12 @@ export function VisaDesk(props: any) {
         </div>
       ) : null}
       {loading ? <SkeletonResults /> : null}
+      {!loading && res && res.vendor_error ? (
+        <div className="taw-banner taw-banner--err">
+          <Icon name="alert" size={16} />
+          OneVasco wasn&apos;t used, so this is our own estimate, not a live price ({String(res.vendor_error)}).
+        </div>
+      ) : null}
       {!loading && res ? (
         <div className="taw-results">
           {offers.length ? (
