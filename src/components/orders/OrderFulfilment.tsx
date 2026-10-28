@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCheckHotel, bookingConfirmHotel, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingResetItem,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -70,6 +70,10 @@ function loadCheckout(): Promise<boolean> {
 }
 
 type Pending = { item: FulfilmentItem; acceptFare?: boolean } | null;
+type CancelQuote = {
+  booking_amount: number | null; cancellation_charges: number | null; refund_amount: number | null; discount: number | null;
+};
+type Cancelling = { item: FulfilmentItem; quote: CancelQuote | null } | null;
 
 export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged: () => void }) {
   const f = order.fulfilment;
@@ -85,6 +89,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     bookingPaymentGateway().then((g: Gateway) => live && setGw(g)).catch(() => live && setGwErr(true));
     return () => { live = false; };
   }, []);
+  const [cancelling, setCancelling] = useState<Cancelling>(null);
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
 
   if (!f) return null;
@@ -128,6 +133,62 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     } finally {
       setBusy(null);
       onChanged();
+    }
+  }
+
+  // Cancelling a room is irreversible, so the fee TripSure quotes is shown first.
+  async function openCancel(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    setConfirming(null);
+    try {
+      setCancelling({ item, quote: (await bookingHotelCancelQuote(item.id)) as CancelQuote });
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doCancel(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      await bookingCancelHotel(item.id);
+      toast("Hotel booking cancelled", "success");
+      setCancelling(null);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
+
+  async function downloadInvoice(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const r: any = await bookingHotelInvoice(item.id);
+      if (r.blob) {
+        const href = URL.createObjectURL(r.blob);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = `hotel-tax-invoice-${item.booking_ref || item.id.slice(0, 8)}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(href), 10000);
+      } else if (r.url) {
+        window.open(r.url, "_blank", "noopener");
+      } else {
+        toast("TripSure sent the invoice in a format that can't be downloaded here — see the console", "warn");
+        console.warn("hotel tax invoice response", r.data);
+      }
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -304,10 +365,20 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           {it.kind === "flight" ? "Issue ticket" : "Confirm hotel"}
                         </button>
                       ) : null}
-                      {it.kind === "hotel" && (it.status === "pending" || it.status === "check_required") ? (
+                      {it.kind === "hotel" && (it.status === "pending" || it.status === "check_required" || it.can_cancel) ? (
                         <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy}
                           onClick={() => simple(it.id, () => bookingCheckHotel(it.id), "Status updated from the supplier")}>
                           {busy === it.id ? "Checking…" : "Check status"}
+                        </button>
+                      ) : null}
+                      {it.kind === "hotel" && it.can_invoice ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => downloadInvoice(it)}>
+                          {busy === it.id ? "Working…" : "Tax invoice"}
+                        </button>
+                      ) : null}
+                      {it.kind === "hotel" && it.can_cancel ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => openCancel(it)}>
+                          Cancel booking
                         </button>
                       ) : null}
                       {it.status === "check_required" || it.status === "failed" ? (
@@ -327,6 +398,27 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           ? (setConfirming(null), simple(it.id, () => bookingResetItem(it.kind, it.id), "Cleared — you can book it again"))
                           : run(it)}
                       />
+                    ) : null}
+                    {cancelling?.item.id === it.id && cancelling.quote ? (
+                      <div className="ow-ful-confirm" role="alertdialog" aria-label="Confirm cancellation">
+                        <div style={{ whiteSpace: "normal" }}>
+                          Cancel <b>{it.title}</b>? TripSure&apos;s cancellation terms apply as of now:
+                        </div>
+                        <ul className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0" }}>
+                          {cancelling.quote.booking_amount != null ? <li>Booking amount: {fmtINR(cancelling.quote.booking_amount)}</li> : null}
+                          <li>Cancellation charges: <b>{fmtINR(cancelling.quote.cancellation_charges ?? 0)}</b></li>
+                          <li>Refund: <b>{fmtINR(cancelling.quote.refund_amount ?? 0)}</b></li>
+                        </ul>
+                        <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                          This can&apos;t be undone. Any refund to the customer is handled outside this screen.
+                        </div>
+                        <div className="ow-ful-acts">
+                          <button type="button" className="taw-btn taw-btn--sm" disabled={busy === it.id} onClick={() => setCancelling(null)}>Keep booking</button>
+                          <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={busy === it.id} onClick={() => doCancel(it)}>
+                            {busy === it.id ? "Cancelling…" : "Yes, cancel the room"}
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                     {fareChange?.item.id === it.id ? (
                       <div className="ow-ful-confirm">

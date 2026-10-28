@@ -2103,6 +2103,31 @@ function bookingConfirmHotel(hotelId) {
 function bookingCheckHotel(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/check-status", { method: "POST" });
 }
+// Post-booking (confirmed rooms): TripSure's cancellation fee, the cancel itself
+// (irreversible, one attempt), and the tax invoice.
+function bookingHotelCancelQuote(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancellation-quote", { method: "GET" });
+}
+function bookingCancelHotel(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST" });
+}
+// Resolves { blob } for a file, { url } for a hosted document, or { data } when
+// TripSure's answer is neither (shown as-is).
+function bookingHotelInvoice(hotelId) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/tax-invoice", {
+    method: "GET",
+    headers: { Authorization: "Bearer " + jwt },
+  }).then(function (res) {
+    var type = (res.headers.get("content-type") || "").toLowerCase();
+    if (res.ok && type.indexOf("json") === -1) return res.blob().then(function (blob) { return { blob: blob }; });
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) throw new ApiError(body.detail || "Tax invoice request failed.", { status: res.status, body: body });
+      return body.url ? { url: body.url } : { data: body.invoice };
+    });
+  });
+}
 // kind: "flight" | "hotel" — after verifying with TripSure that nothing was booked.
 function bookingResetItem(kind, itemId) {
   return fastapiBookingCall("/booking-orders/" + kind + "/" + encodeURIComponent(itemId) + "/reset", { method: "POST" });
@@ -2772,6 +2797,9 @@ export {
   bookingIssueTicket,
   bookingConfirmHotel,
   bookingCheckHotel,
+  bookingHotelCancelQuote,
+  bookingCancelHotel,
+  bookingHotelInvoice,
   bookingResetItem,
   bookingPaymentGateway,
   flightFareOptions,

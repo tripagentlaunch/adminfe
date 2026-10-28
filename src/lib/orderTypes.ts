@@ -76,6 +76,9 @@ export interface FulfilmentItem {
   amount?: number | null;
   can_book: boolean;
   blocked_reason?: string | null;
+  /** hotel only: a confirmed room can be cancelled / has a tax invoice. */
+  can_cancel?: boolean;
+  can_invoice?: boolean;
 }
 export interface PaymentRow { id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null }
 export interface Fulfilment {
