@@ -92,28 +92,27 @@ export function ConversationSummaryPanel({ enquiry, member, hasEnquiry, onGenera
     <Card
       title="Conversation Summary"
       icon={<Icon name="chat" size={20} />}
+      actions={
+        // Calls POST /enquiries/{id}/extract-trip-details (Claude, a few
+        // seconds) and refreshes the profile, so Key Requirements and
+        // Trip Preferences fill from the real WhatsApp conversation.
+        <button
+          type="button"
+          className="taw-btn taw-btn--sm"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          disabled={analyzing || !hasEnquiry}
+          title={hasEnquiry ? "Read the WhatsApp conversation and fill in trip details" : "Select an enquiry first"}
+          onClick={() => {
+            setAnalyzing(true);
+            Promise.resolve(onAnalyze()).finally(() => setAnalyzing(false));
+          }}
+        >
+          {analyzing ? <Spinner /> : <Icon name="sparkle" size={13} />}
+          {analyzing ? "Analyzing…" : "Analyze Conversation"}
+        </button>
+      }
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "center" }}>
-          {/* Calls POST /enquiries/{id}/extract-trip-details (Claude, a few
-              seconds) and refreshes the profile, so Key Requirements and
-              Trip Preferences fill from the real WhatsApp conversation. */}
-          <button
-            type="button"
-            className="taw-btn taw-btn--sm"
-            style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}
-            disabled={analyzing || !hasEnquiry}
-            title={hasEnquiry ? "Read the WhatsApp conversation and fill in trip details" : "Select an enquiry first"}
-            onClick={() => {
-              setAnalyzing(true);
-              Promise.resolve(onAnalyze()).finally(() => setAnalyzing(false));
-            }}
-          >
-            {analyzing ? <Spinner /> : <Icon name="sparkle" size={13} />}
-            {analyzing ? "Analyzing…" : "Analyze Conversation"}
-          </button>
-        </div>
-
         {(
           <div style={cardStyle}>
             <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6, fontSize: 14, fontWeight: 600, color: "#1F2430" }}>
