@@ -410,17 +410,17 @@
 @media (max-width:720px){.ow-grid2{grid-template-columns:1fr;}}
 
 /* Fare options sheet (FareOptionsPanel) */
-.ow-fopt-back{position:fixed;inset:0;z-index:90;background:rgba(20,20,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
-.ow-fopt{background:var(--card);border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:16px;display:grid;gap:12px;}
-.ow-fopt-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
-.ow-fopt-list{display:grid;gap:10px;}
-.ow-fopt-card{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px;}
-.ow-fopt-card.cur{border-color:var(--gold);}
-.ow-fopt-top{display:flex;justify-content:space-between;gap:12px;}
-.ow-fopt-price{text-align:right;display:grid;}
-.ow-fopt-feat{margin:0;padding:0;list-style:none;display:grid;gap:3px;font-size:13px;}
-.ow-fopt-feat li.ok{color:var(--ok,#1f6f5c);}
-.ow-fopt-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
-.ow-fopt-rules{border-top:1px dashed var(--line);padding-top:8px;display:grid;gap:6px;}
-.ow-fopt-rule{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px;}
-@media(max-width:560px){.ow-fopt-rule{grid-template-columns:1fr;}}
+.ow-fare-back{position:fixed;inset:0;z-index:90;background:rgba(20,20,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
+.ow-fare{background:var(--card);border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:16px;display:grid;gap:12px;}
+.ow-fare-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+.ow-fare-list{display:grid;gap:10px;}
+.ow-fare-card{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px;}
+.ow-fare-card.cur{border-color:var(--gold);}
+.ow-fare-top{display:flex;justify-content:space-between;gap:12px;}
+.ow-fare-price{text-align:right;display:grid;}
+.ow-fare-feat{margin:0;padding:0;list-style:none;display:grid;gap:3px;font-size:13px;}
+.ow-fare-feat li.ok{color:var(--ok,#1f6f5c);}
+.ow-fare-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+.ow-fare-rules{border-top:1px dashed var(--line);padding-top:8px;display:grid;gap:6px;}
+.ow-fare-rule{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px;}
+@media(max-width:560px){.ow-fare-rule{grid-template-columns:1fr;}}
