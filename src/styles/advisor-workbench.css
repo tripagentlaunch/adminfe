@@ -244,7 +244,11 @@ display:flex;flex-direction:column;}
    default align-items:stretch, so it sizes to its own content instead of
    matching the tallest column. See SearchDesksPanel.tsx's own docblock
    for the animated transition between this and the default stretch. */
-.taw-card--fit{align-self:start;}
+/* max-height:100% (2026-10-28): an align-self:start card is not stretched to the row, so tall
+   content (e.g. visa/hotel results) pushed it past the row and the whole Console page
+   scrolled under the header. Capped at the row's height it keeps its size when short, and
+   when tall its own results list (the min-height:0 flex chain below) scrolls inside it. */
+.taw-card--fit{align-self:start;max-height:100%;}
 .taw-card-h{position:relative;display:flex;align-items:center;gap:6px;padding:8px 12px;border-bottom:1px solid var(--line);flex:none;}
 .taw-card-h h3{margin:0;font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:0;color:var(--ink);}
 .taw-card-h .sub{font-family:var(--eyebrow);font-size:9.5px;color:var(--taupe);font-weight:500;letter-spacing:.18em;text-transform:uppercase;}

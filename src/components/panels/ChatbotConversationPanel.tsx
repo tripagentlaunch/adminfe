@@ -660,7 +660,7 @@ export function ChatbotConversationPanel({ member }: any) {
               <Virtuoso
                 key={code}
                 ref={listRef}
-                style={{ position: "absolute", inset: 0 }}
+                style={{ position: "absolute", inset: 0, overflowX: "hidden" }}
                 data={messages}
                 firstItemIndex={firstItemIndex}
                 initialTopMostItemIndex={{ index: "LAST", align: "end" }}
@@ -705,6 +705,9 @@ export function ChatbotConversationPanel({ member }: any) {
                           color: "#1F2430",
                           lineHeight: 1.45,
                           whiteSpace: "pre-wrap",
+                          // A long link (an itinerary URL) wraps inside the bubble instead of pushing the thread sideways.
+                          overflowWrap: "anywhere",
+                          minWidth: 0,
                         }}
                       >
                         <div style={{ fontSize: 10.5, fontWeight: 600, color: "#8A8070", marginBottom: 3 }}>
