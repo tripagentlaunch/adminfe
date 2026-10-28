@@ -57,6 +57,17 @@ function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero
   return <img className={hero ? "ow-hero-img" : "ow-hcard-img"} src={src} alt={alt} loading="lazy" onError={() => setBad(true)} />;
 }
 
+// Tripsure sends check-in instructions as strings holding HTML-escaped HTML ("&lt;ul&gt;…").
+// Decoded and flattened to plain text lines — never injected as markup.
+function plainInstructions(list: any): string[] {
+  const decode = (t: string) => new DOMParser().parseFromString(t, "text/html").documentElement.textContent || "";
+  return (Array.isArray(list) ? list : [])
+    .map((x) => decode(decode(String(x || "")).replace(/<\/(li|p)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")))
+    .flatMap((t) => t.split("\n"))
+    .map((t) => t.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
 function roomOptions(det: any): any[] {
   const out: any[] = [];
   ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
@@ -116,11 +127,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [adding, setAdding] = useState(false);
 
   // Stage A: the recorded row + the handles needed to lock it.
-  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; label: string } | null>(null);
+  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
     mobile: customer.phone || "", email: customer.email || "", pan: "",
+    streetAddress1: "", city: "", state: "", postalCode: "",
   });
+  const [lockChanges, setLockChanges] = useState<string | null>(null); // "changed since added" message awaiting the advisor's OK
   const [lockInfo, setLockInfo] = useState<any | null>(null);
   const setG = (k: string, v: string) => setGuest((g) => ({ ...g, [k]: v }));
 
@@ -292,6 +305,16 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           [opt.code]: {
             state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total,
             panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
+            addressRequired: !!r.customerAddressRequired,
+            instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
+            // what the live check says that the room list didn't (guide: show the customer any change)
+            changes: [
+              rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
+              rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
+                ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
+              (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end
+                !== opt.freeUntil && opt.freeUntil ? "Free-cancellation deadline changed" : null,
+            ].filter(Boolean),
           },
         }));
       })
@@ -332,6 +355,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       .then((r: any) => {
         setAdded({
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(checks[opt.code] || {}).panRequired,
+          addressRequired: !!(checks[opt.code] || {}).addressRequired,
           handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
         });
@@ -341,9 +365,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       .finally(() => setAdding(false));
   }
 
-  function lockRoom() {
+  function lockRoom(acceptChanges = false) {
     if (!added) return;
     onError(null);
+    setLockChanges(null);
     setAdding(true);
     bookingLockHotelItinerary({
       booking_hotel_id: added.hotelId,
@@ -351,10 +376,16 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       guest: {
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
         mobile: guest.mobile.replace(/\D/g, ""), email: guest.email.trim(), pan: guest.pan.trim() || null,
+        streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
       },
+      accept_changes: acceptChanges,
     })
       .then((r: any) => { setLockInfo(r); setSub("locked"); })
-      .catch((e: any) => onError(errText(e)))
+      .catch((e: any) => {
+        const msg = errText(e);
+        if (e && e.status === 409 && /^Changed since this room was added/i.test(msg)) setLockChanges(msg);
+        else onError(msg);
+      })
       .finally(() => setAdding(false));
   }
 
@@ -584,7 +615,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   if (sub === "guest" && added) {
     const pan = guest.pan.trim().toUpperCase();
     const panBad = (added.panRequired && !pan) || (pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan));
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{7,15}$/.test(guest.mobile.replace(/\D/g, "")) && guest.email.includes("@") && !panBad;
+    const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
+    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{7,15}$/.test(guest.mobile.replace(/\D/g, "")) && guest.email.includes("@") && !panBad && !addrBad;
     return (
       <>
         <div className="taw-banner taw-banner--info">
@@ -607,11 +639,31 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             onChange={(e) => setG("pan", e.target.value.toUpperCase())} />
         </Field>
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>PAN is sent to Tripsure only and is never stored.</div>
+        {added.addressRequired ? (
+          <>
+            <div className="taw-banner taw-banner--info">This rate needs the customer&apos;s address.</div>
+            <div className="ow-grid2">
+              <Field label="Street address" htmlFor="nbg-street"><input className="taw-input" value={guest.streetAddress1} onChange={(e) => setG("streetAddress1", e.target.value)} /></Field>
+              <Field label="City" htmlFor="nbg-city"><input className="taw-input" value={guest.city} onChange={(e) => setG("city", e.target.value)} /></Field>
+              <Field label="State" htmlFor="nbg-state"><input className="taw-input" value={guest.state} onChange={(e) => setG("state", e.target.value)} /></Field>
+              <Field label="Postal code" htmlFor="nbg-pin"><input className="taw-input" value={guest.postalCode} onChange={(e) => setG("postalCode", e.target.value)} /></Field>
+            </div>
+          </>
+        ) : null}
+        {lockChanges ? (
+          <div className="taw-banner taw-banner--warn" role="alert">
+            <div style={{ whiteSpace: "normal" }}>{lockChanges}</div>
+            <div className="ow-ful-acts">
+              <button type="button" className="taw-btn taw-btn--sm" onClick={() => setLockChanges(null)} disabled={adding}>Don&apos;t lock</button>
+              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => lockRoom(true)} disabled={adding}>Accept changes and lock</button>
+            </div>
+          </div>
+        ) : null}
         <div className="ow-modal-foot">
           <button type="button" className="taw-btn" onClick={() => onAdded(added.orderId)} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
             Skip (lock later by searching again)
           </button>
-          <button type="button" className="taw-btn taw-btn--primary" onClick={lockRoom} disabled={adding || !ready}>
+          <button type="button" className="taw-btn taw-btn--primary" onClick={() => lockRoom()} disabled={adding || !ready}>
             {adding ? "Locking room…" : "Lock room"}
           </button>
         </div>
@@ -847,6 +899,19 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               <details className="ow-room-pol">
                 <summary>Cancellation policy</summary>
                 <div className="ow-pre">{opt.cancellation}</div>
+              </details>
+            ) : null}
+            {chk.state === "ok" && chk.changes && chk.changes.length ? (
+              <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+                Changed since the room list: {chk.changes.join("; ")}. Tell the customer before adding.
+              </div>
+            ) : null}
+            {chk.state === "ok" && chk.instructions && chk.instructions.length ? (
+              <details className="ow-room-pol">
+                <summary>Check-in instructions, fees &amp; rules</summary>
+                <ul className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0 0", paddingLeft: 18 }}>
+                  {chk.instructions.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                </ul>
               </details>
             ) : null}
             <div className="ow-seg-foot">
