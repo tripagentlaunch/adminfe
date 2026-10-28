@@ -36,7 +36,7 @@ const CABINS = [
 ];
 
 type Pick = { code: string; label: string; price: number };
-type SegSel = { seat: Pick | null; baggage: Pick | null };
+type SegSel = { seat: Pick | null; baggage: Pick | null; meal: Pick | null };
 
 // Sector keys look like "2_DEL$BOM" ({providerId}_{origin}${dest}).
 function ssrSector(catalog: any, o?: string, d?: string): any | null {
@@ -44,6 +44,14 @@ function ssrSector(catalog: any, o?: string, d?: string): any | null {
   const suffix = `_${o}$${d}`;
   const hits = Object.keys(data).filter((k) => k.endsWith(suffix));
   return hits.length === 1 ? data[hits[0]] : null;
+}
+// The server's normalized SSR (flight_ssr_service): same sector keys, stable
+// baggage / meals / seats lists. Seats the airline lists as booked are left out,
+// so the grid shows them as occupied.
+function ssrNorm(catalog: any, o?: string, d?: string): any | null {
+  const n = catalog?.normalized || {};
+  const hits = Object.keys(n).filter((k) => k.endsWith(`_${o}$${d}`));
+  return hits.length === 1 ? n[hits[0]] : null;
 }
 const baggageLabel = (b: any) => b.text || (b.weight ? `Extra ${b.weight} kg` : b.code);
 const isLegroom = (s: any) => /legroom|exit/i.test(String(s.seatType || s.description || ""));
@@ -248,7 +256,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [seatSeg, setSeatSeg] = useState(0);
-  const [seatTab, setSeatTab] = useState<"baggage" | "seats">("baggage");
+  const [seatTab, setSeatTab] = useState<"baggage" | "seats" | "meals">("baggage");
 
   function setDraftBoth(d: { itineraryId: string; tripsureId: string } | null) {
     draftRef.current = d;
@@ -357,7 +365,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setSsr(catalog);
       setSelectedOffer(offer);
       setSelectedReturn(returnOffer || null);
-      setSel((segments.length ? segments : [null]).map(() => ({ seat: null, baggage: null })));
+      setSel((segments.length ? segments : [null]).map(() => ({ seat: null, baggage: null, meal: null })));
       setSeatSeg(0);
       setSeatTab("baggage");
       setStep("seats");
@@ -406,6 +414,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   function pickSeat(i: number, v: Pick | null) {
     setSel((prev) => prev.map((p, j) => (j === i ? { ...p, seat: v } : p)));
   }
+  function pickMeal(i: number, v: Pick | null) {
+    setSel((prev) => prev.map((p, j) => (j === i ? { ...p, meal: v } : p)));
+  }
   function pickBaggage(i: number, v: Pick | null) {
     setSel((prev) => prev.map((p, j) => (j === i ? { ...p, baggage: v } : p)));
   }
@@ -427,8 +438,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         segment_order: i + 1,
         seat: p.seat ? { code: p.seat.code, label: p.seat.label, price: p.seat.price } : null,
         baggage: p.baggage ? { code: p.baggage.code, label: p.baggage.label, price: p.baggage.price } : null,
+        meal: p.meal ? { code: p.meal.code, label: p.meal.label, price: p.meal.price } : null,
       }))
-      .filter((x) => x.seat || x.baggage);
+      .filter((x) => x.seat || x.baggage || x.meal);
     setCreating(true);
     setErr(null);
     // Server re-verifies every price against Tripsure SSR (409 on mismatch).
@@ -885,17 +897,21 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           const rows = segments.length > 0 ? segments : [null];
           const si = Math.min(seatSeg, rows.length - 1);
           const seg = rows[si];
-          const block = seg ? ssrSector(ssr, seg.departureAirport, seg.arrivalAirport) : ssrSector(ssr, d.originCode, d.destCode);
-          const bagOpts: any[] = (block?.baggage || []).filter((b: any) => b && b.code);
-          const seatOpts: any[] = (block?.seats || []).filter((x: any) => x && x.code);
+          const block = seg ? ssrNorm(ssr, seg.departureAirport, seg.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
+          const bagOpts: any[] = (block?.baggage || []).map((b: any) => ({ ...b, text: b.label }));
+          const mealOpts: any[] = block?.meals || [];
+          const seatOpts: any[] = (block?.seats || [])
+            .filter((x: any) => !x.booked)
+            .map((x: any) => ({ ...x, seatType: x.legroom ? "Extra legroom" : x.window ? "Window" : x.aisle ? "Aisle" : "" }));
           const noneAtAll = rows.every((s: any) => {
-            const b = s ? ssrSector(ssr, s.departureAirport, s.arrivalAirport) : ssrSector(ssr, d.originCode, d.destCode);
-            return !(b?.baggage || []).length && !(b?.seats || []).length;
+            const b = s ? ssrNorm(ssr, s.departureAirport, s.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
+            return !b?.offered?.baggage && !b?.offered?.seats && !b?.offered?.meals;
           });
-          const cur = sel[si] || { seat: null, baggage: null };
+          const cur = sel[si] || { seat: null, baggage: null, meal: null };
+          const mealCount = sel.filter((p) => p.meal).length;
           const bagCount = sel.filter((p) => p.baggage).length;
           const seatCount = sel.filter((p) => p.seat).length;
-          const extrasTotal = sel.reduce((n, p) => n + (p.seat?.price || 0) + (p.baggage?.price || 0), 0);
+          const extrasTotal = sel.reduce((n, p) => n + (p.seat?.price || 0) + (p.baggage?.price || 0) + (p.meal?.price || 0), 0);
           const busy = creating || leaving;
           return (
             <>
@@ -942,7 +958,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 <div className="ow-empty">
                   <Icon name="luggage" size={20} />
                   <div><b>No extras available for this fare</b></div>
-                  <div className="ow-sub">The airline offers no extra baggage or seat selection here. You can still confirm and lock the fare.</div>
+                  <div className="ow-sub">The airline returned no seat map, extra baggage or meals for this flight ({d.airlineName || d.airline}). That is the airline&apos;s answer for this fare, not an error — you can still confirm and lock the fare.</div>
                 </div>
               ) : (
                 <div className="ow-sel">
@@ -950,6 +966,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     {([
                       { k: "baggage", label: "Baggage", icon: "luggage", n: bagCount },
                       { k: "seats", label: "Seats", icon: "flight", n: seatCount },
+                      { k: "meals", label: "Meals", icon: "note", n: mealCount },
                     ] as const).map((t) => (
                       <button
                         key={t.k} type="button" role="tab" aria-selected={seatTab === t.k}
@@ -974,7 +991,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                       </div>
                     ) : null}
                     <div className="ow-sel-title">
-                      {seatTab === "baggage" ? "Extra baggage" : "Seat selection"}
+                      {seatTab === "baggage" ? "Extra baggage" : seatTab === "meals" ? "Meals" : "Seat selection"}
                       <span className="ow-sub">
                         {seg ? `${seg.departureAirport} → ${seg.arrivalAirport} · ${fmtDay(seg.departureDateTime)}` : "Flight preferences"}
                       </span>
@@ -1008,6 +1025,29 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                           <div className="ow-sub">One extra-baggage option per segment.</div>
                         </div>
                       )
+                    ) : seatTab === "meals" ? (
+                      mealOpts.length === 0 ? (
+                        <div className="ow-sub">No meals can be pre-ordered for this segment.</div>
+                      ) : (
+                        <div className="ow-cards">
+                          {mealOpts.map((m: any) => {
+                            const on = cur.meal?.code === m.code;
+                            const pick: Pick = { code: m.code, label: m.label, price: Number(m.price) || 0 };
+                            return (
+                              <div key={m.code} className={`ow-card${on ? " on" : ""}`}>
+                                <span className="ow-card-ic"><Icon name="note" size={18} /></span>
+                                <div className="ow-card-main">
+                                  <div className="ow-card-t">{m.label}{m.special ? " · special" : ""}</div>
+                                  <div className="ow-card-s">{pick.price > 0 ? inr(pick.price) : "Included"}</div>
+                                </div>
+                                <button type="button" className={`taw-btn taw-btn--sm${on ? "" : " taw-btn--primary"}`} disabled={busy}
+                                  onClick={() => pickMeal(si, on ? null : pick)}>{on ? "Remove" : "Add"}</button>
+                              </div>
+                            );
+                          })}
+                          <div className="ow-sub">One meal per segment, for the lead traveller.</div>
+                        </div>
+                      )
                     ) : seatOpts.length === 0 ? (
                       <div className="ow-sub">Seat selection is not offered for this segment.</div>
                     ) : (
@@ -1029,7 +1069,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   <b>{inr(fareTotal + extrasTotal)}</b>
                   <small>
                     {extrasTotal > 0
-                      ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} extras (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : ""].filter(Boolean).join(", ")})`
+                      ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} extras (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : "", mealCount ? `${mealCount} meal` : ""].filter(Boolean).join(", ")})`
                       : "No extras selected"}
                   </small>
                 </div>
