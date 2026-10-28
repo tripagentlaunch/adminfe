@@ -234,7 +234,8 @@ function PendingFlightRow({ f }: { f: any }) {
 // What the stay is really like: a photo strip and the specifics that take
 // effort to find (what the rate includes, check-in window, cancellation,
 // must-read rules, nearby). From adminbe's /hotels/facts; nothing invented.
-function StayDetails({ facts }: { facts: any }) {
+// `skip`: fact labels already shown elsewhere (the wide card's summary column).
+function StayDetails({ facts, skip = [] }: { facts: any; skip?: string[] }) {
   const [big, setBig] = useState<string | null>(null);
   if (!facts) return null;
   const room = facts.room || {};
@@ -250,6 +251,7 @@ function StayDetails({ facts }: { facts: any }) {
   if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 3).join(" · ")]);
   if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 4).join(" · ")]);
   if (facts.guestRating && facts.guestRating.rating) lines.push(["Guest rating", facts.guestRating.rating + (facts.guestRating.count ? " (" + facts.guestRating.count + " reviews)" : "")]);
+  const shown = lines.filter(([k]) => !skip.includes(k));
   return (
     <div className="pv-staydetails">
       {photos.length > 1 ? (
@@ -260,9 +262,9 @@ function StayDetails({ facts }: { facts: any }) {
           ))}
         </div>
       ) : null}
-      {lines.length ? (
+      {shown.length ? (
         <dl className="pv-stayfacts">
-          {lines.map(([k, v]) => (
+          {shown.map(([k, v]) => (
             <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
           ))}
         </dl>
@@ -381,6 +383,72 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
     </div>
   );
 
+  // Desktop (2026-10-28): the chosen stay across the full width (photos left;
+  // name, room, price and the quick facts right), its details in two columns
+  // below, and the alternatives as a row of cards underneath, instead of a
+  // half-width card beside a mostly empty alternatives column.
+  const f = st.facts || {};
+  const quick: [string, string][] = [];
+  if (f.checkIn || f.checkOut) quick.push(["Check-in / out", [f.checkIn ? f.checkIn + (f.checkInUntil ? " – " + f.checkInUntil : "") : null, f.checkOut].filter(Boolean).join(" / ")]);
+  if (f.guestRating && f.guestRating.rating) quick.push(["Guest rating", f.guestRating.rating + (f.guestRating.count ? " (" + f.guestRating.count + " reviews)" : "")]);
+  if (f.room && (f.room.inclusions || []).length) quick.push(["Included", f.room.inclusions.join(" · ")]);
+  const wide = (
+    <div className="pv-staywide">
+      <div className="pv-staywide-top">
+        <div className="pv-recstay-stacked-media">
+          <PhotoCarousel images={stayImages(st)} className="pv-staywide-photo" />
+          <div className="pv-recstay-chip-overlay">
+            <span className="pv-chip pv-chip--choice">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l2.9 6.6 7.1.6-5.4 4.7 1.6 7-6.2-3.8L6 21l1.6-7L2.2 9.2l7.1-.6z" />
+              </svg>
+              {badge}
+            </span>
+          </div>
+        </div>
+        <div className="pv-staywide-summary">
+          <span className="pv-option-name pv-option-name--block">{st.name}</span>
+          {st.roomAndBoard ? <div className="pv-option-detail" style={{ marginTop: 6 }}>{st.roomAndBoard}</div> : null}
+          <div className="pv-option-price pv-option-price--hotel" style={{ marginTop: 10 }}>
+            {inr(st.price)}
+            {st.priceIsEstimate ? <EstimateBadge /> : null}
+          </div>
+          {quick.length ? (
+            <dl className="pv-stayfacts pv-stayfacts--quick">
+              {quick.map(([k, v]) => (
+                <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+              ))}
+            </dl>
+          ) : null}
+        </div>
+      </div>
+      <div className="pv-staywide-more">
+        <StayDetails facts={st.facts} skip={quick.map(([k]) => k)} />
+      </div>
+    </div>
+  );
+
+  const altCards = alts.map((a: any) => (
+    <div className="pv-altcard" key={a.hotelKey}>
+      {a.image ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="pv-altcard-photo" src={a.image} alt="" onError={hideBrokenImage} />
+      ) : <div className="pv-altcard-photo" aria-hidden="true" />}
+      <div className="pv-altcard-body">
+        <span className="pv-option-name pv-option-name--block">{a.name}</span>
+        {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
+        <div className="pv-altcard-foot">
+          <span className="pv-option-price">{inr(a.price)}</span>
+          {onSwap && st.id ? (
+            <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
+              Swap
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  ));
+
   const altRows = alts.map((a: any) => (
     <div className="pv-option" key={a.hotelKey}>
       {a.image ? (
@@ -411,15 +479,17 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
       </details>
     </>
   ) : (
-    <div className="pv-recgroup-split">
-      <div>{chosen}</div>
-      <div>
-        <div className="pv-recgroup-eyebrow" style={{ marginBottom: 10 }}>
-          Alternatives
+    <>
+      {wide}
+      {alts.length ? (
+        <div className="pv-altcards-wrap">
+          <div className="pv-recgroup-eyebrow" style={{ marginBottom: 10 }}>
+            Alternatives
+          </div>
+          <div className="pv-altcards">{altCards}</div>
         </div>
-        <div className="pv-alt-stack">{altRows}</div>
-      </div>
-    </div>
+      ) : null}
+    </>
   );
 }
 
@@ -654,7 +724,7 @@ export function ProposalPreviewPage({
                         {data.costLines.map((ln: any, i: number) => (
                           <div className="pv-costrow" key={i}>
                             <span>{ln.label}</span>
-                            <span>{inr(ln.sell)}</span>
+                            <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
                           </div>
                         ))}
                         <div className="pv-costrow pv-costrow--total">

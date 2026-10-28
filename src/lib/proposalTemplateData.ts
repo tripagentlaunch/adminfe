@@ -484,6 +484,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   const itemQueuesByType: Record<string, any[]> = {};
   for (const day of days) {
     for (const it of day.items || []) {
+      if (it.type === "note" || !(it.type === "flight" || it.type === "hotel" || Number(it.price) > 0)) continue; // same as cartFromItinerary
       (itemQueuesByType[it.type] ||= []).push({ ...it, _route: day.route });
     }
   }
@@ -497,7 +498,10 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     if (item.type === "flight") {
       const airline = (item.title || "").split(" · ")[0];
       const cabin = item.cabin ? item.cabin.toLowerCase() : "";
-      return [airline, cabin].filter(Boolean).join(" ") + (item._route ? `, ${item._route}` : "");
+      // The flight's own route; a day's route only when it is one ("DEL → GOI"), not a day title.
+      const titleRoute = String(item.title || "").split(" · ").find((x: string) => x.includes("→"));
+      const route = item.origin && item.dest ? `${item.origin} → ${item.dest}` : titleRoute || (String(item._route || "").includes("→") ? item._route : "");
+      return [airline, cabin].filter(Boolean).join(" ") + (route ? `, ${route}` : "");
     }
     if (item.type === "hotel") {
       const hotelName = (item.title || "").split(",")[0];

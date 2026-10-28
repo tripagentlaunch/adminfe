@@ -680,8 +680,11 @@ export function addRecommendedHotelToItinerary(data: any, hotel: any, base: Hote
 // wired to real pricing," not a new gap this function introduces.
 export function cartFromItinerary(data: any): any[] {
   if (!data) return [];
+  // Only what can be priced: a day's note (Tara's "Arrival and a Royal Welcome") or an
+  // unpriced activity is not a cost line ("… ₹0" in the proposal's What it costs).
+  const bookable = (it: any) => it.type === "flight" || it.type === "hotel" || (it.type !== "note" && Number(it.price) > 0);
   const items = (data.days || []).flatMap((day: any) =>
-    (day.items || []).map((it: any) => ({
+    (day.items || []).filter(bookable).map((it: any) => ({
       type: it.type,
       product: it.type,
       baseNet: it.price || 0,
