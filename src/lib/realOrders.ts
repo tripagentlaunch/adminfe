@@ -124,7 +124,7 @@ function hotelToUi(h: any): Hotel {
     amenities: h.amenities || [],
     checkIn: h.check_in ? `${shortDate(h.check_in)} ${h.check_in.slice(0, 4)}` : "—",
     checkOut: h.check_out ? `${shortDate(h.check_out)} ${h.check_out.slice(0, 4)}` : "—",
-    nights: h.nights ?? 0,
+    nights: h.nights ?? (h.check_in && h.check_out ? Math.max(0, Math.round((Date.parse(h.check_out) - Date.parse(h.check_in)) / 86_400_000)) : 0),
     rooms: h.rooms ?? 1,
     total: Number(h.total_price) || 0,
     tone: LIVE_TONE,

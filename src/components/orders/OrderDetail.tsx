@@ -8,6 +8,22 @@ import { fmtINR, type Flight, type Hotel, type Itinerary, type Order, type Visa 
 import { statusClass } from "./orderUi";
 import { OrderFulfilment } from "./OrderFulfilment";
 
+// A stay's photo over its gradient + name; if the photo is missing or fails to load,
+// the gradient and name stay (never a broken image).
+function Photo({ src, tone, label }: { src?: string | null; tone: string; label: string }) {
+  const [bad, setBad] = useState(false);
+  return (
+    <div className="ow-photo" style={{ background: tone, position: "relative", overflow: "hidden" }}>
+      {src && !bad ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={label} loading="lazy" onError={() => setBad(true)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : null}
+      <span style={{ position: "relative" }}>{label}</span>
+    </div>
+  );
+}
+
 function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
   const [open, setOpen] = useState(false);
   return (
@@ -52,7 +68,7 @@ function HotelTab({ h }: { h: Hotel | null }) {
   return (
     <div className="ow-card">
       <div className="ow-hotel">
-        <div className="ow-photo" style={{ background: h.tone }}>{h.name}</div>
+        <Photo src={h.imageUrl} tone={h.tone} label={h.name} />
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
             <div>
@@ -183,7 +199,7 @@ export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; o
 
         <div>
           <div className="ow-card ow-trip">
-            <div className="ow-photo" style={{ background: order.tone }}>{order.destination}</div>
+            <Photo src={it.hotel?.imageUrl} tone={order.tone} label={order.destination} />
             <h5>{it.title}</h5>
             <div className="m"><Icon name="calendar" size={13} /> {it.dates}</div>
             <div className="m"><Icon name="user" size={13} /> {n} traveller{n === 1 ? "" : "s"} · Lead: {lead ? lead.name : "not added yet"}</div>

@@ -341,7 +341,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         address: info.address || null,
         city: info.city || null,
         rating: info.starRating != null ? Math.min(5, Number(info.starRating) || 0) : null,
-        image_url: info.image || null,
+        image_url: info.image
+          || ((details && details.hotelInfo && details.hotelInfo.imageInfo) || []).map((i: any) => i.largeImageUrl || i.wideAngleImageUrl || i.thumbnailImageUrl).find(Boolean)
+          || null,
         latitude: info.latitude != null ? Number(info.latitude) : null,
         longitude: info.longitude != null ? Number(info.longitude) : null,
         amenities,
