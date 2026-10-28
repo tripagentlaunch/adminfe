@@ -458,3 +458,5 @@
 .ow-sm-info{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:34px;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
 .ow-sm-info small{color:var(--taupe);}
 .ow-sm-info .taw-btn{margin-left:auto;}
+.ow-sel-tab.off{opacity:.55;}
+.ow-sel-tab small{margin-left:auto;font-size:10px;color:var(--taupe);}

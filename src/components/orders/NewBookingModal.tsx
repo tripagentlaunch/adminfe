@@ -368,7 +368,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setSelectedReturn(returnOffer || null);
       setSel((segments.length ? segments : [null]).map(() => ({ seat: null, baggage: null, meal: null })));
       setSeatSeg(0);
-      setSeatTab("baggage");
+      // Open on the first tab the airline actually offers something for (Air India often has meals only).
+      const first = ssrNorm(catalog, segments[0]?.departureAirport, segments[0]?.arrivalAirport)?.offered;
+      setSeatTab(first?.baggage ? "baggage" : first?.seats ? "seats" : first?.meals ? "meals" : "baggage");
       setStep("seats");
     } catch (e: any) {
       if (created) await discardDraft();
@@ -968,12 +970,12 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     ] as const).map((t) => (
                       <button
                         key={t.k} type="button" role="tab" aria-selected={seatTab === t.k}
-                        className={`ow-sel-tab${seatTab === t.k ? " on" : ""}`}
+                        className={`ow-sel-tab${seatTab === t.k ? " on" : ""}${block?.offered?.[t.k] ? "" : " off"}`}
                         onClick={() => setSeatTab(t.k)}
                       >
                         <Icon name={t.icon} size={15} />
                         <span>{t.label}</span>
-                        {t.n ? <em>{t.n}</em> : null}
+                        {t.n ? <em>{t.n}</em> : block?.offered?.[t.k] ? null : <small>not offered</small>}
                       </button>
                     ))}
                   </div>
@@ -997,7 +999,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
                     {seatTab === "baggage" ? (
                       bagOpts.length === 0 ? (
-                        <div className="ow-sub">No extra baggage is offered for this segment.</div>
+                        <div className="ow-sub" style={{ whiteSpace: "normal" }}>{d.airlineName || d.airline} offers no extra baggage for this segment on this fare — the fare&apos;s included baggage applies.</div>
                       ) : (
                         <div className="ow-cards">
                           {bagOpts.map((b: any) => {
@@ -1047,7 +1049,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                         </div>
                       )
                     ) : !block?.offered?.seats ? (
-                      <div className="ow-sub">The airline offers no seat selection for this segment.</div>
+                      <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                        {d.airlineName || d.airline} doesn&apos;t offer seat selection for this segment on this fare through TripSure
+                        {block?.offered?.meals ? " — only meals can be pre-ordered. The seat is assigned by the airline at check-in." : ". The seat is assigned by the airline at check-in."}
+                      </div>
                     ) : (
                       <SeatMap
                         seats={block.seats}
