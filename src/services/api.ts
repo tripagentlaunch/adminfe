@@ -2025,6 +2025,14 @@ function bookingCreateFlightItinerary(payload) {
 function flightSsr(tripsureItineraryId) {
   return fastapiFlightCall("/flights/itinerary/" + encodeURIComponent(tripsureItineraryId) + "/ssr", { method: "GET" });
 }
+// Every fare option (Saver/Flex...) of one searched flight, and the fare rules
+// of one fare. Body fields: see backend flight_router FareOptionsRequest.
+function flightFareOptions(payload) {
+  return fastapiFlightCall("/flights/fare-options", { method: "POST", body: payload });
+}
+function flightFareRulesView(payload) {
+  return fastapiFlightCall("/flights/fare-rules-view", { method: "POST", body: payload });
+}
 function bookingConfirmFlightItinerary(itineraryId, payload) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/confirm", { method: "POST", body: payload });
 }
@@ -2070,6 +2078,17 @@ function bookingSaveTravellers(orderId, payload) {
 }
 function bookingRecordPayment(orderId, payload) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/payments", { method: "POST", body: payload });
+}
+// Razorpay: which credentials are set ({configured, missing[], key_id, mode}),
+// then create the order for the amount due and confirm the Checkout result.
+function bookingPaymentGateway() {
+  return fastapiBookingCall("/booking-orders/payment-gateway", { method: "GET" });
+}
+function bookingRazorpayOrder(orderId) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/razorpay/order", { method: "POST" });
+}
+function bookingRazorpayConfirm(orderId, payload) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/razorpay/confirm", { method: "POST", body: payload });
 }
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
 function bookingIssueTicket(itineraryId, acceptFareChange) {
@@ -2753,6 +2772,11 @@ export {
   bookingConfirmHotel,
   bookingCheckHotel,
   bookingResetItem,
+  bookingPaymentGateway,
+  flightFareOptions,
+  flightFareRulesView,
+  bookingRazorpayOrder,
+  bookingRazorpayConfirm,
   enquiryWorkspaceList,
   enquiryWorkspaceGet,
   enquiryWorkspaceSave,

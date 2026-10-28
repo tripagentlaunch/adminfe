@@ -3,10 +3,11 @@
    shows comes from GET /booking-orders/{id} -> fulfilment (server-computed:
    what is done, what is blocked and why). Ticketing and hotel confirmation are
    irreversible, so each asks for an in-page confirmation first. */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCheckHotel, bookingConfirmHotel, bookingIssueTicket, bookingRecordPayment, bookingResetItem,
+  bookingCheckHotel, bookingConfirmHotel, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingRazorpayOrder, bookingRecordPayment, bookingResetItem,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
@@ -54,6 +55,20 @@ const paxText = (m: Record<string, number> | null | undefined) =>
     .map(([k, w]) => `${m[k]} ${w}${m[k] === 1 ? "" : k === "child" ? "ren" : "s"}`)
     .join(", ");
 
+type Gateway = { configured: boolean; webhook_configured: boolean; missing: string[]; mode: "test" | "live" | null };
+
+function loadCheckout(): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  if ((window as any).Razorpay) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve(true);
+    s.onerror = () => resolve(false);
+    document.body.appendChild(s);
+  });
+}
+
 type Pending = { item: FulfilmentItem; acceptFare?: boolean } | null;
 
 export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged: () => void }) {
@@ -63,6 +78,13 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [confirming, setConfirming] = useState<Pending>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [gw, setGw] = useState<Gateway | null>(null);
+  const [gwErr, setGwErr] = useState(false);
+  useEffect(() => {
+    let live = true;
+    bookingPaymentGateway().then((g: Gateway) => live && setGw(g)).catch(() => live && setGwErr(true));
+    return () => { live = false; };
+  }, []);
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
 
   if (!f) return null;
@@ -101,6 +123,32 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     try {
       await call();
       toast(done, "success");
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
+
+  async function payOnline() {
+    setBusy("razorpay");
+    setErr(null);
+    try {
+      const [o, ready]: [any, boolean] = await Promise.all([bookingRazorpayOrder(order.dbId), loadCheckout()]);
+      if (!ready) throw new Error("Couldn't load Razorpay Checkout — check the connection or an ad blocker, then try again.");
+      await new Promise<void>((resolve, reject) => {
+        const rz = new (window as any).Razorpay({
+          key: o.key_id, order_id: o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
+          name: "Booking payment", description: o.description, prefill: o.prefill, theme: { color: "#1f6f5c" },
+          handler: (r: any) => {
+            bookingRazorpayConfirm(order.dbId, r).then(() => { toast("Payment received", "success"); resolve(); }, reject);
+          },
+          modal: { ondismiss: () => reject(new Error("Payment window closed — nothing was charged unless Razorpay shows a payment. Try again or record it manually.")) },
+        });
+        rz.on("payment.failed", (e: any) => reject(new Error(e?.error?.description || "The payment failed.")));
+        rz.open();
+      });
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -175,20 +223,39 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
             <div className="ow-ful-row">
               <b>Payment</b>
               {!payDone ? (
-                <button type="button" className={`taw-btn taw-btn--sm${travDone ? " taw-btn--primary" : ""}`}
-                  disabled={locked || !f.schema_ready || f.payment.total <= 0} onClick={() => setPayOpen(true)}>
-                  Record payment
-                </button>
+                <span className="ow-ful-acts" style={{ margin: 0 }}>
+                  <button type="button" className={`taw-btn taw-btn--sm${travDone && gw?.configured ? " taw-btn--primary" : ""}`}
+                    disabled={locked || !f.schema_ready || f.payment.total <= 0 || !gw?.configured || !!busy} onClick={payOnline}
+                    title={gw?.configured ? undefined : "Razorpay credentials are missing on the server"}>
+                    {busy === "razorpay" ? "Opening…" : `Pay ${fmtINR(f.payment.due)} online${gw?.mode === "test" ? " (test)" : ""}`}
+                  </button>
+                  <button type="button" className="taw-btn taw-btn--sm"
+                    disabled={locked || !f.schema_ready || f.payment.total <= 0} onClick={() => setPayOpen(true)}>
+                    Record payment
+                  </button>
+                </span>
               ) : null}
             </div>
+            {!payDone && f.schema_ready && gw && !gw.configured ? (
+              <div className="taw-banner taw-banner--warn" style={{ margin: "6px 0" }}>
+                Online payment (Razorpay) isn&apos;t set up — missing {gw.missing.map((m) => <code key={m}>{m} </code>)}
+                on the server. You can still record payments received outside the portal.
+              </div>
+            ) : null}
+            {!payDone && gw?.configured && !gw.webhook_configured ? (
+              <div className="taw-banner taw-banner--info" style={{ margin: "6px 0" }}>
+                <code>RAZORPAY_WEBHOOK_SECRET</code> isn&apos;t set. Payments still confirm in this window, but one made after the window is closed won&apos;t be picked up.
+              </div>
+            ) : null}
+            {gwErr ? <div className="ow-sub">Couldn&apos;t check whether online payment is set up.</div> : null}
             <div className="ow-sub">
               {fmtINR(f.payment.paid)} of {fmtINR(f.payment.total)} received{f.payment.due > 0.5 ? ` · ${fmtINR(f.payment.due)} due` : ""}
             </div>
-            {f.payment.payments.length ? (
+            {f.payment.payments.some((p) => p.status === "paid") ? (
               <ul className="ow-ful-pays">
-                {f.payment.payments.map((p) => (
+                {f.payment.payments.filter((p) => p.status === "paid").map((p) => (
                   <li key={p.id}>
-                    <span>{fmtINR(p.amount)} · {(METHODS.find((m) => m.key === p.method) || { label: p.method || "Payment" }).label}</span>
+                    <span>{fmtINR(p.amount)} · {(METHODS.find((m) => m.key === p.method) || { label: p.method === "razorpay" ? "Razorpay" : p.method || "Payment" }).label}</span>
                     <span className="ow-sub">{p.reference ? `Ref ${p.reference} · ` : ""}{p.paid_at ? String(p.paid_at).slice(0, 10) : ""}</span>
                   </li>
                 ))}

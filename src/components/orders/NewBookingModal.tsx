@@ -11,6 +11,7 @@ import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
+import { FareOptionsPanel, type FareChoice } from "./FareOptionsPanel";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
@@ -276,7 +277,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     const price = (raw.PriceSummaries || raw.priceSummaries || [])[0] || {};
     const segments: any[] = raw.segments || [];
     return {
-      offer: { fareSourceCode: cached.fareSourceCode, providerId: cached.providerId, traceId },
+      offer: { fareSourceCode: offer.fareChoice?.fare_id || cached.fareSourceCode, providerId: cached.providerId, traceId },
       segments,
       snapshot: {
         segments: segments.map((s: any) => ({
@@ -291,10 +292,26 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           stops: s.stops,
         })),
         bookingClass: price.bookingClass || null,
-        baggageKg: offer.detail.baggageKg,
-        refundable: offer.detail.refundable,
+        baggageKg: offer.fareChoice?.checkin_kg ?? offer.detail.baggageKg,
+        refundable: offer.fareChoice ? offer.fareChoice.refundable : offer.detail.refundable,
+        fareName: offer.fareChoice?.name || null,
       },
     };
+  }
+
+  // Select opens the fare options (Saver / Flex ...) and rules first; the chosen
+  // option's fare id is what gets locked, priced as search price + its difference.
+  const [fareFor, setFareFor] = useState<any | null>(null);
+  const [lockInfo, setLockInfo] = useState<{ locked: number | null; shown: number; flagged: boolean } | null>(null);
+  function selectOffer(o: any) {
+    const leg: "ONWARD" | "RETURN" = (o.leg || "ONWARD") === "RETURN" ? "RETURN" : "ONWARD";
+    if (resultsRound && picked[leg]?.id === o.id) { pickLeg(o); return; }
+    setFareFor(o);
+  }
+  function chooseFare(o: any, c: FareChoice) {
+    const chosen = { ...o, base_net: o.base_net + (c.delta || 0), fareChoice: c };
+    setFareFor(null);
+    if (resultsRound) pickLeg(chosen); else goToSeats(chosen);
   }
 
   // Locks the fare as a hidden draft. A round trip passes the picked RETURN fare as
@@ -329,6 +346,13 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       if (!r.is_draft) { throw new Error("This fare is already recorded on an order."); }
       created = { itineraryId: r.itinerary_id, tripsureId: r.tripsure_itinerary_id };
       setDraftBoth(created);
+      // What the airline actually priced at lock time vs. what the advisor saw in the list.
+      const lockedTotal = Number(r.price_summary?.totalFare);
+      setLockInfo({
+        locked: Number.isFinite(lockedTotal) && lockedTotal > 0 ? lockedTotal : null,
+        shown: offer.base_net + (returnOffer ? returnOffer.base_net : 0),
+        flagged: !!r.validation?.isPriceChanged,
+      });
       const catalog = await flightSsr(r.tripsure_itinerary_id);
       setSsr(catalog);
       setSelectedOffer(offer);
@@ -773,11 +797,11 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                           <div className="ow-fcard-buy">
                             <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") : "total"}</small></div>
                             {resultsRound ? (
-                              <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => pickLeg(o)} disabled={!!lockingId}>
+                              <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => selectOffer(o)} disabled={!!lockingId}>
                                 {picked[activeLeg]?.id === o.id ? "Selected ✓" : "Select"}
                               </button>
                             ) : (
-                              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => goToSeats(o)} disabled={!!lockingId}>
+                              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => selectOffer(o)} disabled={!!lockingId}>
                                 {lockingId === o.id ? "Locking fare…" : "Select"}
                               </button>
                             )}
@@ -794,6 +818,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 </div>
               </div>
             )}
+
+            {fareFor ? (
+              <FareOptionsPanel offer={fareFor} onClose={() => setFareFor(null)} onChoose={(c) => chooseFare(fareFor, c)} />
+            ) : null}
 
             {resultsRound ? (
               <div className="ow-sticky-foot">
@@ -851,7 +879,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           // then the return's — the same order the server numbers them in.
           const legs: any[] = [selectedOffer, ...(selectedReturn ? [selectedReturn] : [])];
           const segments: any[] = legs.flatMap((o) => getTripsureFlightOffer(o.id)?.raw?.segments || []);
-          const fareTotal = legs.reduce((n, o) => n + o.base_net, 0);
+          const fareTotal = lockInfo?.locked ?? legs.reduce((n, o) => n + o.base_net, 0);
+          const priceMoved = lockInfo?.locked != null && Math.abs(lockInfo.locked - lockInfo.shown) > 1 ? lockInfo : null;
           const d = selectedOffer.detail;
           const rows = segments.length > 0 ? segments : [null];
           const si = Math.min(seatSeg, rows.length - 1);
@@ -891,6 +920,13 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 );
               })}
 
+              {priceMoved ? (
+                <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }} role="alert">
+                  <b>The airline now prices this at {inr(priceMoved.locked as number)}</b>
+                  {" "}— the list showed {inr(priceMoved.shown)} ({(priceMoved.locked as number) > priceMoved.shown ? "+" : "−"}{inr(Math.abs((priceMoved.locked as number) - priceMoved.shown))}).
+                  {" "}Confirming locks the new price; go Back to pick another fare.
+                </div>
+              ) : null}
               {preset?.requests && (requestChips(preset.requests).length || preset.requests.note) ? (
                 <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
                   The customer asked for: {[...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ")}.
