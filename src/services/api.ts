@@ -2621,7 +2621,7 @@ export {
   getTaraPlan,
   getRealWhatsAppMessages,
   getConversationHandoff,
-  getCustomerTyping,
+  getCustomerPresence,
   setConversationHandoff,
   getMemberCode,
   sendChatbotReply,
@@ -2834,8 +2834,9 @@ function fetchWithTimeout(url, options, timeoutMs, timeoutMessage) {
     .finally(function () { if (timer) clearTimeout(timer); });
 }
 
-// Above chatbot-be's own 15s cap on adminbe's side, so adminbe answers first.
-var CONVERSATION_READ_TIMEOUT_MS = 20000;
+// Above chatbot-be's own 15s cap on adminbe's side, so adminbe answers first. 45s so a full load rides out
+// a sleeping Render service waking up; the 2s live poll passes its own shorter limit (opts.timeoutMs).
+var CONVERSATION_READ_TIMEOUT_MS = 45000;
 // Above adminbe's 20s WhatsApp-send cap, so its 504 ("may still be delivered") wins.
 var CONVERSATION_SEND_TIMEOUT_MS = 30000;
 
@@ -2900,7 +2901,7 @@ function getRealWhatsAppMessages(code, opts) {
 
   return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/real-messages" + (qs.length ? "?" + qs.join("&") : ""), {
     headers: { Authorization: "Bearer " + jwt },
-  }, CONVERSATION_READ_TIMEOUT_MS, "Loading WhatsApp messages timed out.").then(function (res) {
+  }, o.timeoutMs || CONVERSATION_READ_TIMEOUT_MS, "Loading WhatsApp messages timed out.").then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to load WhatsApp messages.", { status: res.status, body: body });
@@ -2927,16 +2928,19 @@ function conversationHandoffCall(code, method, body) {
 }
 function getConversationHandoff(code) { return conversationHandoffCall(code, "GET"); }
 
-// getCustomerTyping(code) — is the customer typing in the website chat right now? Resolves to a
-// boolean, never rejects (a failed check just means no dots). Via GET /admin/conversation/{code}/typing.
-function getCustomerTyping(code) {
+// getCustomerPresence(code) — the customer's presence for the Conversation header, via
+// GET /admin/conversation/{code}/typing: { typing, online, last_seen_at (epoch ms|null),
+// last_seen_source ("website"|"message"|null), last_message_channel ("web"|"whatsapp"|null) }.
+// Never rejects (a failed check just means no presence line).
+function getCustomerPresence(code) {
+  var none = { typing: false, online: false, last_seen_at: null, last_seen_source: null, last_message_channel: null };
   var jwt = authBearer();
-  if (!jwt || !code) return Promise.resolve(false);
+  if (!jwt || !code) return Promise.resolve(none);
   return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/typing",
-    { headers: { Authorization: "Bearer " + jwt } }, 5000)
-    .then(function (res) { return res.ok ? res.json() : { typing: false }; })
-    .then(function (b) { return !!(b && b.typing); })
-    .catch(function () { return false; });
+    { headers: { Authorization: "Bearer " + jwt } }, 8000)
+    .then(function (res) { return res.ok ? res.json() : none; })
+    .then(function (b) { return Object.assign({}, none, b || {}); })
+    .catch(function () { return none; });
 }
 
 // getMemberCode(phone, email) — the Tara access code for a customer known only

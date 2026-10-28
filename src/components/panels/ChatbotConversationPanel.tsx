@@ -23,7 +23,7 @@
  * ===========================================================================*/
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerTyping, setConversationHandoff, getMemberCode } from "../../services/api";
+import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 
 interface ConvoMessage {
@@ -98,6 +98,29 @@ function codeFromUrl(): string {
 }
 
 type Mode = "tara" | "advisor" | "both";
+
+// "just now", "12 min ago", "today 6:40 PM", "yesterday 6:40 PM", "27 Oct 6:40 PM".
+function relTime(ms: number, now: number): string {
+  const mins = Math.floor(Math.max(0, now - ms) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  const d = new Date(ms);
+  const at = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === new Date(now).toDateString()) return "today " + at;
+  if (d.toDateString() === new Date(now - 864e5).toDateString()) return "yesterday " + at;
+  return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + at;
+}
+
+// The customer's presence for the header line: online now, last seen, or the time of their last message
+// (all WhatsApp ever tells us; it does not share online status or typing with a business).
+function presenceLine(p: any, now: number): { text: string; online: boolean } | null {
+  if (!p) return null;
+  if (p.online) return { text: "Online now", online: true };
+  if (!p.last_seen_at) return null;
+  if (p.last_seen_source === "website") return { text: "Last seen " + relTime(p.last_seen_at, now), online: false };
+  const where = p.last_message_channel === "whatsapp" ? " on WhatsApp" : p.last_message_channel === "web" ? " on the website" : "";
+  return { text: "Last message " + relTime(p.last_seen_at, now) + where, online: false };
+}
 
 // State that belongs to one traveller is stored WITH its code and read back only
 // while that code is still selected, so switching travellers can never show the
@@ -256,6 +279,10 @@ export function ChatbotConversationPanel({ member }: any) {
   const code = baseCode || (fallback.key === memberKey ? fallback.code : "");
   const digits = waDigits(member && member.phone);
   const waLink = digits ? "https://wa.me/" + digits : null;
+  // The customer's own Tara chat on the website, opened signed in as them: the chatbot signs a member in from the
+  // access code in the #fragment (never sent to a server), so the advisor sees the same conversation the customer does.
+  const siteChatBase = ((process.env.NEXT_PUBLIC_TARA_CHAT_URL as string | undefined) || "https://chatbot.tripagent.vip/chat").trim();
+  const siteChatLink = code ? siteChatBase + "#code=" + encodeURIComponent(code) : null;
 
   const [convo, setConvo] = useState<ConvoState>(() => emptyConvo(""));
   const cur = convo.code === code ? convo : null;
@@ -292,15 +319,17 @@ export function ChatbotConversationPanel({ member }: any) {
   // Which button was pressed, for its spinner.
   const [sendingTo, setSendingTo] = useState<"whatsapp" | "web" | null>(null);
   const takenOver = mode !== "tara";
-  // The customer is typing in the website chat: three dots, checked every 2s while this panel is open.
-  const [customerTyping, setCustomerTyping] = useState(false);
+  // The customer's presence, checked every 2s while this panel is open: typing (three dots, website only),
+  // online (the chatbot is open right now) and last seen.
+  const [presence, setPresence] = useState<any>(null);
+  const customerTyping = !!(presence && presence.typing);
   useEffect(() => {
-    setCustomerTyping(false);
+    setPresence(null);
     if (!code) return;
     let cancelled = false;
     const check = () => {
       if (document.hidden) return;
-      getCustomerTyping(code).then((t: boolean) => { if (!cancelled) setCustomerTyping(!!t); });
+      getCustomerPresence(code).then((p: any) => { if (!cancelled) setPresence(p); });
     };
     check();
     const t = setInterval(check, 2000);
@@ -350,6 +379,7 @@ export function ChatbotConversationPanel({ member }: any) {
     let inFlight = false; // never stack requests behind a slow one
     let again = false; // the last poll was cut short by the server: go again straight away
     let tick = 0;
+    let fails = 0; // consecutive failed refreshes: one slow poll is retried quietly, not shown as an error
 
     // First load / no real thread yet: the newest page of the real WhatsApp thread,
     // falling back to the Tara/chatbot-be view if it's empty. Usage still comes from
@@ -390,7 +420,7 @@ export function ChatbotConversationPanel({ member }: any) {
     function poll(newest: string, hadUsage: boolean): Promise<void> {
       const wantUsage = hadUsage && tick % USAGE_EVERY === 0;
       return Promise.all([
-        getRealWhatsAppMessages(code, { after: newest }),
+        getRealWhatsAppMessages(code, { after: newest, timeoutMs: 12000 }),
         wantUsage ? getChatbotConversation(code).catch(() => null) : Promise.resolve(null),
       ]).then(([r, conv]: any[]) => {
         if (cancelled) return;
@@ -413,8 +443,11 @@ export function ChatbotConversationPanel({ member }: any) {
       const snap = convoRef.current.code === code ? convoRef.current : null;
       const newest = snap && snap.loaded && snap.source === "real" ? newestCursor(snap.messages) : null;
       (newest ? poll(newest, !!(snap && snap.usage)) : fullLoad())
+        .then(() => { fails = 0; })
         .catch((err: any) => {
           if (cancelled) return;
+          fails += 1;
+          if (fails < 2 && snap && snap.loaded) return; // the next poll is 2s away: only a second failure in a row is worth showing
           // Keep whatever is already on screen for this traveller; just flag the failure.
           setConvo((prev) => ({
             ...(prev.code === code ? prev : emptyConvo(code)),
@@ -564,20 +597,41 @@ export function ChatbotConversationPanel({ member }: any) {
       title="Conversation"
       icon={<Icon name="chat" size={20} />}
       sub={member ? "with " + ((member && member.name) || code) : "no customer selected"}
-      actions={waLink ? (
-        <a
-          href={waLink}
-          target="_blank"
-          rel="noreferrer"
-          title="Open this customer's WhatsApp"
-          aria-label="Open this customer's WhatsApp"
-          style={{
-            display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34,
-            borderRadius: "50%", border: "1px solid #B8945F", background: "#FDF6EC", color: "#25D366",
-          }}
-        >
-          <WhatsAppLogo size={19} />
-        </a>
+      actions={siteChatLink || waLink ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+          {siteChatLink ? (
+            <a
+              href={siteChatLink}
+              target="_blank"
+              rel="noreferrer"
+              title="Open this customer's Tara chat on the website, the same conversation they see"
+              aria-label="Open this customer's Tara chat on the website"
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, padding: "0 12px",
+                borderRadius: 17, border: "1px solid #B8945F", background: "#FDF6EC", color: "#8A5A2B",
+                fontSize: 12, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap",
+              }}
+            >
+              <Icon name="sparkle" size={15} />
+              Tara site
+            </a>
+          ) : null}
+          {waLink ? (
+            <a
+              href={waLink}
+              target="_blank"
+              rel="noreferrer"
+              title="Open this customer's WhatsApp"
+              aria-label="Open this customer's WhatsApp"
+              style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34,
+                borderRadius: "50%", border: "1px solid #B8945F", background: "#FDF6EC", color: "#25D366",
+              }}
+            >
+              <WhatsAppLogo size={19} />
+            </a>
+          ) : null}
+        </span>
       ) : null}
     >
       {!code ? (
@@ -586,6 +640,15 @@ export function ChatbotConversationPanel({ member }: any) {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 480 }}>
+          {(() => {
+            const pl = presenceLine(presence, Date.now());
+            return pl ? (
+              <div aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 7, margin: "0 0 8px 2px", fontSize: 12, color: pl.online ? "#1F7A44" : "#6B7280" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", flex: "none", background: pl.online ? "#25A85A" : "#B8BEC9" }} />
+                {pl.text}
+              </div>
+            ) : null;
+          })()}
           {usage && usage.capUsd ? (
             (() => {
               const pct = Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100));
@@ -611,7 +674,11 @@ export function ChatbotConversationPanel({ member }: any) {
           ) : null}
           {error && messages.length > 0 ? (
             <div role="alert" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: "#FBEDED", color: "#B03434", fontSize: 12 }}>
-              <span>Couldn&apos;t refresh: {error} Showing the last messages loaded.</span>
+              <span>
+                {/timed out/i.test(String(error))
+                  ? "The connection is slow, so new messages may be delayed. Showing the last messages loaded; retrying."
+                  : <>Couldn&apos;t refresh: {error} Showing the last messages loaded.</>}
+              </span>
               <button type="button" onClick={() => reloadRef.current && reloadRef.current()}
                 style={{ background: "none", border: "none", padding: 0, color: "#8A5A2B", fontWeight: 600, cursor: "pointer", fontSize: 12, flex: "none" }}>
                 Retry
