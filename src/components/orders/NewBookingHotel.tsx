@@ -57,6 +57,14 @@ function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero
   return <img className={hero ? "ow-hero-img" : "ow-hcard-img"} src={src} alt={alt} loading="lazy" onError={() => setBad(true)} />;
 }
 
+// "+91 81728 36138" / "918172836138" / "08172836138" -> "8172836138" (the country code is sent separately).
+function nationalMobile(v: string): string {
+  let d = (v || "").replace(/\D/g, "");
+  if (d.length > 10 && d.startsWith("91")) d = d.slice(2);
+  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
 // Tripsure sends check-in instructions as strings holding HTML-escaped HTML ("&lt;ul&gt;…").
 // Decoded and flattened to plain text lines — never injected as markup.
 function plainInstructions(list: any): string[] {
@@ -130,7 +138,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
-    mobile: customer.phone || "", email: customer.email || "", pan: "",
+    mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
     streetAddress1: "", city: "", state: "", postalCode: "",
   });
   const [lockChanges, setLockChanges] = useState<string | null>(null); // "changed since added" message awaiting the advisor's OK
@@ -377,7 +385,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       handles: added.handles,
       guest: {
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
-        mobile: guest.mobile.replace(/\D/g, ""), email: guest.email.trim(), pan: guest.pan.trim() || null,
+        mobile: nationalMobile(guest.mobile), email: guest.email.trim(), pan: guest.pan.trim() || null,
         streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
       },
       accept_changes: acceptChanges,
@@ -618,7 +626,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const pan = guest.pan.trim().toUpperCase();
     const panBad = (added.panRequired && !pan) || (pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan));
     const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{7,15}$/.test(guest.mobile.replace(/\D/g, "")) && guest.email.includes("@") && !panBad && !addrBad;
+    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad;
     return (
       <>
         <div className="taw-banner taw-banner--info">
