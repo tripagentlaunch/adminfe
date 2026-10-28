@@ -282,8 +282,11 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       sub: cartItem._sub || "",
       meta: d.processing_days ? d.processing_days + " days processing" : "",
       price: cartItem.baseNet,
-      chips: (d.documents || []).slice(0, 3).map((label: string) => ({ label, tone: "warn" })),
-      note: "Added from Search — document checklist not yet collected.",
+      // Every document the visa needs (from OneVasco for a real product), so the advisor can ask for them all.
+      chips: (d.documents || []).map((label: string) => ({ label, tone: "warn" })),
+      note: (d.documents || []).length
+        ? "Documents needed: " + (d.documents as string[]).join(", ") + ". None collected yet."
+        : "Added from Search — document checklist not yet collected.",
     };
     return { ...base, visa, totals: { ...base.totals, grand: base.totals.grand + cartItem.baseNet, held: base.totals.held + cartItem.baseNet } };
   }
