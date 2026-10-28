@@ -499,6 +499,14 @@ function occGuestsText(rooms: any[]): string {
   return paxText({ adults, children, infants: 0 });
 }
 
+// "08:50" from a clock time or a full date-time ("2026-12-22T08:50", as Tara's plans
+// may carry); anything else ("morning") as it is.
+export function clockTime(v: any): string | null {
+  if (v == null || v === "") return null;
+  const m = /T?(\d{1,2}:\d{2})/.exec(String(v));
+  return m ? m[1].padStart(5, "0") : String(v);
+}
+
 // TripSure sends some localities in capitals ("ARPORA"): show them as "Arpora".
 export function niceCity(name: any): string {
   const s = String(name || "").trim();

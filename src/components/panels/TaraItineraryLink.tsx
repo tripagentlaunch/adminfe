@@ -17,8 +17,9 @@
  * picker appears. This is the Builder's ONE Tara entry point, shown the same way
  * for every traveller with an access code: a button when Tara has a plan, a quiet
  * "no itinerary from Tara yet" line when she doesn't. It renders nothing only when
- * there is no code or chatbot-be can't be reached, and while Tara's itinerary is
- * already on screen (the Builder header's "← Back" takes over then). After a
+ * there is no code or chatbot-be can't be reached. While one of Tara's itineraries is
+ * on screen it becomes a row of the traveller's Tara itineraries to switch between
+ * (2026-10-28; edits to the one left are kept); "← Back" still sets Tara aside. After a
  * "← Back" the button becomes "Return to Tara's itinerary" and restores the parked
  * itinerary with its edits.
  * ===========================================================================*/
@@ -40,6 +41,10 @@ const fmtUpdated = (ms?: number) =>
 // is checked again every minute, so a plan Tara builds while the panel is open
 // appears too. A traveller whose record carries no code is found by phone/email.
 const PLANS_EVERY_MS = 60000;
+
+// Edited copies of Tara's plans set aside by switching to another plan, per enquiry
+// and plan, so switching back restores the advisor's edits (this tab's session).
+const switchedAway = new Map<string, any>();
 
 export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }: any) {
   const baseCode = memberCode(member);
@@ -99,7 +104,55 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checked, latest && latest.planId, latest && latest.updatedAt, selEnqId, parked, code]);
 
-  if (hidden || !checked) return null;
+  // A Tara itinerary is on screen: when the traveller has several, switch between them here.
+  if (hidden) {
+    if (!checked || plans.length < 2 || !selEnqId) return null;
+    const current = itinerariesByEnquiry[selEnqId];
+    const currentId = current && current.taraPlan ? String(current.taraPlan.planId || "") : "";
+    const switchTo = async (planId: string) => {
+      if (opening || planId === currentId) return;
+      setOpening(true);
+      try {
+        if (current && currentId) switchedAway.set(selEnqId + ":" + currentId, current);
+        const kept = switchedAway.get(selEnqId + ":" + planId);
+        if (kept) {
+          loadTaraItinerary(selEnqId, kept);
+          return;
+        }
+        const d: any = await getTaraPlan(code, planId);
+        if (!d || !d.itinerary) {
+          toast("Tara's plan is no longer available.", "error");
+          return;
+        }
+        loadTaraItinerary(selEnqId, d.itinerary);
+      } catch (e: any) {
+        toast("Couldn't open Tara's itinerary: " + errText(e), "error");
+      } finally {
+        setOpening(false);
+      }
+    };
+    return (
+      <div className="taw-tara-plans" role="tablist" aria-label="Tara's itineraries for this traveller">
+        <span className="taw-tara-plans-l">Tara&apos;s itineraries</span>
+        {plans.map((p) => (
+          <button
+            key={p.planId}
+            type="button"
+            role="tab"
+            aria-selected={p.planId === currentId}
+            className={"taw-tara-plan" + (p.planId === currentId ? " is-active" : "")}
+            disabled={opening}
+            onClick={() => switchTo(p.planId)}
+            title={p.planId === currentId ? "Showing" : "Switch to this itinerary (edits to the one showing are kept)"}
+          >
+            {p.title || p.planId}
+            {p.updatedAt ? <small>{fmtUpdated(p.updatedAt)}</small> : null}
+          </button>
+        ))}
+      </div>
+    );
+  }
+  if (!checked) return null;
   if (!plans.length && !parked) {
     return <div style={{ marginBottom: 10, fontSize: 12.5, color: "#9098A8" }}>Tara hasn&apos;t built an itinerary for this traveller yet.</div>;
   }

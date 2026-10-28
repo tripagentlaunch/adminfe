@@ -1856,3 +1856,12 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-itin-facts .taw-itin-item-meta{flex-basis:100%;}
 .taw-itin-gap{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--taupe);padding:8px 4px 10px 26px;border-bottom:1px dashed var(--line);margin-bottom:4px;}
 .taw-itin-gap svg{color:var(--gold);}
+
+/* Tara's itineraries for this traveller, switchable above the Builder (TaraItineraryLink.tsx) */
+.taw-tara-plans{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 10px;}
+.taw-tara-plans-l{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--taupe);margin-right:2px;}
+.taw-tara-plan{display:inline-flex;align-items:baseline;gap:6px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:5px 12px;font:inherit;font-size:12.5px;cursor:pointer;}
+.taw-tara-plan small{font-size:10.5px;color:var(--taupe);}
+.taw-tara-plan:hover{border-color:var(--taupe);}
+.taw-tara-plan.is-active{border-color:var(--gold);background:var(--gold-bg);color:var(--gold-ink,#785c12);font-weight:600;cursor:default;}
+.taw-tara-plan:disabled{opacity:.6;}
