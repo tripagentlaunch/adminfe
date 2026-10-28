@@ -50,7 +50,7 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -786,7 +786,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                           aria-expanded={itemOpen}
                         >
                           <Icon name={item.type} size={15} />
-                          <span className="taw-itin-item-time">{item.time || "—"}</span>
+                          <span className="taw-itin-item-time">{clockTime(item.time) || "—"}</span>
                           <span className="taw-itin-item-title">{item.title}</span>
                           <StatusPill status={item.status} nextStep={item.nextStep} />
                           <span className="taw-itin-item-price">

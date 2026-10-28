@@ -17,7 +17,7 @@
  * ===========================================================================*/
 
 import { computeCostRange } from "./tripCostRange";
-import { tripPaxLabel, withTripSummary } from "./itineraryFromCart";
+import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
@@ -330,7 +330,8 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   }
 
   const flights = days
-    .flatMap((day: any) => (day.items || []).filter((it: any) => it.type === "flight").map((it: any) => ({ ...it, _dayIso: day._iso, _route: day.route })))
+    .flatMap((day: any) => (day.items || []).filter((it: any) => it.type === "flight")
+      .map((it: any) => ({ ...it, time: clockTime(it.time), arrTime: clockTime(it.arrTime), _dayIso: day._iso, _route: day.route })))
     .map((it: any) => {
       const [depCity, arrCity] = String(it._route || "").split(" → ").map((s: string) => s.trim());
       const arrivalIso = it.time ? addDurationDate(it._dayIso, it.time, it.duration) : null;
@@ -354,7 +355,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         price: it.price || 0,
         isOriginalChoice: !it.originalFlightNo || it.originalFlightNo === it.flightNo,
         alternatives: (it.alternatives || []).map((a: any) => ({
-          carrier: a.carrier, flightNo: a.flightNo, depTime: a.depTime, arrTime: a.arrTime, stops: a.stops ?? 0,
+          carrier: a.carrier, flightNo: a.flightNo, depTime: clockTime(a.depTime), arrTime: clockTime(a.arrTime), stops: a.stops ?? 0,
           price: a.price || 0, detail: a.detail || null,
         })),
         cabin: it.cabin,
