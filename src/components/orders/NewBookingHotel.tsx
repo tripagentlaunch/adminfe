@@ -356,8 +356,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
             rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
               ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
-            (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end
-              !== opt.freeUntil && opt.freeUntil ? "Free-cancellation deadline changed" : null,
+            // compared by calendar day: the room list and the live check write the same deadline
+            // with different time / timezone suffixes, which is not a change
+            (() => {
+              const live = (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end;
+              return live && opt.freeUntil && String(live).slice(0, 10) !== String(opt.freeUntil).slice(0, 10)
+                ? `Free cancellation now ends ${String(live).slice(0, 10)} (was ${String(opt.freeUntil).slice(0, 10)})` : null;
+            })(),
           ].filter(Boolean),
         };
       });
