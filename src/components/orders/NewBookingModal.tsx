@@ -4,14 +4,15 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
-  fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr,
+  fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
 } from "../../services/api";
 import { airportAutosuggest } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
 import { NewBookingHotel } from "./NewBookingHotel";
-import { FareOptionsPanel, type FareChoice } from "./FareOptionsPanel";
+import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
+import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
 import { SeatMap } from "./SeatMap";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
@@ -258,7 +259,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [seatSeg, setSeatSeg] = useState(0);
-  const [seatTab, setSeatTab] = useState<"baggage" | "seats" | "meals">("baggage");
+  // The Flight itinerary panel's section: timeline / fares before the lock, then baggage / meals / seats.
+  const [drawerTab, setDrawerTab] = useState<string>("fares");
 
   function setDraftBoth(d: { itineraryId: string; tripsureId: string } | null) {
     draftRef.current = d;
@@ -312,16 +314,29 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // Select opens the fare options (Saver / Flex ...) and rules first; the chosen
   // option's fare id is what gets locked, priced as search price + its difference.
   const [fareFor, setFareFor] = useState<any | null>(null);
+  const [fareSel, setFareSel] = useState<FareChoice | null>(null);
   const [lockInfo, setLockInfo] = useState<{ locked: number | null; shown: number; flagged: boolean } | null>(null);
+  // When TripSure drops the locked fare (Create Itinerary's expiresAt, ~15 minutes).
+  const [fareExpiry, setFareExpiry] = useState<string | null>(null);
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!fareExpiry) return;
+    const t = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [fareExpiry]);
   function selectOffer(o: any) {
     const leg: "ONWARD" | "RETURN" = (o.leg || "ONWARD") === "RETURN" ? "RETURN" : "ONWARD";
     if (resultsRound && picked[leg]?.id === o.id) { pickLeg(o); return; }
+    setErr(null);
+    setFareSel(null);
+    setDrawerTab("fares");
     setFareFor(o);
   }
+  // Next in the panel. One way: lock this fare (the panel stays open while it locks and
+  // then shows the extras). Round trip: this side is chosen; the pair is locked together.
   function chooseFare(o: any, c: FareChoice) {
     const chosen = { ...o, base_net: o.base_net + (c.delta || 0), fareChoice: c };
-    setFareFor(null);
-    if (resultsRound) pickLeg(chosen); else goToSeats(chosen);
+    if (resultsRound) { setFareFor(null); pickLeg(chosen); } else goToSeats(chosen);
   }
 
   // Locks the fare as a hidden draft. A round trip passes the picked RETURN fare as
@@ -358,6 +373,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setDraftBoth(created);
       // What the airline actually priced at lock time vs. what the advisor saw in the list.
       const lockedTotal = Number(r.price_summary?.totalFare);
+      setFareExpiry(r.expires_at || null);
       setLockInfo({
         locked: Number.isFinite(lockedTotal) && lockedTotal > 0 ? lockedTotal : null,
         shown: offer.base_net + (returnOffer ? returnOffer.base_net : 0),
@@ -371,8 +387,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setSeatSeg(0);
       // Open on the first tab the airline actually offers something for (Air India often has meals only).
       const first = ssrNorm(catalog, segments[0]?.departureAirport, segments[0]?.arrivalAirport)?.offered;
-      setSeatTab(first?.baggage ? "baggage" : first?.seats ? "seats" : first?.meals ? "meals" : "baggage");
+      setDrawerTab(first?.baggage ? "baggage" : first?.seats ? "seats" : first?.meals ? "meals" : "baggage");
       setStep("seats");
+      setFareFor(null);
     } catch (e: any) {
       if (created) await discardDraft();
       setErr(errText(e));
@@ -401,6 +418,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // Closing by ANY route (X, backdrop, Escape, parent unmount) discards an
   // unconfirmed draft. Confirm clears draftRef first, so a locked fare is safe.
   useEffect(() => () => { void discardDraft(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each New booking is one TripSure journey: one trace id from the first airport lookup on.
+  useState(() => newFlightJourney());
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape" || creating || leaving || lockingId) return;
@@ -456,6 +475,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       })
       .catch((e: any) => setErr(errText(e)))
       .finally(() => setCreating(false));
+  }
+
+  // "TripSure holds this fare until 14:32 · 12 min left" (or that it has lapsed).
+  function expiryNote() {
+    if (!fareExpiry) return null;
+    const at = new Date(fareExpiry);
+    if (Number.isNaN(at.getTime())) return null;
+    const mins = Math.floor((at.getTime() - Date.now()) / 60_000);
+    const clock = at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    return mins > 0
+      ? <div className={`nb-expiry${mins <= 5 ? " soon" : ""}`}><Icon name="clock" size={14} /> TripSure holds this fare until <b>{clock}</b> · {mins} min left. Ticket before then, or the fare has to be locked again.</div>
+      : <div className="nb-expiry gone"><Icon name="clock" size={14} /> TripSure&apos;s hold on this fare lapsed at <b>{clock}</b>. Ticketing will ask for a fresh fare.</div>;
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -721,7 +752,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         ) : null}
 
         {/* ── Step 3: Results ── */}
-        {step === "results" ? (
+        {step === "results" || step === "seats" ? (
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
@@ -880,9 +911,31 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               </div>
             )}
 
-            {fareFor ? (
-              <FareOptionsPanel offer={fareFor} onClose={() => setFareFor(null)} onChoose={(c) => chooseFare(fareFor, c)} />
-            ) : null}
+            {fareFor && step === "results" ? (() => {
+              const legName = resultsRound ? ((fareFor.leg || "ONWARD") === "RETURN" ? "return" : "onward") : null;
+              return (
+                <ItineraryDrawer
+                  tabs={[{ key: "timeline", label: "Timeline", icon: "clock" }, { key: "fares", label: "Fare options", icon: "list" }]}
+                  active={drawerTab === "timeline" ? "timeline" : "fares"}
+                  onTab={setDrawerTab}
+                  onClose={() => setFareFor(null)}
+                  busy={!!lockingId}
+                  price={inr(fareFor.base_net + (fareSel?.delta || 0))}
+                  priceNote={`for ${paxTotal} traveller${paxTotal === 1 ? "" : "s"}${legName ? ` · ${legName} flight` : ""}`}
+                  actions={
+                    <button type="button" className="taw-btn taw-btn--primary fi-next" disabled={!fareSel || !!lockingId}
+                      onClick={() => fareSel && chooseFare(fareFor, fareSel)}>
+                      {lockingId ? "Locking fare…" : legName ? `Select ${legName} flight` : "Next"}
+                    </button>
+                  }
+                >
+                  {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
+                  {drawerTab === "timeline"
+                    ? <FlightTimeline legs={[{ segments: getTripsureFlightOffer(fareFor.id)?.raw?.segments || [] }]} />
+                    : <FareOptionsList offer={fareFor} selected={fareSel?.fare_id || null} onSelect={setFareSel} />}
+                </ItineraryDrawer>
+              );
+            })() : null}
 
             {resultsRound ? (
               <div className="ow-sticky-foot">
@@ -912,7 +965,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           <div className="nb-done">
             <span className="nb-done-ic"><Icon name="check" size={26} /></span>
             <h3>Fare locked and saved to the order</h3>
-            <p>The fare lock is short-lived, so finish the booking soon. Add a hotel to the same itinerary now, or go to the order to complete it.</p>
+            <p>Add a hotel to the same itinerary now, or go to the order to add the travellers, take the payment and issue the ticket.</p>
+            {expiryNote()}
             <ol className="nb-next">
               <li><b>Travellers</b><span>Names exactly as on their ID</span></li>
               <li><b>Payment</b><span>Collect online or record it</span></li>
@@ -976,91 +1030,108 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           const seatCount = sel.filter((p) => p.seat).length;
           const extrasTotal = sel.reduce((n, p) => n + (p.seat?.price || 0) + (p.baggage?.price || 0) + (p.meal?.price || 0), 0);
           const busy = creating || leaving;
+          const extrasKeys = ["baggage", "meals", "seats"];
+          const tab = drawerTab === "timeline" || drawerTab === "fares" || extrasKeys.includes(drawerTab) ? drawerTab : "baggage";
+          const offeredAnywhere = (k: string) => rows.some((r: any) => {
+            const b = r ? ssrNorm(ssr, r.departureAirport, r.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
+            return !!b?.offered?.[k];
+          });
+          const kindOf: Record<string, "baggage" | "meal" | "seat"> = { baggage: "baggage", meals: "meal", seats: "seat" };
           return (
-            <>
-              {legs.map((o: any, li: number) => {
-                const ld = o.detail;
-                const day = fmtDay((getTripsureFlightOffer(o.id)?.raw?.segments || [])[0]?.departureDateTime);
-                return (
-                  <div className="ow-seg" style={{ marginBottom: 12 }} key={o.id}>
-                    <div className="ow-seg-top">
-                      <span>{legs.length > 1 ? `${li === 0 ? "Onward" : "Return"} · ` : ""}{ld.airlineName || ld.airline} · {ld.flightNo}{legs.length > 1 && day ? ` · ${day}` : ""}</span>
-                      <span><b>{inr(o.base_net)}</b> {legs.length > 1 ? (li === 0 ? "onward" : "return") : "total"}</span>
-                    </div>
-                    <div className="ow-route">
-                      <div className="ow-city"><div className="code">{ld.originCode}</div><div className="time">{ld.depTime}</div></div>
-                      <div className="ow-line">
-                        {durationLabel(ld.durationMin)}<div className="bar" />
-                        {ld.stops === 0 ? "Non-stop" : `${ld.stops} stop${ld.stops === 1 ? "" : "s"}`}
-                      </div>
-                      <div className="ow-city r"><div className="code">{ld.destCode}</div><div className="time">{ld.arrTime}</div></div>
-                    </div>
-                  </div>
-                );
-              })}
-
+            <ItineraryDrawer
+              tabs={[
+                { key: "timeline", label: "Timeline", icon: "clock" },
+                { key: "fares", label: "Fare options", icon: "list" },
+                { key: "baggage", label: "Baggage", icon: "luggage", badge: bagCount ? String(bagCount) : null, muted: !offeredAnywhere("baggage") },
+                { key: "meals", label: "Meals", icon: "note", badge: mealCount ? String(mealCount) : null, muted: !offeredAnywhere("meals") },
+                { key: "seats", label: "Seats", icon: "flight", badge: seatCount ? String(seatCount) : null, muted: !offeredAnywhere("seats") },
+              ]}
+              active={tab}
+              onTab={setDrawerTab}
+              onClose={backToResults}
+              closeLabel="Release this fare and go back to the results"
+              busy={busy}
+              price={inr(fareTotal + extrasTotal)}
+              priceNote={extrasTotal > 0
+                ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} add-ons (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : "", mealCount ? `${mealCount} meal` : ""].filter(Boolean).join(", ")})`
+                : "Add-ons are optional"}
+              actions={<>
+                <button type="button" className="taw-btn" onClick={backToResults} disabled={busy}>{leaving ? "Releasing…" : "Back"}</button>
+                <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={confirmItinerary} disabled={busy || !draft}>
+                  {creating ? "Confirming…" : "Next"}
+                </button>
+              </>}
+            >
+              {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
+              {expiryNote()}
               {priceMoved ? (
                 <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }} role="alert">
                   <b>The airline now prices this at {inr(priceMoved.locked as number)}</b>
                   {" "}— the list showed {inr(priceMoved.shown)} ({(priceMoved.locked as number) > priceMoved.shown ? "+" : "−"}{inr(Math.abs((priceMoved.locked as number) - priceMoved.shown))}).
-                  {" "}Confirming locks the new price; go Back to pick another fare.
+                  {" "}Next locks the new price; Back releases it so you can pick another fare.
                 </div>
               ) : null}
-              {preset?.requests && (requestChips(preset.requests).length || preset.requests.note) ? (
-                <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
-                  The customer asked for: {[...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ")}.
-                  {" "}Meals are arranged with the airline after ticketing.
-                </div>
-              ) : null}
-              <div className="ow-info">
-                <Icon name="shield" size={15} />
-                <span>Seat and baggage choices are priced by the airline and sent with the passengers when the ticket is issued.</span>
-              </div>
 
-              {noneAtAll ? (
+              {tab === "timeline" ? (
+                <FlightTimeline legs={legs.map((o: any, li: number) => ({
+                  label: legs.length > 1 ? (li === 0 ? "Onward" : "Return") : undefined,
+                  segments: getTripsureFlightOffer(o.id)?.raw?.segments || [],
+                }))} />
+              ) : tab === "fares" ? (
+                <div className="fi-fares">
+                  {legs.map((o: any, li: number) => (
+                    <div className="fi-fare on" key={o.id}>
+                      <span className="fi-fare-cabin">{legs.length > 1 ? (li === 0 ? "Onward" : "Return") : "Locked fare"}</span>
+                      <div className="fi-fare-top">
+                        <div>
+                          <div className="fi-fare-name">{o.fareChoice?.name || "Searched fare"} · {o.detail.airlineName || o.detail.airline} {o.detail.flightNo}</div>
+                          <b className="fi-fare-price">{inr(o.base_net)}</b>
+                        </div>
+                        <span className="fi-fare-sel"><Icon name="check" size={13} /> Selected</span>
+                      </div>
+                      <ul className="fi-fare-feat">
+                        <li><Icon name="luggage" size={13} /> {(o.fareChoice?.checkin_kg ?? o.detail.baggageKg) ? `${o.fareChoice?.checkin_kg ?? o.detail.baggageKg} Kg check-in` : "Check-in baggage as per the airline"}</li>
+                        <li className={(o.fareChoice ? o.fareChoice.refundable : o.detail.refundable) ? "ok" : "no"}>
+                          {(o.fareChoice ? o.fareChoice.refundable : o.detail.refundable) ? "Refundable" : "Non-refundable"}
+                        </li>
+                      </ul>
+                    </div>
+                  ))}
+                  <div className="ow-sub" style={{ whiteSpace: "normal" }}>This fare is locked with TripSure. To choose a different fare, use Back — it releases this one.</div>
+                </div>
+              ) : noneAtAll ? (
                 <div className="ow-empty">
                   <Icon name="luggage" size={20} />
-                  <div><b>No extras available for this fare</b></div>
-                  <div className="ow-sub">The airline returned no seat map, extra baggage or meals for this flight ({d.airlineName || d.airline}). That is the airline&apos;s answer for this fare, not an error — you can still confirm and lock the fare.</div>
+                  <div><b>No add-ons available for this fare</b></div>
+                  <div className="ow-sub">The airline returned no seat map, extra baggage or meals for this flight ({d.airlineName || d.airline}). That is the airline&apos;s answer for this fare, not an error — Next locks the fare without add-ons.</div>
                 </div>
               ) : (
-                <div className="ow-sel">
-                  <div className="ow-sel-tabs" role="tablist" aria-orientation="vertical">
-                    {([
-                      { k: "baggage", label: "Baggage", icon: "luggage", n: bagCount },
-                      { k: "seats", label: "Seats", icon: "flight", n: seatCount },
-                      { k: "meals", label: "Meals", icon: "note", n: mealCount },
-                    ] as const).map((t) => (
-                      <button
-                        key={t.k} type="button" role="tab" aria-selected={seatTab === t.k}
-                        className={`ow-sel-tab${seatTab === t.k ? " on" : ""}${block?.offered?.[t.k] ? "" : " off"}`}
-                        onClick={() => setSeatTab(t.k)}
-                      >
-                        <Icon name={t.icon} size={15} />
-                        <span>{t.label}</span>
-                        {t.n ? <em>{t.n}</em> : block?.offered?.[t.k] ? null : <small>not offered</small>}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="ow-sel-panel" role="tabpanel">
-                    {rows.length > 1 ? (
-                      <div className="ow-segpills">
-                        {rows.map((s: any, i: number) => (
-                          <button key={i} type="button" className={`ow-segpill${i === si ? " on" : ""}`} onClick={() => setSeatSeg(i)}>
-                            {s ? `${s.departureAirport} → ${s.arrivalAirport}` : `Segment ${i + 1}`}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="ow-sel-title">
-                      {seatTab === "baggage" ? "Extra baggage" : seatTab === "meals" ? "Meals" : "Seat selection"}
-                      <span className="ow-sub">
-                        {seg ? `${seg.departureAirport} → ${seg.arrivalAirport} · ${fmtDay(seg.departureDateTime)}` : "Flight preferences"}
-                      </span>
+                <>
+                  {preset?.requests && (requestChips(preset.requests).length || preset.requests.note) ? (
+                    <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
+                      The customer asked for: {[...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ")}.
                     </div>
-
-                    {seatTab === "baggage" ? (
+                  ) : null}
+                  <div className="fi-segs" role="tablist" aria-label="Flight segments">
+                    {rows.map((r: any, i: number) => {
+                      const k = kindOf[tab];
+                      const n = sel[i]?.[k] ? 1 : 0;
+                      return (
+                        <button key={i} type="button" role="tab" aria-selected={i === si} className={`fi-seg${i === si ? " on" : ""}`} onClick={() => setSeatSeg(i)}>
+                          <small>{r?.airlineCode || d.airline || ""}</small>
+                          {r ? `${r.departureAirport} → ${r.arrivalAirport}` : `Segment ${i + 1}`}
+                          <em className={n ? "got" : ""}>{n}/1</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="ow-sel-title">
+                    {tab === "baggage" ? "Extra baggage" : tab === "meals" ? "Meals" : "Seat selection"}
+                    <span className="ow-sub">
+                      {seg ? `${seg.departureAirport} → ${seg.arrivalAirport} · ${fmtDay(seg.departureDateTime)}` : "Flight preferences"}
+                    </span>
+                  </div>
+                    {tab === "baggage" ? (
                       bagOpts.length === 0 ? (
                         <div className="ow-sub" style={{ whiteSpace: "normal" }}>{d.airlineName || d.airline} offers no extra baggage for this segment on this fare — the fare&apos;s included baggage applies.</div>
                       ) : (
@@ -1088,7 +1159,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                           <div className="ow-sub">One extra-baggage option per segment.</div>
                         </div>
                       )
-                    ) : seatTab === "meals" ? (
+                    ) : tab === "meals" ? (
                       mealOpts.length === 0 ? (
                         <div className="ow-sub">No meals can be pre-ordered for this segment.</div>
                       ) : (
@@ -1125,30 +1196,12 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                         onPick={(x) => pickSeat(si, x ? { code: x.code, label: `Seat ${x.code}`, price: Number(x.price) || 0 } : null)}
                       />
                     )}
+                  <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 10 }}>
+                    Add-ons are priced by the airline and sent with the passengers when the ticket is issued — one of each per segment, for the lead traveller.
                   </div>
-                </div>
+                </>
               )}
-
-              <div className="ow-sticky-foot">
-                <div className="ow-total">
-                  <small>Total fare</small>
-                  <b>{inr(fareTotal + extrasTotal)}</b>
-                  <small>
-                    {extrasTotal > 0
-                      ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} extras (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : "", mealCount ? `${mealCount} meal` : ""].filter(Boolean).join(", ")})`
-                      : "No extras selected"}
-                  </small>
-                </div>
-                <div className="ow-sticky-btns">
-                  <button type="button" className="taw-btn" onClick={backToResults} disabled={busy}>
-                    {leaving ? "Releasing…" : "Back"}
-                  </button>
-                  <button type="button" className="taw-btn taw-btn--primary" onClick={confirmItinerary} disabled={busy || !draft}>
-                    {creating ? "Confirming…" : "Confirm & lock fare"}
-                  </button>
-                </div>
-              </div>
-            </>
+            </ItineraryDrawer>
           );
         })() : null}
       </div>

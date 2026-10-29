@@ -1747,18 +1747,43 @@ function fetchAbortable(url, init, signal) {
   });
 }
 
+// One id per flight booking journey (New booking opened -> fare locked), sent as X-Trace-Id on
+// every flight / booking-order call so TripSure sees the whole journey as one trace, as its flight
+// guide asks (section 3). The backend saves it on the itinerary when the fare is locked and reuses
+// it for ticketing and status checks. "adm-" + 32 hex = 36 chars, within TripSure's 6-36 limit.
+var flightJourney: string | null = null;
+function newFlightJourney() {
+  var c = typeof crypto !== "undefined" ? crypto : null;
+  var id = c && c.randomUUID
+    ? c.randomUUID()
+    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (ch) {
+        var r = (Math.random() * 16) | 0;
+        return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+  flightJourney = "adm-" + id.replace(/-/g, "");
+  return flightJourney;
+}
+
 function fastapiFlightCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
+  var headers: Record<string, string> = {
+    Authorization: "Bearer " + jwt,
+    "Content-Type": "application/json",
+  };
+  if (flightJourney) headers["X-Trace-Id"] = flightJourney;
+
   return fetchAbortable(FASTAPI_BASE + path, {
     method: options.method,
-    headers: {
-      Authorization: "Bearer " + jwt,
-      "Content-Type": "application/json",
-    },
+    headers: headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
-  }, options.signal).then(function (res) {
+  }, options.signal).catch(function (e) {
+    // fetch() itself failed (server down, waking up, or offline): the browser only says
+    // "Failed to fetch". Aborts pass through untouched.
+    if (e instanceof ApiError || (e && e.name === "AbortError")) throw e;
+    throw new ApiError("Can't reach the booking server right now. It may be starting up — try again in a minute.", { status: 0 });
+  }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
         throw new ApiError(body.detail || "Flight request failed.", { status: res.status, body: body });
@@ -2103,8 +2128,15 @@ function bookingRecordPayment(orderId, payload) {
 }
 // Razorpay: which credentials are set ({configured, missing[], key_id, mode}),
 // then create the order for the amount due and confirm the Checkout result.
+// Whether online payment is configured doesn't change during a session: ask once, not on every
+// order opened. A failed answer isn't kept, so the next order asks again.
+var paymentGatewayOnce: Promise<any> | null = null;
 function bookingPaymentGateway() {
-  return fastapiBookingCall("/booking-orders/payment-gateway", { method: "GET" });
+  if (!paymentGatewayOnce) {
+    paymentGatewayOnce = fastapiBookingCall("/booking-orders/payment-gateway", { method: "GET" });
+    paymentGatewayOnce.catch(function () { paymentGatewayOnce = null; });
+  }
+  return paymentGatewayOnce;
 }
 function bookingRazorpayOrder(orderId) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/razorpay/order", { method: "POST" });
@@ -2117,6 +2149,10 @@ function bookingIssueTicket(itineraryId, acceptFareChange) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
     method: "POST", body: { accept_fare_change: !!acceptFareChange },
   });
+}
+// Booking Details for a flight whose ticketing is unclear (Tripsure guide 6.9).
+function bookingCheckFlight(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/check-status", { method: "POST" });
 }
 // Irreversible: TripSure booking/create for a locked room (one attempt only).
 function bookingConfirmHotel(hotelId) {
@@ -2821,6 +2857,8 @@ export {
   bookingSaveTravellers,
   bookingRecordPayment,
   bookingIssueTicket,
+  bookingCheckFlight,
+  newFlightJourney,
   bookingConfirmHotel,
   bookingCheckHotel,
   bookingHotelCancelQuote,

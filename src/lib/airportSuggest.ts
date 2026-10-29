@@ -22,8 +22,15 @@ const LIVE_WAIT_MS = 2500;
 const LIVE_RETRY_MS = 60_000;
 let liveAutosuggestDownUntil = 0;
 
+// Answers already fetched this session, by query: airports don't change, so retyping "BL" or
+// reopening the booking modal never asks TripSure twice. Only real answers are kept.
+const liveCache = new Map<string, any[]>();
+
 // Live TripSure rows, or null when TripSure is down/slow/empty.
 export function liveAirports(query: string, limit: number): Promise<any[] | null> {
+  const key = `${query.trim().toLowerCase()}|${limit}`;
+  const hit = liveCache.get(key);
+  if (hit) return Promise.resolve(hit);
   if (Date.now() < liveAutosuggestDownUntil) return Promise.resolve(null);
   const markDown = () => {
     liveAutosuggestDownUntil = Date.now() + LIVE_RETRY_MS;
@@ -32,6 +39,7 @@ export function liveAirports(query: string, limit: number): Promise<any[] | null
   const live = fastapiFlightAutosuggest(query, limit)
     .then((r: any) => {
       const rows = Array.isArray(r) ? r : (r && r.data) || [];
+      if (rows.length) liveCache.set(key, rows);
       return rows.length ? rows : null;
     })
     .catch(markDown);

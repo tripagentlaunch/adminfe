@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -390,6 +390,12 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                       {it.kind === "hotel" && (it.status === "pending" || it.status === "check_required" || it.can_cancel) ? (
                         <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy}
                           onClick={() => simple(it.id, () => bookingCheckHotel(it.id), "Status updated from the supplier")}>
+                          {busy === it.id ? "Checking…" : "Check status"}
+                        </button>
+                      ) : null}
+                      {it.kind === "flight" && it.status === "check_required" ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy}
+                          onClick={() => simple(it.id, () => bookingCheckFlight(it.id), "Status updated from TripSure")}>
                           {busy === it.id ? "Checking…" : "Check status"}
                         </button>
                       ) : null}
