@@ -2135,6 +2135,11 @@ function bookingGetOrder(id) {
 function bookingFulfilment(orderId) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/fulfilment", { method: "GET" });
 }
+// bookingEvents(orderId) — GET /booking-orders/{id}/events: the order's journey log, newest first
+// ({events: [{id, item_type, item_id, step, status, trace_id, summary, created_at}]}); [] until db/155.
+function bookingEvents(orderId) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/events", { method: "GET" });
+}
 function bookingSaveTravellers(orderId, payload) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/travellers", { method: "PUT", body: payload });
 }
@@ -2919,6 +2924,7 @@ export {
   bookingListOrders,
   bookingGetOrder,
   bookingFulfilment,
+  bookingEvents,
   bookingSaveTravellers,
   bookingRecordPayment,
   bookingIssueTicket,

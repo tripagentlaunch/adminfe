@@ -13,6 +13,7 @@ import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
 import { fmtINR, type Fulfilment, type FulfilmentItem, type Order } from "../../lib/orderTypes";
 import { TravellersForm } from "./TravellersForm";
+import { OrderActivity } from "./OrderActivity";
 
 const STAGE: Record<Fulfilment["stage"], { label: string; tone: string }> = {
   empty: { label: "Nothing to book", tone: "warn" },
@@ -525,6 +526,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
           <Icon name="note" size={13} /> Copy booking summary
         </button>
       ) : null}
+
+      <OrderActivity orderId={order.id} f={f} />
 
       {travOpen ? (
         <TravellersForm order={order} onClose={() => setTravOpen(false)} onSaved={() => { setTravOpen(false); onChanged(); }} />
