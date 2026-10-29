@@ -61,6 +61,8 @@ export function summaryToOrder(s: any): Order {
     email: s.customer_email || "",
     destination: s.destination || "—",
     travelDates: travelDates(s.travel_start, s.travel_end),
+    travelStart: s.travel_start || null,
+    travelEnd: s.travel_end || null,
     travellers: [], // filled in by detailToOrder when the order is opened
     amount: Number(s.total_amount) || 0,
     paymentStatus: paymentStatusOf(s),

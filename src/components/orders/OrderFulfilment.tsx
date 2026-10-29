@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -92,6 +92,15 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [cancelling, setCancelling] = useState<Cancelling>(null);
   const [refundOpen, setRefundOpen] = useState<{ amount: number } | null>(null); // opened after a cancel, pre-filled with Tripsure's refund
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
+  // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
+  const [tsOrder, setTsOrder] = useState<Record<string, { busy?: boolean; err?: string; data?: any }>>({});
+  function toggleTsOrder(id: string) {
+    if (tsOrder[id] && !tsOrder[id].busy) { setTsOrder((m) => { const n = { ...m }; delete n[id]; return n; }); return; }
+    setTsOrder((m) => ({ ...m, [id]: { busy: true } }));
+    bookingTripsureOrder(id)
+      .then((d: any) => setTsOrder((m) => ({ ...m, [id]: { data: d } })))
+      .catch((e: any) => setTsOrder((m) => ({ ...m, [id]: { err: errText(e) } })));
+  }
 
   if (!f) return null;
   const stage = STAGE[f.stage] || STAGE.ready;
@@ -397,6 +406,11 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           {busy === it.id ? "Checking…" : "Check status"}
                         </button>
                       ) : null}
+                      {it.kind === "flight" && it.status !== "fare_locked" ? (
+                        <button type="button" className="taw-btn taw-btn--sm" aria-expanded={!!tsOrder[it.id]} onClick={() => toggleTsOrder(it.id)}>
+                          {tsOrder[it.id]?.busy ? "Loading…" : tsOrder[it.id] ? "Hide TripSure order" : "TripSure order"}
+                        </button>
+                      ) : null}
                       {it.kind === "flight" && it.status === "check_required" ? (
                         <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy}
                           onClick={() => simple(it.id, () => bookingCheckFlight(it.id), "Status updated from TripSure")}>
@@ -421,6 +435,41 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                       ) : null}
                     </div>
 
+                    {it.kind === "flight" && it.documents_required?.length && it.status === "fare_locked" ? (
+                      <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 4 }}>
+                        This fare needs: {it.documents_required.map((d) => (d === "pan" ? "PAN" : d === "gst" ? "GST details" : "passports")).join(", ")}.
+                      </div>
+                    ) : null}
+                    {tsOrder[it.id] && !tsOrder[it.id].busy ? (
+                      <div className="ow-ts">
+                        {tsOrder[it.id].err ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>{tsOrder[it.id].err}</div> : (() => {
+                          const o = tsOrder[it.id].data || {};
+                          return (
+                            <>
+                              <div className="ow-ts-head">
+                                <b>{o.order_no || "TripSure order"}</b>
+                                {o.status ? <span className={`ow-ts-st ${String(o.status).toLowerCase()}`}>{String(o.status).replace(/_/g, " ")}</span> : null}
+                                {o.total != null ? <span>{fmtINR(o.total)}</span> : null}
+                              </div>
+                              {(o.line_items || []).map((li: any, k: number) => (
+                                <div key={k} className="ow-ts-row">
+                                  <span>{li.from} → {li.to}</span>
+                                  <span>{li.supplier ? `${li.supplier} · ` : ""}booking {li.booking_id || "—"}{li.pnr ? ` · PNR ${li.pnr}` : ""}</span>
+                                </div>
+                              ))}
+                              {(o.events || []).length ? (
+                                <ol className="ow-ts-events">
+                                  {o.events.map((e: any, k: number) => (
+                                    <li key={k}><b>{e.title || e.type}</b><small>{e.at ? new Date(e.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}</small></li>
+                                  ))}
+                                </ol>
+                              ) : null}
+                              {it.trace_id ? <div className="ow-sub">Trace id for TripSure support: {it.trace_id}</div> : null}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
                     {confirming?.item.id === it.id ? (
                       <ConfirmBox
                         item={confirming.item}

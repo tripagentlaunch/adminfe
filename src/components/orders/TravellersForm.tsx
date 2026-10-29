@@ -97,6 +97,36 @@ function initialRows(order: Order): Row[] {
   return rows;
 }
 
+// Nationality choices (ISO 3166 alpha-2), most common first; any other code can be typed.
+export const NATIONALITIES: [string, string][] = [
+  ["IN", "India"], ["US", "United States"], ["GB", "United Kingdom"], ["AE", "United Arab Emirates"], ["CA", "Canada"],
+  ["AU", "Australia"], ["SG", "Singapore"], ["NZ", "New Zealand"], ["DE", "Germany"], ["FR", "France"], ["IT", "Italy"],
+  ["ES", "Spain"], ["NL", "Netherlands"], ["CH", "Switzerland"], ["SA", "Saudi Arabia"], ["QA", "Qatar"], ["OM", "Oman"],
+  ["KW", "Kuwait"], ["BH", "Bahrain"], ["MY", "Malaysia"], ["TH", "Thailand"], ["JP", "Japan"], ["LK", "Sri Lanka"],
+  ["NP", "Nepal"], ["BD", "Bangladesh"], ["ZA", "South Africa"], ["IE", "Ireland"],
+];
+
+// Soft passport check against the trip: a passport that lapses before the trip ends can't
+// be used (the server refuses it for international trips); many countries also ask for
+// 6 months' validity beyond the stay. Advice only — the advisor decides.
+function passportNote(expiry: string, travelEnd?: string | null): { tone: "bad" | "warn" | "ok"; text: string } | null {
+  if (!expiry) return null;
+  const exp = Date.parse(expiry + "T00:00:00Z");
+  if (!Number.isFinite(exp)) return null;
+  const fmt = new Date(exp).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+  const end = travelEnd ? Date.parse(travelEnd.slice(0, 10) + "T00:00:00Z") : NaN;
+  if (Number.isFinite(end)) {
+    if (exp <= end) return { tone: "bad", text: `Expires ${fmt} — before the trip ends. Renew it before booking.` };
+    const six = new Date(end); six.setUTCMonth(six.getUTCMonth() + 6);
+    if (exp < six.getTime()) {
+      const m = Math.max(0, Math.round((exp - end) / (30.44 * 86_400_000)));
+      return { tone: "warn", text: `Valid ${m} month${m === 1 ? "" : "s"} past the trip (to ${fmt}). Many countries require 6 months — check the destination's rule.` };
+    }
+    return { tone: "ok", text: `Valid to ${fmt} — 6+ months past the trip.` };
+  }
+  return exp < Date.now() ? { tone: "bad", text: `Expired on ${fmt}.` } : { tone: "ok", text: `Valid to ${fmt}.` };
+}
+
 export function TravellersForm({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
   const f = order.fulfilment!;
   const intl = f.international;
@@ -139,7 +169,7 @@ export function TravellersForm({ order, onClose, onSaved }: { order: Order; onCl
         is_lead: r.is_lead,
         email: r.email.trim() || null,
         phone: r.phone.replace(/\D/g, "") || null,
-        nationality: intl || r.passport_number ? (r.nationality || "").toUpperCase() || null : null,
+        nationality: (r.nationality || "").trim().toUpperCase() || null,
         passport_number: r.passport_number.trim().toUpperCase() || null,
         passport_expiry: r.passport_expiry || null,
         pan: r.pan.trim().toUpperCase() || null,
@@ -220,22 +250,26 @@ export function TravellersForm({ order, onClose, onSaved }: { order: Order; onCl
                     </Field>
                   </>
                 ) : null}
-                {intl ? (
-                  <>
-                    <Field label="Nationality (2-letter)" htmlFor={`tf-nat-${i}`}>
-                      <input className="taw-input" maxLength={2} value={r.nationality} onChange={(e) => setRow(i, { nationality: e.target.value.toUpperCase() })} />
-                    </Field>
-                    <Field label={r.passport_last4 ? `Passport (•••• ${r.passport_last4} on file)` : "Passport number"} htmlFor={`tf-pp-${i}`}>
-                      <input className="taw-input" autoComplete="off" placeholder={r.passport_last4 ? "Leave blank to keep" : ""} value={r.passport_number}
-                        onChange={(e) => setRow(i, { passport_number: e.target.value.toUpperCase() })} />
-                    </Field>
-                    <Field label="Passport expiry" htmlFor={`tf-px-${i}`}>
-                      <input className="taw-input" type="date" min={today} value={r.passport_expiry} onChange={(e) => setRow(i, { passport_expiry: e.target.value })} />
-                    </Field>
-                  </>
-                ) : null}
+                {/* Nationality and passport on every trip (kept on file for next time); required for international. */}
+                <Field label="Nationality" htmlFor={`tf-nat-${i}`}>
+                  <select id={`tf-nat-${i}`} className="taw-input" value={r.nationality || "IN"} onChange={(e) => setRow(i, { nationality: e.target.value })}>
+                    {(NATIONALITIES.some(([c]) => c === r.nationality) || !r.nationality ? NATIONALITIES : [[r.nationality, r.nationality] as [string, string], ...NATIONALITIES])
+                      .map(([c, name]) => <option key={c} value={c}>{name} ({c})</option>)}
+                  </select>
+                </Field>
+                <Field label={r.passport_last4 ? `Passport (•••• ${r.passport_last4} on file)` : intl ? "Passport number" : "Passport number (optional)"} htmlFor={`tf-pp-${i}`}>
+                  <input id={`tf-pp-${i}`} className="taw-input" autoComplete="off" maxLength={9} placeholder={r.passport_last4 ? "Leave blank to keep" : "e.g. Z1234567"} value={r.passport_number}
+                    onChange={(e) => setRow(i, { passport_number: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} />
+                </Field>
+                <Field label={intl ? "Passport expiry" : "Passport expiry (optional)"} htmlFor={`tf-px-${i}`}>
+                  <input id={`tf-px-${i}`} className="taw-input" type="date" value={r.passport_expiry} onChange={(e) => setRow(i, { passport_expiry: e.target.value })} />
+                </Field>
+                {(() => {
+                  const note = passportNote(r.passport_expiry, order.travelEnd);
+                  return note ? <div className={`ow-tf-pp ${note.tone}`} role={note.tone === "bad" ? "alert" : undefined}>{note.text}</div> : null;
+                })()}
                 {r.is_lead ? (
-                  <Field label={r.has_pan ? "PAN (on file — leave blank to keep)" : "PAN (if the hotel rate asks for it)"} htmlFor={`tf-pan-${i}`}>
+                  <Field label={r.has_pan ? "PAN (on file — leave blank to keep)" : "PAN (if the fare or hotel rate asks for it)"} htmlFor={`tf-pan-${i}`}>
                     <input className="taw-input" maxLength={10} placeholder="ABCDE1234F" value={r.pan} onChange={(e) => setRow(i, { pan: e.target.value.toUpperCase() })} />
                   </Field>
                 ) : null}

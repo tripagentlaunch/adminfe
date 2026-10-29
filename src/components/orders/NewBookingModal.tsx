@@ -13,6 +13,7 @@ import { todayISO } from "../../lib/advisorHelpers";
 import { detailToOrder, durationLabel } from "../../lib/realOrders";
 import type { Order } from "../../lib/orderTypes";
 import { OrderFulfilment } from "./OrderFulfilment";
+import { NATIONALITIES } from "./TravellersForm";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
@@ -129,6 +130,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     cabin: "economy",
   });
   const paxTotal = form.adults + form.children + form.infants;
+  // The guide's other search fields (6.2). Currency stays INR: the lock, payment and ticket
+  // amounts all have to be in the same currency as the order.
+  const [opts, setOpts] = useState({ nationality: "IN", maxStops: "ALL", refundable: false, prefer: "", exclude: "" });
+  const [optsOpen, setOptsOpen] = useState(false);
+  const iataList = (v: string) => v.toUpperCase().split(/[^A-Z0-9]+/).filter((x) => x.length === 2);
+  const optsSummary = [
+    opts.nationality !== "IN" ? `Nationality ${opts.nationality}` : "",
+    opts.maxStops === "0" ? "Non-stop only" : opts.maxStops === "1" ? "Up to 1 stop" : "",
+    opts.refundable ? "Refundable only" : "",
+    iataList(opts.prefer).length ? `Prefer ${iataList(opts.prefer).join(", ")}` : "",
+    iataList(opts.exclude).length ? `Exclude ${iataList(opts.exclude).join(", ")}` : "",
+  ].filter(Boolean);
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
   // One way vs round trip. A round trip is ONE search whose offers come back tagged
   // ONWARD / RETURN: the advisor picks a fare on each side and both are locked
@@ -215,6 +228,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       originCode: form2.from, destCode: form2.to,
       date: form.date, returnDate: round ? form.returnDate : undefined,
       pax: form.adults, children: form.children, infants: form.infants, cabin: cabinNow,
+      nationality: opts.nationality, currency: "INR", maxStops: opts.maxStops, refundable: opts.refundable,
+      preferredAirlines: iataList(opts.prefer), excludedAirlines: iataList(opts.exclude),
     })
       .then((r: any) => {
         if (seq !== searchSeq.current) return;
@@ -733,6 +748,38 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 {searching ? "Searching…" : "Search"}
               </button>
             </div>
+            <div className="nb-opts">
+              <button type="button" className="ow-link" aria-expanded={optsOpen} onClick={() => setOptsOpen((v) => !v)}>
+                <Icon name="sliders" size={13} /> Search options
+              </button>
+              <span className="ow-sub">{optsSummary.length ? optsSummary.join(" · ") : "Indian nationality · any stops · all fares · INR"}</span>
+            </div>
+            {optsOpen ? (
+              <div className="nb-opts-panel">
+                <Field label="Nationality" htmlFor="nb-nat">
+                  <select id="nb-nat" className="taw-input" value={opts.nationality} onChange={(e) => setOpts((o) => ({ ...o, nationality: e.target.value }))}>
+                    {NATIONALITIES.map(([c, n]) => <option key={c} value={c}>{n} ({c})</option>)}
+                  </select>
+                </Field>
+                <Field label="Stops" htmlFor="nb-stops">
+                  <select id="nb-stops" className="taw-input" value={opts.maxStops} onChange={(e) => setOpts((o) => ({ ...o, maxStops: e.target.value }))}>
+                    <option value="ALL">Any</option>
+                    <option value="0">Non-stop only</option>
+                    <option value="1">Up to 1 stop</option>
+                  </select>
+                </Field>
+                <Field label="Prefer airlines (IATA)" htmlFor="nb-prefer">
+                  <input id="nb-prefer" className="taw-input" placeholder="e.g. AI, 6E" value={opts.prefer} onChange={(e) => setOpts((o) => ({ ...o, prefer: e.target.value }))} />
+                </Field>
+                <Field label="Exclude airlines (IATA)" htmlFor="nb-exclude">
+                  <input id="nb-exclude" className="taw-input" placeholder="e.g. SG" value={opts.exclude} onChange={(e) => setOpts((o) => ({ ...o, exclude: e.target.value }))} />
+                </Field>
+                <label className="nb-opts-check">
+                  <input type="checkbox" checked={opts.refundable} onChange={(e) => setOpts((o) => ({ ...o, refundable: e.target.checked }))} /> Refundable fares only
+                </label>
+                <div className="ow-sub nb-opts-note">Prices are in INR: the fare lock, payment and ticket all use the order&apos;s currency.</div>
+              </div>
+            ) : null}
 
             {panel === "date" ? (
               tripType === "round" ? (

@@ -2022,6 +2022,14 @@ function fastapiFlightSearch(params) {
     children: Number(params.children) || 0,
     infants: Number(params.infants) || 0,
     cabin_class: String(params.cabin || "economy").toUpperCase(),
+    // The rest of the guide's search fields (6.2); the backend fills the same defaults if left out.
+    max_stops: params.maxStops || "ALL",
+    refundable: !!params.refundable,
+    preferred_airlines: params.preferredAirlines || [],
+    excluded_airlines: params.excludedAirlines || [],
+    results_limit: params.resultsLimit || 50,
+    currency: String(params.currency || "INR").toUpperCase(),
+    nationality: String(params.nationality || "IN").toUpperCase(),
   };
   return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
     return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1 });
@@ -2151,6 +2159,10 @@ function bookingIssueTicket(itineraryId, acceptFareChange) {
   });
 }
 // Booking Details for a flight whose ticketing is unclear (Tripsure guide 6.9).
+// TripSure's own order for an itinerary (guide 7.2 / 7.3): number, status, line items, timeline.
+function bookingTripsureOrder(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/tripsure-order", { method: "GET" });
+}
 function bookingCheckFlight(itineraryId) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/check-status", { method: "POST" });
 }
@@ -2866,6 +2878,7 @@ export {
   bookingRecordPayment,
   bookingIssueTicket,
   bookingCheckFlight,
+  bookingTripsureOrder,
   bookingCancelOrder,
   bookingDeleteOrder,
   newFlightJourney,
