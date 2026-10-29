@@ -534,7 +534,6 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const [err, setErr] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [checks, setChecks] = useState<any>({}); // bookingCode -> {state, ...}
-  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -629,21 +628,15 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const info = (det && det.hotelInfo) || {};
   const opts = roomOptions(det, Number((offer && offer.detail && offer.detail.nights) || 0));
   const description = readableDescription(info.description);
-  // One card per room type (supplier roomGroup) with its rate options underneath, cheapest first,
-  // the same way the New Booking room picker lists them; a repeated booking code shows once.
-  const seenCodes = new Set<string>();
+  // Exactly the supplier's roomGroups: one card per group (standardRoomIds), in the supplier's order,
+  // with every option of that group (0..n) under it. Nothing is capped or re-sorted.
   const types: { group: number; title: string; bed: string; rates: any[] }[] = [];
   opts.forEach((o) => {
-    if (seenCodes.has(o.code)) return;
-    seenCodes.add(o.code);
     let t = types.find((x) => x.group === o.group);
     if (!t) types.push((t = { group: o.group, title: o.title, bed: o.bed, rates: [] }));
     t.rates.push(o);
   });
-  types.forEach((t) => t.rates.sort((x, y) => x.total - y.total));
-  types.sort((x, y) => x.rates[0].total - y.rates[0].total);
-  const TYPES_SHOWN = 3;
-  const shownTypes = showAll ? types : types.slice(0, TYPES_SHOWN);
+  const shownTypes = types;
   const stayNights = Number((offer && offer.detail && offer.detail.nights) || 0);
   const stayRooms = Number((offer && offer.detail && offer.detail.rooms) || 1);
   const priceNote = (stayNights ? stayNights + " night" + (stayNights === 1 ? "" : "s") + ", " : "") + stayRooms + " room" + (stayRooms === 1 ? "" : "s");
@@ -702,7 +695,7 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
           <div key={t.group} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 600 }}>{t.title}</div>
-              <small className="taw-muted ta-num" style={{ whiteSpace: "nowrap" }}>From {inr(t.rates[0].total)}</small>
+              <small className="taw-muted ta-num" style={{ whiteSpace: "nowrap" }}>From {inr(Math.min(...t.rates.map((r: any) => r.total)))}</small>
             </div>
             {t.bed ? <div className="taw-res-sub"><span>{t.bed}</span></div> : null}
             {t.rates.map((opt) => {
@@ -749,11 +742,6 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
             })}
           </div>
         ))}
-        {types.length > TYPES_SHOWN ? (
-          <button className="taw-btn taw-btn--sm" onClick={() => setShowAll((v) => !v)}>
-            {showAll ? "Show fewer rooms" : "Show all " + types.length + " rooms"}
-          </button>
-        ) : null}
       </div>
     </div>
   );
