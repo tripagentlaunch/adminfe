@@ -10,7 +10,12 @@ import { getChatNotifications } from "../services/api";
 import { toast } from "../lib/advisorHelpers";
 import { relTime } from "../lib/relTime";
 
-const POLL_MS = 10000;
+// Checked every 6 hours (each check is a call to chatbot-be), plus whenever the bell is opened.
+// The last answer is kept in the browser, so reloading or opening another tab within 6 hours
+// doesn't call again. Instant alerts need chatbot-be to push new chats instead (not built yet).
+const POLL_MS = 6 * 3600 * 1000;
+const OPEN_FRESH_MS = 60 * 1000;          // opening the bell re-checks at most once a minute
+const LAST_KEY = "ta-bell-last";          // { at, items } of the last good check
 const WINDOW_MS = 24 * 3600 * 1000;      // chats from the last day
 const NEW_CHAT_GAP_MS = 30 * 60 * 1000;  // silence this long, then a message, is "started chatting"
 const ONLINE_MS = 5 * 60 * 1000;         // wrote within 5 minutes: "chatting now"
@@ -48,9 +53,22 @@ export function NotificationBell() {
 
   const isUnread = useCallback((it: Item) => it.at > Math.max(read.all, read.by[it.code] || 0), [read]);
 
+  const pollRef = useRef<(force?: boolean) => void>(() => undefined);
+
   useEffect(() => {
     let cancelled = false;
-    async function poll() {
+    const lastAt = () => { try { return Number(JSON.parse(localStorage.getItem(LAST_KEY) || "{}").at) || 0; } catch { return 0; } };
+    // Show the last check's answer straight away (no call) when it is recent enough.
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAST_KEY) || "null");
+      if (saved && Date.now() - saved.at < POLL_MS && Array.isArray(saved.items)) {
+        setNow(saved.at);
+        setItems(saved.items);
+        seen.current = Object.fromEntries(saved.items.map((it: Item) => [it.code, it.at]));
+      }
+    } catch { /* storage blocked: the first check fills the bell */ }
+    async function poll(force = false) {
+      if (!force && Date.now() - lastAt() < POLL_MS) return; // checked recently (in this or another tab)
       if (document.hidden && seen.current) return; // a background tab: wait until it is back (the first poll always runs)
       const t = Date.now();
       const r: any = await getChatNotifications(t - WINDOW_MS);
@@ -59,6 +77,7 @@ export function NotificationBell() {
       const list: Item[] = (r.items || []).slice().sort((a: Item, b: Item) => b.at - a.at);
       setNow(t);
       setItems(list);
+      try { localStorage.setItem(LAST_KEY, JSON.stringify({ at: t, items: list })); } catch { /* not kept: next load checks again */ }
       const prev = seen.current;
       const next: Record<string, number> = {};
       for (const it of list) next[it.code] = it.at;
@@ -79,9 +98,10 @@ export function NotificationBell() {
         } catch { /* notifications blocked: the toast and badge still show */ }
       }
     }
-    poll();
-    const t = setInterval(poll, POLL_MS);
-    const onVisible = () => { if (!document.hidden) poll(); };
+    pollRef.current = (force?: boolean) => { void poll(force); };
+    void poll();
+    const t = setInterval(() => { void poll(); }, POLL_MS);
+    const onVisible = () => { if (!document.hidden) void poll(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => { cancelled = true; clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
   }, []);
@@ -118,7 +138,16 @@ export function NotificationBell() {
       <button
         type="button"
         className={"ta-bell-btn" + (unread.length ? " has-unread" : "")}
-        onClick={() => { setOpen((v) => !v); setNow(Date.now()); }}
+        onClick={() => {
+          if (!open) {
+            // Opening the bell: a fresh check, unless one ran in the last minute.
+            let last = 0;
+            try { last = Number(JSON.parse(localStorage.getItem(LAST_KEY) || "{}").at) || 0; } catch { /* no record: check */ }
+            if (Date.now() - last > OPEN_FRESH_MS) pollRef.current(true);
+          }
+          setOpen((v) => !v);
+          setNow(Date.now());
+        }}
         aria-label={unread.length ? unread.length + " customers chatting with Tara" : "Notifications"}
         aria-expanded={open}
         title="Customers chatting with Tara"

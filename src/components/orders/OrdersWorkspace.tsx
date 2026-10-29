@@ -228,7 +228,14 @@ export function OrdersWorkspace() {
         {selected ? (
           <OrderDetail key={selected.id + (details[selected.id] ? ":full" : "")} order={selected}
             onAddFlight={selected.dbId && selected.status !== "Cancelled" ? () => setAddTo(selected) : undefined}
-            onChanged={refreshSelected} />
+            onChanged={refreshSelected}
+            onDeleted={() => {
+              const gone = selected.id;
+              setOrders((list) => list.filter((o) => o.id !== gone));
+              setDetails((m) => { const n = { ...m }; delete n[gone]; return n; });
+              setSelectedId(null);
+              loadOrders();
+            }} />
         ) : (
           <Empty icon="luggage" title="Select an order" message="Pick an order on the left to see its details." />
         )}

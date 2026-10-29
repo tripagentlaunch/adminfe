@@ -2191,6 +2191,14 @@ function bookingHotelInvoice(hotelId) {
   });
 }
 // kind: "flight" | "hotel" — after verifying with TripSure that nothing was booked.
+// Cancel an order with nothing booked with a supplier (its records are kept), or delete one
+// that also has no money received, with everything under it.
+function bookingCancelOrder(orderId) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/cancel", { method: "POST" });
+}
+function bookingDeleteOrder(orderId) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId), { method: "DELETE" });
+}
 function bookingResetItem(kind, itemId) {
   return fastapiBookingCall("/booking-orders/" + kind + "/" + encodeURIComponent(itemId) + "/reset", { method: "POST" });
 }
@@ -2858,6 +2866,8 @@ export {
   bookingRecordPayment,
   bookingIssueTicket,
   bookingCheckFlight,
+  bookingCancelOrder,
+  bookingDeleteOrder,
   newFlightJourney,
   bookingConfirmHotel,
   bookingCheckHotel,

@@ -7,6 +7,9 @@ import { Icon } from "../ui";
 import { fmtINR, type Flight, type Hotel, type Itinerary, type Order, type Visa } from "../../lib/orderTypes";
 import { statusClass } from "./orderUi";
 import { OrderFulfilment } from "./OrderFulfilment";
+import { bookingCancelOrder, bookingDeleteOrder } from "../../services/api";
+import { errText } from "../../lib/errText";
+import { toast } from "../../lib/advisorHelpers";
 
 // A stay's photo over its gradient + name; if the photo is missing or fails to load,
 // the gradient and name stay (never a broken image).
@@ -142,7 +145,35 @@ function VisaTab({ v }: { v: Visa | null }) {
   );
 }
 
-export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; onAddFlight?: () => void; onChanged?: () => void }) {
+export function OrderDetail({ order, onAddFlight, onChanged, onDeleted }: {
+  order: Order; onAddFlight?: () => void; onChanged?: () => void; onDeleted?: () => void;
+}) {
+  // Cancel keeps the order (and any payment) on record; Delete removes it from the database.
+  const [ending, setEnding] = useState<null | "cancel" | "delete">(null);
+  const [endBusy, setEndBusy] = useState(false);
+  const [endErr, setEndErr] = useState<string | null>(null);
+  async function endOrder(kind: "cancel" | "delete") {
+    if (!order.dbId) return;
+    setEndBusy(true);
+    setEndErr(null);
+    try {
+      if (kind === "delete") {
+        await bookingDeleteOrder(order.dbId);
+        toast(`Order ${order.id} deleted`, "success");
+        setEnding(null);
+        onDeleted?.();
+      } else {
+        await bookingCancelOrder(order.dbId);
+        toast(`Order ${order.id} cancelled`, "success");
+        setEnding(null);
+        onChanged?.();
+      }
+    } catch (e: any) {
+      setEndErr(errText(e));
+    } finally {
+      setEndBusy(false);
+    }
+  }
   const [itinId, setItinId] = useState(order.itineraries[0].id);
   const first = order.itineraries[0];
   // A hotel-only itinerary has nothing under Flights, so open on Hotels.
@@ -161,7 +192,33 @@ export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; o
             <span><span className="num">Order #{order.number} ·</span> {order.id}</span>
             <span className={statusClass(order.status)}>{order.status}</span>
           </div>
+          {order.dbId && order.status !== "Cancelled" ? (
+            <div className="ow-head-acts">
+              <button type="button" className="taw-btn taw-btn--sm" disabled={endBusy} onClick={() => { setEndErr(null); setEnding("cancel"); }}>Cancel order</button>
+              <button type="button" className="taw-btn taw-btn--sm ow-danger" disabled={endBusy} onClick={() => { setEndErr(null); setEnding("delete"); }}>
+                <Icon name="x" size={13} /> Delete order
+              </button>
+            </div>
+          ) : null}
         </div>
+        {ending ? (
+          <div className={`ow-end${ending === "delete" ? " del" : ""}`} role="alertdialog" aria-label={ending === "delete" ? "Delete order" : "Cancel order"}>
+            <div style={{ whiteSpace: "normal" }}>
+              {ending === "delete" ? (
+                <><b>Delete order {order.id}?</b> It is removed for good, with its itineraries, travellers and payment entries. Only possible when nothing is booked with a supplier and no money has been received. TripSure&apos;s fare or room lock simply expires.</>
+              ) : (
+                <><b>Cancel order {order.id}?</b> It moves to Cancelled and stays on record, so a refund can still be recorded against it. Only possible when nothing is booked with a supplier.</>
+              )}
+            </div>
+            {endErr ? <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>{endErr}</div> : null}
+            <div className="ow-end-btns">
+              <button type="button" className="taw-btn taw-btn--sm" disabled={endBusy} onClick={() => setEnding(null)}>Keep the order</button>
+              <button type="button" className={`taw-btn taw-btn--sm${ending === "delete" ? " ow-danger-solid" : " taw-btn--primary"}`} disabled={endBusy} onClick={() => endOrder(ending)}>
+                {endBusy ? "Working…" : ending === "delete" ? "Yes, delete it" : "Yes, cancel it"}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="ow-facts">
           <div className="ow-fact"><div className="k">Customer</div><div className="v">{order.customerName}<small>{order.email}</small></div></div>
           <div className="ow-fact"><div className="k">Travel dates</div><div className="v">{order.travelDates}</div></div>
