@@ -126,9 +126,8 @@ function roomOptions(det: any): any[] {
       const sr0 = (o.standardRooms || [])[0] || {};
       if (!o.recommendationId) return;
       out.push({
-        // One entry per room NAME, as on Tripsure. The supplier splits the same room into many
-        // roomGroups (one per standardRoomIds set), which listed e.g. "Premier Room King" twice.
-        gid: String(rt.roomTitle || rt.standardizedRoomTitle || "").trim().toLowerCase() || String((g.standardRoomIds || []).join(",") || `g${gi}`),
+        // One card per supplier roomGroup; its rates are exactly that group's own options.
+        gid: `${gi}:${(g.standardRoomIds || []).join(",")}`,
         code: String(o.recommendationId),
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
@@ -1042,10 +1041,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const byGroup = new Map<string, any[]>();
     opts.filter(passes).forEach((o) => { byGroup.set(o.gid, (byGroup.get(o.gid) || []).concat(o)); });
     const types = Array.from(byGroup, ([gid, rates]) => {
-      // the supplier repeats identical rates across its roomGroups; show each distinct rate once
+      // show every option of the group; only a repeated recommendationId is collapsed
       const seen = new Set<string>();
       const sorted = rates.slice().sort((a, b) => a.total - b.total).filter((r) => {
-        const k = `${r.board}|${r.inclusions}|${r.refundable}|${Math.round(r.total)}|${String(r.freeUntil || "").slice(0, 10)}`;
+        const k = r.code;
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
