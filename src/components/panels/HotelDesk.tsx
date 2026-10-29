@@ -501,11 +501,13 @@ export function readableDescription(raw: any): string {
 // been seen equal to the whole stay's total).
 function roomOptions(det: any, nights: number): any[] {
   const out: any[] = [];
-  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
+  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any, gi: number) =>
     (g.options || []).forEach((o: any) => {
+      if (!o.recommendationId) return;
       const sr = (o.standardRooms || [])[0] || {};
       const rt = sr.roomType || {};
       out.push({
+        group: gi,
         code: o.recommendationId,
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
@@ -625,7 +627,8 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const info = (det && det.hotelInfo) || {};
   const opts = roomOptions(det, Number((offer && offer.detail && offer.detail.nights) || 0));
   const description = readableDescription(info.description);
-  const shownOpts = showAll ? opts : opts.slice(0, 8);
+  // every option of every roomGroup, in the supplier's own order (no cap)
+  const shownOpts = opts;
   const amenities: string[] = [];
   (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
   const rev = (info.reviews || [])[0];
@@ -675,11 +678,14 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
         </div>
         <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
         {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
-        {shownOpts.map((opt) => {
+        {shownOpts.map((opt, oi) => {
+          const firstOfGroup = oi === 0 || shownOpts[oi - 1].group !== opt.group;
           const chk = checks[opt.code] || {};
           const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
           return (
-            <div key={opt.code} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
+            <div key={opt.code + ":" + opt.group}>
+            {firstOfGroup ? <div className="taw-res-sub" style={{ fontWeight: 600, margin: "8px 0 4px" }}>{opt.title} ({shownOpts.filter((x) => x.group === opt.group).length})</div> : null}
+            <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{opt.title}{opt.rooms > 1 ? " × " + opt.rooms : ""}</div>
@@ -712,11 +718,9 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
                 <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
               ) : null}
             </div>
+            </div>
           );
         })}
-        {opts.length > 8 && !showAll ? (
-          <button className="taw-linkbtn" onClick={() => setShowAll(true)}>Show all {opts.length} room options</button>
-        ) : null}
       </div>
     </div>
   );
