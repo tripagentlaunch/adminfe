@@ -44,8 +44,15 @@ const hPrice = (h: any) => { const b = cheapest(h.priceSummary); return b ? Numb
 const hOpt = (h: any, k: string) => !!((h.hotelInfo || {}).options || {})[k];
 const hWifi = (h: any) => !!((h.hotelInfo || {}).amenity || {}).freeWiFi;
 
+// i.travelapi.com keeps each photo in several sizes (_t/_s/_b/_l/_y thumbnails up to _z, ~1000px).
+// Big photos use _z so they aren't a small copy stretched over the panel; if that size is missing,
+// the URL Tripsure gave is used instead.
+const sharpen = (u?: string) => (u || "").replace(/^(https:\/\/i\.travelapi\.com\/lodging\/.+)_[tsblyw]\.jpg$/i, "$1_z.jpg");
+
 function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero?: boolean; thumb?: boolean }) {
   const [bad, setBad] = useState(false);
+  const [plain, setPlain] = useState(false); // the sharper size failed to load: use the original URL
+  const shown = hero && src && !plain ? sharpen(src) : src;
   if (!src || bad) {
     // Hero and thumbnails keep their reserved size (placeholder) so a failed
     // load can't collapse the layout and shift the scroll; list cards omit it.
@@ -53,8 +60,11 @@ function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero
     if (thumb) return <span className="ow-thumb-ph"><Icon name="hotel" size={16} /></span>;
     return null;
   }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className={hero ? "ow-hero-img" : "ow-hcard-img"} src={src} alt={alt} loading="lazy" onError={() => setBad(true)} />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img className={hero ? "ow-hero-img" : "ow-hcard-img"} src={shown} alt={alt} loading="lazy" decoding="async"
+      onError={() => (shown !== src ? setPlain(true) : setBad(true))} />
+  );
 }
 
 // "+91 81728 36138" / "918172836138" / "08172836138" -> "8172836138" (the country code is sent separately).
@@ -125,7 +135,7 @@ function roomOptions(det: any): any[] {
         price: splitPrice(rb, Number(o.totalRate) || 0),
         // this room's own photos (Tripsure: standardRooms[0].roomImages, strings or image objects)
         images: Array.from(new Set(((sr0.roomImages || sr0.imageInfo || []) as any[])
-          .map((i) => (typeof i === "string" ? i : i && (i.largeImageUrl || i.bigImageUrl || i.url || i.smallImageUrl || i.thumbnailImageUrl)))
+          .map((i) => (typeof i === "string" ? i : i && (i.largeImageUrl || i.wideAngleImageUrl || i.bigImageUrl || i.url || i.smallImageUrl || i.thumbnailImageUrl)))
           .filter(Boolean))) as string[],
         chips: [
           sr0.bedType, sr0.maxGuestCount || rt.maxOccupancy ? `${sr0.maxGuestCount || rt.maxOccupancy} Sleeps` : null,
