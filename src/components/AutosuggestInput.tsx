@@ -33,6 +33,9 @@ import { Spinner } from "./ui";
 //   showDefaultsOnFocus? = false, floating? = false, isHeading?(item) -> boolean,
 // })
 //
+// instantSuggestions (opt-in): items returned by it are shown immediately, then replaced by
+// fetchSuggestions' result when that lands, so a slow live source never leaves "Searching…".
+//
 // isHeading (opt-in): items it returns true for are shown as non-clickable group
 // headings (e.g. "London, United Kingdom · 6 airports"); arrow keys skip them.
 //
@@ -68,6 +71,7 @@ export function AutosuggestInput(props: any) {
     showDefaultsOnFocus = false,
     floating = false,
     isHeading,
+    instantSuggestions, // opt-in: (query) -> item[] shown at once while fetchSuggestions is still in flight
     listClassName, // opt-in: extra class on the suggestion list (e.g. a taller list)
   } = props;
   const pickable = (item: any) => !(isHeading && isHeading(item));
@@ -120,6 +124,14 @@ export function AutosuggestInput(props: any) {
     // row below is unreachable on a first query and the field looks dead for
     // the whole round trip.
     setOpen(true);
+    if (instantSuggestions) {
+      const early = instantSuggestions(query);
+      if (Array.isArray(early) && early.length) {
+        setSuggestions(early.slice(0, maxResults));
+        setLoading(false);
+        setActiveIndex(-1);
+      }
+    }
     fetchSuggestions(query)
       .then((items: any) => {
         if (requestIdRef.current !== thisRequest) return; // superseded by a newer keystroke

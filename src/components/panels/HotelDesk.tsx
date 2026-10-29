@@ -10,7 +10,7 @@ import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
-import { citySuggest } from "../../lib/citySuggest";
+import { citySuggest, instantCitySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
@@ -1350,6 +1350,7 @@ export function HotelDesk(props: any) {
               setSelectedLocation(loc._isFallbackDefault ? null : loc);
             }}
             fetchSuggestions={cityLocationSuggestions}
+            instantSuggestions={(q: string) => (q ? instantCitySuggest(q, rankLocationSuggestions) : [])}
             renderSuggestion={renderCityLocationSuggestion}
             getKey={(loc: any) => loc.id}
             showDefaultsOnFocus
