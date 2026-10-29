@@ -820,3 +820,11 @@
 .ow-ts-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
 .ow-ts-events{margin:2px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:3px;}
 .ow-ts-events small{margin-left:8px;color:var(--taupe);}
+/* Console pricing drawer: price breakdown (FlightQuoteDrawer.tsx) */
+.fi-pb{display:grid;gap:0;max-width:640px;}
+.fi-pb-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;}
+.fi-pb-row span{min-width:0;overflow-wrap:anywhere;}
+.fi-pb-row.sub{padding:6px 0 6px 14px;color:var(--taupe);font-size:13px;border-bottom-style:dashed;}
+.fi-pb-head{font-weight:600;padding-top:14px;}
+.fi-pb-total{border-bottom:0;border-top:2px solid var(--ink);margin-top:6px;padding-top:12px;font-size:16px;}
+.fi-pb-total b{font:600 20px var(--serif);}

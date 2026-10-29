@@ -57,7 +57,8 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { ResizableColumns } from "../ResizableColumns";
 import { useRouter } from "next/navigation";
 import { getMessagesByPhone, sendMessageByPhone, siteMembers } from "../../services/api";
@@ -366,6 +367,8 @@ function findEnquiryTraveller(travellers: any, convoTarget: any, member: any, tr
   );
 }
 
+const noSubscribe = () => () => {};
+
 export function WorkbenchTab(props: any) {
   // creating/onCreateOrder: unused now that Quote Builder isn't rendered on
   // this screen — kept in the destructure since the parent still passes
@@ -409,6 +412,20 @@ export function WorkbenchTab(props: any) {
   // QueueProfileAccordion (carries code + phone); it's lifted here because the
   // panel renders in a sibling column. Falls back to the enquiry-loaded member.
   const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
+  // The Traveller Profile opens as a popup from the round button at the top left of the
+  // Itinerary Builder, so the itinerary and Search get the whole row. It stays mounted
+  // while closed: it also drives the Queue dropdown in the Enquiries header.
+  const [profileOpen, setProfileOpen] = useState(false);
+  // false while server-rendering / hydrating, true in the browser after: <body> exists to portal into.
+  const portalReady = useSyncExternalStore(noSubscribe, () => true, () => false);
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector('[role="listbox"]')) setProfileOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [profileOpen]);
+  const profileName = String((convoMember && convoMember.name) || "");
+  const profileInitials = profileName.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   // ONE flag for both columns: the tabbed summary panel (column 2) and the
   // chat (column 3) show together. Otherwise column 2 is the Itinerary Builder
   // card (chooser / Drafting… / ItineraryView) and column 3 is the search panel.
@@ -498,14 +515,34 @@ export function WorkbenchTab(props: any) {
   );
 
   return (
-    // Drag the handles between columns to widen the Itinerary Builder or Search (saved per browser).
-    <ResizableColumns storageKey="taw.console.columns.v1" defaults={[3, 4, 3]} className="taw-grid taw-cols-3">
-      {profileColumn}
-
+    <>
+    {/* Portalled to <body> so it sits above the app sidebar and header. */}
+    {portalReady ? createPortal(
+      <div className={"taw-prof-pop" + (profileOpen ? " is-open" : "")} aria-hidden={!profileOpen}>
+        <div className="taw-prof-pop-back" onClick={() => setProfileOpen(false)} />
+        <div className="taw-prof-pop-panel" role="dialog" aria-modal="true" aria-label="Traveller profile">
+          <div className="taw-prof-pop-top">
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setProfileOpen(false)} aria-label="Close the traveller profile">
+              <Icon name="x" size={14} /> Close
+            </button>
+          </div>
+          {profileColumn}
+        </div>
+      </div>,
+      document.body,
+    ) : null}
+    {/* Drag the handle between the columns to widen the Itinerary Builder or Search (saved per browser). */}
+    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3">
       <Card
         className="taw-itin-card"
         title="Itinerary Builder"
-        icon={<Icon name="sliders" size={20} />}
+        icon={
+          <button type="button" className={"taw-prof-btn" + (profileInitials ? "" : " is-empty")} onClick={() => setProfileOpen(true)}
+            title={profileName ? `${profileName} — open the traveller profile` : "Open the traveller profile and travellers list"}
+            aria-label="Open the traveller profile" aria-expanded={profileOpen}>
+            {profileInitials || <Icon name="user" size={18} />}
+          </button>
+        }
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
           // "← Back" (2026-10-21) — only while Tara's itinerary is the one showing. It sets that
@@ -560,6 +597,7 @@ export function WorkbenchTab(props: any) {
         onAddSwap={(item: any) => selEnqId && addSwapOptionToItinerary(selEnqId, item)}
       />
     </ResizableColumns>
+    </>
   );
 }
 

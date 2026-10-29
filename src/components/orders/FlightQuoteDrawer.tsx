@@ -27,6 +27,11 @@ export type FlightLivePrice = {
   listPrice: number;
   /** TripSure's totalFare for every traveller searched, at the check. */
   fare: number;
+  /** Create Itinerary's priceSummary split of `fare`: base fare, taxes, and whatever else
+   *  the total carries (fees / other charges = total − base − taxes). Null when not given. */
+  baseFare: number | null;
+  taxes: number | null;
+  otherCharges: number | null;
   priceChanged: boolean;
   fareId: string;
   fareName: string;
@@ -40,7 +45,11 @@ export type FlightLivePrice = {
   needs: string[];
 };
 
-type Lock = { itineraryId: string; fare: number; priceChanged: boolean; needs: string[]; ssr: any; ssrErr: string | null };
+type Lock = {
+  itineraryId: string; fare: number; baseFare: number | null; taxes: number | null; otherCharges: number | null;
+  priceChanged: boolean; needs: string[]; checkedAt: string; ssr: any; ssrErr: string | null;
+};
+const num = (v: any) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
 // One searched fare as Create Itinerary takes it: the chosen option's fare id, its provider
 // and that provider's search trace id (provider 1 fares are rejected without it).
@@ -66,7 +75,12 @@ function readLock(r: any) {
   const required = (v: any) => v === true || (!!v && typeof v === "object" && Object.entries(v).some(([k, x]) => x === true && /mandatory|required/i.test(k)));
   const c = sectors.map((s) => s?.conditions || {});
   const needs = (["passport", "pan", "gst"] as const).filter((k) => c.some((x) => required(x[k]))).map((k) => (k === "passport" ? k : k.toUpperCase()));
-  return { itineraryId: String(r.itineraryId), fare, priceChanged: v.some((x) => !!x.isPriceChanged), needs };
+  const baseFare = num(price.baseFare), taxes = num(price.totalTax ?? price.taxes);
+  const other = baseFare != null && taxes != null ? Math.round((fare - baseFare - taxes) * 100) / 100 : null;
+  return {
+    itineraryId: String(r.itineraryId), fare, baseFare, taxes, otherCharges: other != null && Math.abs(other) >= 1 ? other : other === null ? null : 0,
+    priceChanged: v.some((x) => !!x.isPriceChanged), needs, checkedAt: new Date().toISOString(),
+  };
 }
 
 export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, startTab = "fares" }: {
@@ -116,7 +130,7 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
       setLock({ ...got, ssr, ssrErr });
       setSel(rows.map(() => NO_PICK));
       setSeg(0);
-      setTab(ssr ? firstExtrasTab(ssr, rows[0], d) : "fares");
+      setTab(ssr ? firstExtrasTab(ssr, rows[0], d) : "price");
     } catch (e: any) {
       setErr(errText(e));
     } finally {
@@ -137,9 +151,12 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
     const extrasTotal = extrasSum(sel);
     onAdd({
       source: "tripsure_live",
-      checkedAt: new Date().toISOString(),
+      checkedAt: lock.checkedAt,
       listPrice,
       fare: lock.fare,
+      baseFare: lock.baseFare,
+      taxes: lock.taxes,
+      otherCharges: lock.otherCharges,
       priceChanged: lock.priceChanged || Math.abs(lock.fare - listPrice) > 1,
       fareId: fare.fare_id,
       fareName: fare.name,
@@ -159,8 +176,9 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
     { key: "timeline", label: "Timeline", icon: "clock" },
     { key: "fares", label: "Fare options", icon: "list", badge: lock ? "✓" : null },
     ...(lock?.ssr ? extrasDrawerTabs(lock.ssr, rows, d, sel) : []),
+    ...(lock ? [{ key: "price", label: "Price breakdown", icon: "tag" }] : []),
   ];
-  const shown = EXTRAS_TABS.includes(tab) && !lock?.ssr ? "fares" : tab;
+  const shown = (EXTRAS_TABS.includes(tab) && !lock?.ssr) || (tab === "price" && !lock) ? "fares" : tab;
 
   return (
     <ItineraryDrawer
@@ -206,6 +224,8 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
 
       {shown === "timeline" ? (
         <FlightTimeline legs={[{ segments }]} />
+      ) : shown === "price" && lock ? (
+        <PriceBreakdown lock={lock} listPrice={listPrice} fareName={fare?.name || "Fare"} sel={sel} rows={rows} detail={d} paxNote={paxNote} />
       ) : shown === "fares" ? (
         <>
           <FareOptionsList offer={offer} selected={fare?.fare_id || null} onSelect={chooseFare} />
@@ -230,5 +250,38 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
         />
       )}
     </ItineraryDrawer>
+  );
+}
+
+// Everything the itinerary's price for this flight is made of, line by line: the live fare
+// split as TripSure gives it (base, taxes, other charges), each add-on with its segment, and
+// the total. The search-list price is shown for comparison only.
+function PriceBreakdown({ lock, listPrice, fareName, sel, rows, detail, paxNote }: {
+  lock: Lock; listPrice: number; fareName: string; sel: SegSel[]; rows: any[]; detail: any; paxNote: string;
+}) {
+  const route = (i: number) => (rows[i] ? `${rows[i].departureAirport} → ${rows[i].arrivalAirport}` : `${detail.originCode || ""} → ${detail.destCode || ""}`);
+  const lines: { k: string; v: number; sub?: boolean }[] = [];
+  if (lock.baseFare != null) lines.push({ k: "Base fare", v: lock.baseFare, sub: true });
+  if (lock.taxes != null) lines.push({ k: "Taxes", v: lock.taxes, sub: true });
+  if (lock.otherCharges) lines.push({ k: "Other charges in the fare (supplier / airline fees)", v: lock.otherCharges, sub: true });
+  const extras: { k: string; v: number }[] = [];
+  sel.forEach((p, i) => (["baggage", "seat", "meal"] as const).forEach((kind) => {
+    const x = p[kind];
+    if (x) extras.push({ k: `${x.label} · ${route(i)}`, v: x.price });
+  }));
+  const extrasTotal = extrasSum(sel);
+  const at = new Date(lock.checkedAt);
+  return (
+    <div className="fi-pb">
+      <div className="fi-pb-row fi-pb-head"><span>{fareName} fare {paxNote}</span><b>{inr(lock.fare)}</b></div>
+      {lines.map((l) => <div key={l.k} className="fi-pb-row sub"><span>{l.k}</span><span>{inr(l.v)}</span></div>)}
+      <div className="fi-pb-row fi-pb-head"><span>Add-ons</span><b>{extras.length ? inr(extrasTotal) : "None"}</b></div>
+      {extras.map((l) => <div key={l.k} className="fi-pb-row sub"><span>{l.k}</span><span>{l.v > 0 ? inr(l.v) : "Included"}</span></div>)}
+      <div className="fi-pb-row fi-pb-total"><span>Total for the itinerary</span><b>{inr(lock.fare + extrasTotal)}</b></div>
+      <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 12 }}>
+        Live from TripSure at {at.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} (search list showed {inr(listPrice)} for this fare).
+        This is the fare and add-on prices the booking charges if nothing changes at the airline before payment; the booking re-checks the price before taking payment.
+      </div>
+    </div>
   );
 }

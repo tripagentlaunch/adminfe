@@ -7,7 +7,7 @@
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
-import { exportTripsureFlightOffers, fastapiFlightSearch, importTripsureFlightOffers, newFlightJourney, searchFlights, inr } from "../../services/api";
+import { exportTripsureFlightOffers, fastapiFlightSearch, getTripsureFlightOffer, importTripsureFlightOffers, newFlightJourney, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { AIRPORTS, searchAirports } from "../../lib/airports";
 import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
@@ -1019,6 +1019,13 @@ export function FlightDesk(props: any) {
 function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
   // The offer being priced, and the drawer section it opened on.
   const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares" } | null>(null);
+  // Flights added from this list, with the live price they went in at (shown on their card).
+  const [added, setAdded] = useState<Record<string, FlightLivePrice>>({});
+  // How many fare options (Saver / Flex …) the search lists for a flight; no extra call.
+  const fareCount = (o: any) => {
+    const raw = getTripsureFlightOffer(o.id)?.raw || {};
+    return (((raw.PriceSummaries || raw.priceSummaries || [])[0] || {}).fareFamilies || []).length;
+  };
   const offNet = (o: any) => {
     const d = o.detail || {};
     return Number(o.base_net != null ? o.base_net : o.baseNet) || d.baseNet || 0;
@@ -1045,6 +1052,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
       };
     });
     onAdd(flightCartItem(o, alternatives, { pax, pricing }));
+    setAdded((m) => ({ ...m, [o.id]: pricing }));
     setQuote(null);
   }
   // Carriers present in this result set, for the carrier filter.
@@ -1183,7 +1191,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
                     </div>
                     <button className="taw-linkbtn" onClick={() => setQuote({ offer: o, tab: "timeline" })}>
                       <Icon name="chevron" size={12} />
-                      Timeline · fare options · seats
+                      {"Timeline · " + (fareCount(o) > 1 ? fareCount(o) + " fare options" : "fare options") + " · seats"}
                     </button>
                   </div>
                   <div className="taw-res-side">
@@ -1200,8 +1208,14 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
                           future case a real offer's price genuinely can't
                           be read. */}
                       {net > 0 ? inr(net) : "—"}
-                      <small>net cost</small>
+                      <small>{added[o.id] ? "search price" : "net cost"}</small>
                     </div>
+                    {added[o.id] ? (
+                      <div className="taw-res-priced" title="Live TripSure price this flight was added to the itinerary at">
+                        <span><Icon name="check" size={12} /> In itinerary</span> <b>{inr(added[o.id].total)}</b>
+                        <small>{inr(added[o.id].fare)} {added[o.id].fareName.toLowerCase() === "searched fare" ? "fare" : added[o.id].fareName + " fare"}{added[o.id].extrasTotal ? " + " + inr(added[o.id].extrasTotal) + " add-ons" : ""}</small>
+                      </div>
+                    ) : null}
                     {onAddSwap ? (
                       // Offer this flight as one of the options for the itinerary's
                       // flight on the same route and day (instead of a new flight).
@@ -1219,8 +1233,8 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
                       title="Choose the fare, check its live price and pick seats / meals / baggage"
                       onClick={() => setQuote({ offer: o, tab: "fares" })}
                     >
-                      <Icon name="plus" size={13} />
-                      Add
+                      <Icon name={added[o.id] ? "refresh" : "plus"} size={13} />
+                      {added[o.id] ? "Re-price" : "Add"}
                     </button>
                   </div>
                 </div>

@@ -282,7 +282,10 @@ function livePriceChips(p: any): string[] {
 function livePriceMeta(p: any, mix: any): string {
   const at = new Date(p.checkedAt);
   const when = Number.isNaN(at.getTime()) ? "" : " on " + at.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  return "Live TripSure price" + (mix ? " for " + paxText(mix) : "") + ", checked" + when + ": " + inrPlain(p.fare) + " fare"
+  const split = p.baseFare != null && p.taxes != null
+    ? " (" + inrPlain(p.baseFare) + " base + " + inrPlain(p.taxes) + " taxes" + (p.otherCharges ? " + " + inrPlain(p.otherCharges) + " other charges" : "") + ")"
+    : "";
+  return "Live TripSure price" + (mix ? " for " + paxText(mix) : "") + ", checked" + when + ": " + inrPlain(p.fare) + " fare" + split
     + (p.extrasTotal ? " + " + inrPlain(p.extrasTotal) + " add-ons" : "")
     + (p.needs && p.needs.length ? " · needs " + p.needs.join(", ") + " at booking" : "")
     + " · airline prices can move until it is booked";
