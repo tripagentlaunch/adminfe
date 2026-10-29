@@ -114,11 +114,27 @@ export function ItinerarySummaryContent({ data }: { data: any }) {
           </div>
         ) : null}
         {data.days.map((day: any) => (
-          <div className="taw-itinsum-row" key={day.id}>
-            <span className="taw-itinsum-row-date">{day.date}</span>
-            <span className="taw-itinsum-row-label">{day.route}</span>
-            <span className={cxDayDot(day)} />
-            <span className="taw-itinsum-row-total">{dayTotalLabel(day)}</span>
+          <div key={day.id}>
+            <div className="taw-itinsum-row">
+              <span className="taw-itinsum-row-date">{day.date}</span>
+              <span className="taw-itinsum-row-label">{day.route}</span>
+              <span className={cxDayDot(day)} />
+              <span className="taw-itinsum-row-total">{dayTotalLabel(day)}</span>
+            </div>
+            {/* what is actually added to this day: every flight / hotel with its status and price */}
+            {(day.items || []).map((it: any) => {
+              const meta = STATUS_META[it.status as keyof typeof STATUS_META];
+              return (
+                <div className="taw-itinsum-row taw-itinsum-item" key={it.id} style={{ paddingLeft: 18, borderBottom: 0, fontSize: 12 }}>
+                  <Icon name={it.type} size={13} />
+                  <span className="taw-itinsum-row-label" title={[it.title, it.sub].filter(Boolean).join(" · ")}>
+                    {it.title}{it.sub ? <span style={{ color: "var(--muted)" }}> · {it.sub}</span> : null}
+                  </span>
+                  {meta ? <span style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{meta.label}</span> : null}
+                  <span className="taw-itinsum-row-total">{it.price != null ? (it.priceIsFrom ? "from " : "") + inr(it.price) : "—"}</span>
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
