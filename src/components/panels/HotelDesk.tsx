@@ -549,7 +549,9 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
     hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
-        if (!rate) throw new Error("TripSure returned no rate for this room.");
+        // TripSure listed this room but its live price-check came back empty — the rate has
+        // gone (sold out, or the search session is stale). Point the advisor at Refresh prices.
+        if (!rate) throw new Error("This rate is no longer available from TripSure. Use “Refresh prices” above to get current rates, then try again.");
         const total = Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0;
         setChecks((c: any) => ({
           ...c,
@@ -1431,7 +1433,7 @@ export function HotelDesk(props: any) {
             </span>
           </div>
         ) : null}
-        {res && !loading && !moreInfo && searchedAt && now - searchedAt > STALE_AFTER_MS ? (
+        {res && !loading && !moreInfo && searchedAt ? (
           <span style={{ fontSize: 12, color: "var(--taupe)" }}>
             Searched {ageLabel(searchedAt)} ·{" "}
             <button type="button" className="taw-linkbtn" onClick={() => run(true)}>Refresh prices</button>
