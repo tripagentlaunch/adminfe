@@ -496,7 +496,7 @@
 .nb-mtitle span{display:block;margin-top:2px;font-size:12.5px;color:var(--taupe);}
 .nb-close{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;color:var(--taupe);}
 .nb-close:hover:not(:disabled){color:var(--ink);background:var(--bone);}
-.nb-steps{display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0 0 14px;border-bottom:1px solid var(--line);overflow-x:auto;}
+.nb-steps{flex:none;display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0 0 14px;border-bottom:1px solid var(--line);overflow-x:auto;}
 .nb-steps li{display:flex;align-items:center;gap:7px;font:500 11px var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
 .nb-steps li+li::before{content:"";width:22px;height:1px;background:var(--line-2);margin-right:2px;}
 .nb-steps li i{font-style:normal;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-2);font:600 11px var(--sans);letter-spacing:0;color:var(--taupe);background:var(--card);}
