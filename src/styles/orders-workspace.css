@@ -104,6 +104,7 @@
 /* ---- New booking (real flow) -------------------------------------------- */
 .ow-live{margin-left:6px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:1px 6px;border-radius:999px;background:var(--gold-bg);color:var(--gold-ink,#785c12);font-family:var(--eyebrow);vertical-align:middle;}
 .ow-lock{margin-top:10px;padding:9px 11px;border:1px dashed var(--line);border-radius:10px;font-size:12px;background:var(--bone,#F4EFE3);display:grid;gap:2px;}
+.ow-lock div{overflow-wrap:anywhere;}
 .ow-modal{max-width:640px;max-height:88vh;overflow-y:auto;gap:12px;}
 .ow-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .ow-modal-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;}
@@ -243,7 +244,8 @@
 @media (max-width:760px){.ow-sbar-route{flex-basis:100%;}.ow-sbar-opts{flex-basis:100%;}.ow-searchbtn{flex-basis:100%;}}
 
 /* ---- Unified single-row search card (flights + hotels) -------------------- */
-.ow-trip{display:flex;gap:8px;margin-bottom:8px;}
+/* One way / Round trip pills (was .ow-trip, which also styled the order page's trip card as a row) */
+.ow-triptype{display:flex;gap:8px;margin-bottom:8px;}
 .ow-trip-pill{padding:6px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:12.5px;font-weight:600;color:var(--taupe);font-family:inherit;cursor:pointer;}
 .ow-trip-pill.on{background:#1a1712;border-color:#1a1712;color:#fff;}
 .ow-trip-pill:disabled{opacity:.45;cursor:not-allowed;}
@@ -777,3 +779,10 @@
 .nb-nearby-btn small{color:var(--taupe);font-size:12px;}
 .nb-nearby-btn:hover:not(:disabled){border-color:var(--gold);background:var(--gold-bg);}
 .taw-typeahead-list.nb-airport-list{max-height:min(460px,62vh);}
+
+/* Book section of the Flight itinerary panel (travellers -> payment -> ticket) */
+.nb-booked-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--success-bg);border:1px solid rgba(91,122,91,.25);}
+.nb-booked-head .nb-done-ic{width:34px;height:34px;flex:none;}
+.nb-booked-head b{display:block;font-size:14.5px;color:var(--success-ink);}
+.nb-booked-head small{display:block;font-size:12.5px;color:var(--taupe);margin-top:2px;}
+.fi-main .ow-ful{margin:0;}

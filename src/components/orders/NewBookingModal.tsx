@@ -5,11 +5,14 @@ import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
   fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
+  bookingGetOrder,
 } from "../../services/api";
 import { airportDistance, groupedAirportSuggest, nearbyAirports } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
-import { durationLabel } from "../../lib/realOrders";
+import { detailToOrder, durationLabel } from "../../lib/realOrders";
+import type { Order } from "../../lib/orderTypes";
+import { OrderFulfilment } from "./OrderFulfilment";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
@@ -471,6 +474,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // hotel-only: new itinerary on addToOrder's order, or a brand-new order.
   const [hotelBack, setHotelBack] = useState<Step>("search");
 
+  // The order as the order page shows it, for the Book section (travellers -> payment -> ticket).
+  const [bookOrder, setBookOrder] = useState<Order | null>(null);
+  const [bookErr, setBookErr] = useState<string | null>(null);
+  function loadBookOrder(orderId: string) {
+    setBookErr(null);
+    bookingGetOrder(orderId)
+      .then((d: any) => setBookOrder(detailToOrder(d)))
+      .catch((e: any) => setBookErr(errText(e)));
+  }
+
   function confirmItinerary() {
     const d = draftRef.current;
     if (!d) { setErr("This fare is no longer held — go back and select it again."); return; }
@@ -490,6 +503,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setDraftBoth(null); // confirmed: no longer discardable
         setLock({ orderId: r.order_id, itineraryId: d.itineraryId });
         setStep("flightDone");
+        // Straight on to travellers, payment and the ticket in the same panel, while TripSure
+        // still holds the fare.
+        setDrawerTab("book");
+        loadBookOrder(r.order_id);
       })
       .catch((e: any) => setErr(errText(e)))
       .finally(() => setCreating(false));
@@ -508,7 +525,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const STEPS = ["Customer", "Search", "Choose fare", "Extras", "Fare locked"];
+  const STEPS = ["Customer", "Search", "Choose fare", "Extras", "Book"];
   const stepIdx =
     step === "customer" ? 0 :
     step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
@@ -635,7 +652,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               </button>
             </div>
             <div className="nb-searchwrap">
-            <div className="ow-trip" role="tablist" aria-label="Trip type">
+            <div className="ow-triptype" role="tablist" aria-label="Trip type">
               <button type="button" role="tab" aria-selected={tripType === "oneway"} className={`ow-trip-pill${tripType === "oneway" ? " on" : ""}`} onClick={goOneWay}>One way</button>
               <button type="button" role="tab" aria-selected={tripType === "round"} className={`ow-trip-pill${tripType === "round" ? " on" : ""}`} onClick={goRound}>Round trip</button>
             </div>
@@ -776,7 +793,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         ) : null}
 
         {/* ── Step 3: Results ── */}
-        {step === "results" || step === "seats" ? (
+        {step === "results" || step === "seats" || step === "flightDone" ? (
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
@@ -1022,27 +1039,55 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         ) : null}
 
         {/* ── After the fare lock: optionally add a hotel to the same itinerary ── */}
-        {step === "flightDone" && lock ? (
-          <div className="nb-done">
-            <span className="nb-done-ic"><Icon name="check" size={26} /></span>
-            <h3>Fare locked and saved to the order</h3>
-            <p>Add a hotel to the same itinerary now, or go to the order to add the travellers, take the payment and issue the ticket.</p>
-            {expiryNote()}
-            <ol className="nb-next">
-              <li><b>Travellers</b><span>Names exactly as on their ID</span></li>
-              <li><b>Payment</b><span>Collect online or record it</span></li>
-              <li><b>Ticket</b><span>Issue with the airline</span></li>
-            </ol>
-            <div className="nb-done-btns">
-              <button type="button" className="taw-btn" onClick={() => { setErr(null); setHotelBack("flightDone"); setStep("hotel"); }}>
-                <Icon name="hotel" size={14} /> Add a hotel
-              </button>
-              <button type="button" className="taw-btn taw-btn--primary" onClick={() => onCreated(lock.orderId)}>
-                Go to the order
-              </button>
-            </div>
-          </div>
-        ) : null}
+        {step === "flightDone" && lock ? (() => {
+          const legs: any[] = selectedOffer ? [selectedOffer, ...(selectedReturn ? [selectedReturn] : [])] : [];
+          const tab = drawerTab === "timeline" ? "timeline" : "book";
+          return (
+            <ItineraryDrawer
+              tabs={[{ key: "timeline", label: "Timeline", icon: "clock" }, { key: "book", label: "Book", icon: "check" }]}
+              active={tab}
+              onTab={setDrawerTab}
+              onClose={() => onCreated(lock.orderId)}
+              closeLabel="Close and open the order"
+              price={bookOrder ? inr(bookOrder.amount) : "—"}
+              priceNote={bookOrder ? `Order total · ${bookOrder.paymentStatus}` : "Order total"}
+              actions={<>
+                <button type="button" className="taw-btn" onClick={() => { setErr(null); setHotelBack("flightDone"); setStep("hotel"); }}>
+                  <Icon name="hotel" size={14} /> Add a hotel
+                </button>
+                <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={() => onCreated(lock.orderId)}>Go to the order</button>
+              </>}
+            >
+              {tab === "timeline" ? (
+                <FlightTimeline legs={legs.map((o: any, li: number) => ({
+                  label: legs.length > 1 ? (li === 0 ? "Onward" : "Return") : undefined,
+                  segments: getTripsureFlightOffer(o.id)?.raw?.segments || [],
+                }))} />
+              ) : (
+                <>
+                  <div className="nb-booked-head">
+                    <span className="nb-done-ic"><Icon name="check" size={18} /></span>
+                    <div>
+                      <b>Fare locked and saved to the order</b>
+                      <small>Add the travellers, take the payment and issue the ticket here, while TripSure holds the fare.</small>
+                    </div>
+                  </div>
+                  {expiryNote()}
+                  {bookErr ? (
+                    <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
+                      Couldn&apos;t load the order ({bookErr}).{" "}
+                      <button type="button" className="ow-link" onClick={() => loadBookOrder(lock.orderId)}>Try again</button>
+                    </div>
+                  ) : !bookOrder ? (
+                    <div className="ow-sub"><Spinner /> Loading the booking steps…</div>
+                  ) : (
+                    <OrderFulfilment order={bookOrder} onChanged={() => loadBookOrder(lock.orderId)} />
+                  )}
+                </>
+              )}
+            </ItineraryDrawer>
+          );
+        })() : null}
 
         {/* ── Hotel steps ── */}
         {step === "hotel" && customer && hotelBack === "search" ? (

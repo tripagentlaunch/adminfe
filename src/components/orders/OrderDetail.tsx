@@ -38,7 +38,8 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
         <div className="ow-city r"><div className="code">{f.to}</div><div className="time">{f.arr}</div><div className="nm">{f.toCity}</div></div>
       </div>
       <div className="ow-seg-foot">
-        <span><span className="taw-chip taw-chip--dom">{f.cabin}</span> &nbsp;{fmtINR(f.pricePerTraveller)} <small>per traveller</small></span>
+        <span><span className="taw-chip taw-chip--dom">{f.cabin}</span> &nbsp;
+          {f.pricePerTraveller > 0 ? <>{fmtINR(f.pricePerTraveller)} <small>per traveller</small></> : <small>Included in the fare above</small>}</span>
         <button type="button" className="taw-btn taw-btn--sm" onClick={() => setOpen((v) => !v)}>{open ? "Hide details" : "View details"}</button>
       </div>
       {open ? (
@@ -46,7 +47,7 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
           <div><b>Baggage</b>{f.detail.baggage || "Not provided"}</div>
           <div><b>Seats</b>{f.detail.seat || "Not selected yet"}</div>
           <div><b>Terminal</b>{f.detail.terminal || "Not provided"}</div>
-          <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div>
+          {f.pricePerTraveller > 0 ? <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div> : null}
         </div>
       ) : null}
     </div>

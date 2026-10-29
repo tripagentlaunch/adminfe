@@ -302,13 +302,17 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
             </div>
             {!payDone && f.schema_ready && gw && !gw.configured ? (
               <div className="taw-banner taw-banner--warn" style={{ margin: "6px 0" }}>
-                Online payment (Razorpay) isn&apos;t set up — missing {gw.missing.map((m) => <code key={m}>{m} </code>)}
-                on the server. You can still record payments received outside the portal.
+                {/* One text block: the banner is a flex row, so loose text and <code> became columns. */}
+                <span style={{ whiteSpace: "normal" }}>
+                  Online payment (Razorpay) isn&apos;t set up on the server yet (missing {gw.missing.join(", ")}). You can still record payments received outside the portal.
+                </span>
               </div>
             ) : null}
             {!payDone && gw?.configured && !gw.webhook_configured ? (
               <div className="taw-banner taw-banner--info" style={{ margin: "6px 0" }}>
-                <code>RAZORPAY_WEBHOOK_SECRET</code> isn&apos;t set. Payments still confirm in this window, but one made after the window is closed won&apos;t be picked up.
+                <span style={{ whiteSpace: "normal" }}>
+                  RAZORPAY_WEBHOOK_SECRET isn&apos;t set. Payments still confirm in this window, but one made after the window is closed won&apos;t be picked up.
+                </span>
               </div>
             ) : null}
             {gwErr ? <div className="ow-sub">Couldn&apos;t check whether online payment is set up.</div> : null}
