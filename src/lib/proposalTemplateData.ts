@@ -252,6 +252,11 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         city,
         name: it.title,
         roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
+        // Raw fields the customer "Pay now" flow needs to re-search this exact room server-side
+        // (checkIn/checkOut as ISO, the plain room name). Display uses dateRange/roomAndBoard above.
+        roomType: it.roomType || null,
+        checkIn: it._dayIso || null,
+        checkOut: it._dayIso ? addDaysIso(it._dayIso, parseNights(it.duration)) : null,
         // Cart-built hotels carry "In X, out Y" in `sub`; generated ones (backend blocks) don't, so the
         // dates come from the day the stay starts plus its nights.
         dateRange: it.sub?.match(/In (.+?), out (.+)$/)

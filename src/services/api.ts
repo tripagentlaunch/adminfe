@@ -2561,6 +2561,29 @@ function enquiryProposalShareCreate(enquiryId, snapshot) {
 // for an active link; rejects with an ApiError carrying { status: 404 } for
 // an unknown token or { status: 410, body: { detail: { status: "expired"
 // | "revoked" } } } for a dead one — the public page reads e.body.detail.
+// --- Customer "Pay now" on a shared proposal (public: the token is the only credential) ---
+function proposalPublicCall(token, path, init) {
+  init = init || {};
+  return fetch(FASTAPI_BASE + "/proposal-share/" + encodeURIComponent(token) + path, {
+    method: init.method || "GET",
+    headers: { "Content-Type": "application/json" },
+    body: init.body ? JSON.stringify(init.body) : undefined,
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) {
+        var detail = body.detail;
+        var message = typeof detail === "string" ? detail : "Something went wrong with the payment. Please try again.";
+        throw new ApiError(message, { status: res.status, body: body });
+      }
+      return body;
+    });
+  });
+}
+function proposalPayQuote(token) { return proposalPublicCall(token, "/pay/quote", {}); }
+function proposalPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/prepare", { method: "POST", body: payload }); }
+function proposalPayRazorpay(token, orderId) { return proposalPublicCall(token, "/pay/order/" + encodeURIComponent(orderId) + "/razorpay", { method: "POST" }); }
+function proposalPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/confirm", { method: "POST", body: payload }); }
+
 function proposalShareGet(token) {
   return fetch(FASTAPI_BASE + "/proposal-share/" + encodeURIComponent(token), {
     method: "GET",
@@ -2799,6 +2822,10 @@ export {
   enquiryPipelineStatus,
   enquiryProposalShareCreate,
   proposalShareGet,
+  proposalPayQuote,
+  proposalPayPrepare,
+  proposalPayRazorpay,
+  proposalPayConfirm,
 
   // Public hotel page (/hotel/[hotelKey]) — hotelKey/image threaded onto
   // itinerary items, see hotel_router.py's public_router

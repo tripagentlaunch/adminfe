@@ -88,5 +88,5 @@ export function PublicProposalView({ token }: { token: string }) {
   }
 
   const data = view.snapshot;
-  return <ProposalPreviewPage data={data} onDownload={() => downloadPdf(data)} />;
+  return <ProposalPreviewPage data={data} payToken={token} onDownload={() => downloadPdf(data)} />;
 }

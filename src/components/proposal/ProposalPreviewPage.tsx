@@ -32,7 +32,8 @@
  *      there is none.
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getDestinationPhoto, hotelPhoto, inr } from "../../services/api";
+import { getDestinationPhoto, hotelPhoto, inr, proposalPayQuote } from "../../services/api";
+import { ProposalPayModal } from "./ProposalPayModal";
 import "../../styles/proposal-preview.css";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
@@ -499,12 +500,22 @@ export function ProposalPreviewPage({
   onSwapHotel,
   onSwapFlight,
   onDownload,
+  payToken,
 }: {
   data: any;
   onSwapHotel?: (stayId: string, hotelKey: string) => void;
   onSwapFlight?: (flightId: string, altIndex: number) => void;
   onDownload?: () => void;
+  /** Set only on the public customer web link — enables the "Pay now" button. */
+  payToken?: string | null;
 }) {
+  // Customer "Pay now" (public link only): which stays can be booked online + the pay modal.
+  const [payQuote, setPayQuote] = useState<{ payable: boolean; stays: any[]; gateway_configured: boolean } | null>(null);
+  const [payingStay, setPayingStay] = useState<any | null>(null);
+  useEffect(() => {
+    if (!payToken) return;
+    proposalPayQuote(payToken).then((q: any) => setPayQuote(q)).catch(() => setPayQuote(null));
+  }, [payToken]);
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -564,6 +575,14 @@ export function ProposalPreviewPage({
 
   return (
     <div className="pv-page">
+      {payToken && payingStay ? (
+        <ProposalPayModal
+          token={payToken}
+          stay={payingStay}
+          gatewayConfigured={!!payQuote?.gateway_configured}
+          onClose={() => setPayingStay(null)}
+        />
+      ) : null}
       <div className="pv-shell">
         <div className="pv-card">
           <div className="pv-hero" style={heroImage ? { backgroundImage: `url("${heroImage}")` } : undefined}>
@@ -745,9 +764,17 @@ export function ProposalPreviewPage({
                     </>
                   ) : null}
 
-                  <button type="button" className="pv-cta" onClick={() => setTab("Days")}>
-                    See the day-by-day plan
-                  </button>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                    {payToken && payQuote?.payable ? (
+                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }}
+                        onClick={() => setPayingStay(payQuote.stays[0])}>
+                        Pay now
+                      </button>
+                    ) : null}
+                    <button type="button" className="pv-cta" onClick={() => setTab("Days")}>
+                      See the day-by-day plan
+                    </button>
+                  </div>
                 </>
               ) : null}
 
