@@ -827,35 +827,35 @@ export function ProposalPreviewPage({
                     </>
                   ) : null}
 
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+                  {/* The trip's two next steps, together under the total: read the plan, or pay. */}
+                  <div className="pv-actions">
+                    <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setTab("Days")}>
+                      See the day-by-day plan
+                    </button>
                     {payToken && flightQuote?.payable && payment !== "success" ? (
-                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }} onClick={() => setPayingFlights(true)}>
-                        Pay now · {inr(flightQuote.amount)}
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => setPayingFlights(true)}>
+                        Pay now <span className="pv-cta-amt">{inr(flightQuote.amount)}</span>
+                      </button>
+                    ) : payToken && payQuote?.payable && !flightQuote?.payable ? (
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => setPayingStay(payQuote.stays[0])}>
+                        Pay now
                       </button>
                     ) : previewPayable ? (
                       payPreviewUrl ? (
-                        <a className="pv-cta" style={{ background: "#1f6f5c", textDecoration: "none", textAlign: "center" }}
-                          href={`${payPreviewUrl}?pay=open`} target="_blank" rel="noreferrer"
+                        <a className="pv-cta pv-cta--pay" href={`${payPreviewUrl}?pay=open`} target="_blank" rel="noreferrer"
                           title="Opens the customer's web link in a new tab, with the payment window open">
-                          Pay now ↗
+                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span> <span aria-hidden="true">↗</span>
                         </a>
                       ) : (
-                        <button type="button" className="pv-cta" style={{ background: "#1f6f5c", opacity: 0.55, cursor: "default" }} disabled
-                          title="Create the web link first: Pay now runs on the customer's link">
-                          Pay now
+                        <button type="button" className="pv-cta pv-cta--pay" disabled title="Create the web link first: Pay now runs on the customer's link">
+                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span>
                         </button>
                       )
                     ) : null}
-                    {payToken && payQuote?.payable && !flightQuote?.payable ? (
-                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }}
-                        onClick={() => setPayingStay(payQuote.stays[0])}>
-                        Pay now
-                      </button>
-                    ) : null}
-                    <button type="button" className="pv-cta" onClick={() => setTab("Days")}>
-                      See the day-by-day plan
-                    </button>
                   </div>
+                  {(payToken && (flightQuote?.payable || payQuote?.payable) && payment !== "success") || previewPayable ? (
+                    <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
+                  ) : null}
                 </>
               ) : null}
 
