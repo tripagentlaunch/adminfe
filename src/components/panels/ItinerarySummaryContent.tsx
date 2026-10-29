@@ -121,8 +121,8 @@ export function ItinerarySummaryContent({ data }: { data: any }) {
               <span className={cxDayDot(day)} />
               <span className="taw-itinsum-row-total">{dayTotalLabel(day)}</span>
             </div>
-            {/* what is actually added to this day: every flight / hotel with its status and price */}
-            {(day.items || []).map((it: any) => {
+            {/* what is actually added to this day: every flight / hotel the advisor added (AI drafts are left out) */}
+            {(day.items || []).filter((it: any) => it.status !== "draft").map((it: any) => {
               const meta = STATUS_META[it.status as keyof typeof STATUS_META];
               return (
                 <div className="taw-itinsum-row taw-itinsum-item" key={it.id} style={{ paddingLeft: 18, borderBottom: 0, fontSize: 12 }}>
