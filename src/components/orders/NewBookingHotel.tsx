@@ -118,6 +118,8 @@ function roomOptions(det: any): any[] {
         // end of the zero-charge window, when the supplier's own rules carry one
         freeUntil: (((sr0.cancellationRules || [])[0] || {}).rules || []).find((r: any) => r.valueType === "Amount" && Number(r.value) === 0 && r.end)?.end || null,
         inclusions: (sr0.inclusions || []).join(", "),
+        bed: String(sr0.bedType || "").trim(),
+        view: String(sr0.roomViewName || "").trim(),
         total: Number(o.totalRate) || 0,
         price: splitPrice(rb, Number(o.totalRate) || 0),
         // this room's own photos (Tripsure: standardRooms[0].roomImages, strings or image objects)
@@ -196,6 +198,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [picking, setPicking] = useState(false); // the "Select a room" panel
   const [selCode, setSelCode] = useState<string | null>(null);
   const [roomImg, setRoomImg] = useState(0);
+  const [rf, setRf] = useState({ bed: "", view: "", meal: "", free: false }); // the room panel's filters
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
 
   // ── Results: the same filters, sort, list/map and paging as the Search desk's Hotels ──────────
@@ -330,7 +333,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     setImgIdx(0); setAllThumbs(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
     setDetails(null);
     setChecks({});
-    setPicking(false); setSelCode(null);
+    setPicking(false); setSelCode(null); setRf({ bed: "", view: "", meal: "", free: false });
     setSub("rooms");
     setBusy(true);
     hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
@@ -856,34 +859,74 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   };
   const availability = busy ? "Checking availability…" : opts.length ? `${opts.length} room option${opts.length === 1 ? "" : "s"} available` : "No rooms available for these dates";
   if (picking && opts.length) {
-    const sel = opts.find((o) => o.code === selCode) || opts[0];
-    const chk = checks[sel.code] || {};
+    // Like Tripsure: ONE entry per room type, with that room's rate options (room only / breakfast,
+    // refundable or not) underneath; picking a rate changes the price.
+    const isBreakfast = (o: any) => /breakfast/i.test(`${o.inclusions} ${o.board}`);
+    const passes = (o: any) =>
+      (!rf.bed || o.bed === rf.bed) && (!rf.view || o.view === rf.view) && (!rf.free || o.refundable) &&
+      (!rf.meal || (rf.meal === "breakfast" ? isBreakfast(o) : !isBreakfast(o)));
+    const byTitle = new Map<string, any[]>();
+    opts.filter(passes).forEach((o) => { byTitle.set(o.title, (byTitle.get(o.title) || []).concat(o)); });
+    const types = Array.from(byTitle, ([title, rates]) => {
+      const sorted = rates.slice().sort((a, b) => a.total - b.total);
+      const lead = sorted.find((r) => r.images.length) || sorted[0];
+      return { title, rates: sorted, from: sorted[0].total, images: lead.images, chips: sorted.find((r) => r.chips.length)?.chips || [] };
+    }).sort((a, b) => a.from - b.from);
+    const distinct = (k: "bed" | "view") => Array.from(new Set(opts.map((o) => o[k]).filter(Boolean))) as string[];
+    const anyFilter = !!(rf.bed || rf.view || rf.meal || rf.free);
+    const sel = types.flatMap((t) => t.rates).find((o) => o.code === selCode) || (types[0] && types[0].rates[0]) || null;
+    const selType = sel ? types.find((t) => t.rates.some((r) => r.code === sel.code)) || types[0] : null;
+    const chk = (sel && checks[sel.code]) || {};
     const verified = chk.state === "ok";
-    const changed = verified && Math.round(chk.total) !== Math.round(chk.listed);
-    const price = verified && chk.price ? chk.price : sel.price;
-    const pics: string[] = sel.images.length ? sel.images : hero ? [hero.large] : [];
+    const changed = !!sel && verified && Math.round(chk.total) !== Math.round(chk.listed);
+    const price = sel ? (verified && chk.price ? chk.price : sel.price) : null;
+    const pics: string[] = selType ? (selType.images.length ? selType.images : hero ? [hero.large] : []) : [];
     const pic = pics[Math.min(roomImg, Math.max(0, pics.length - 1))];
-    const shownTotal = verified ? chk.total : sel.total;
+    const shownTotal = sel ? (verified ? chk.total : sel.total) : 0;
+    const chip = (on: boolean, label: string, toggle: () => void) => (
+      <button type="button" className={`ow-fchip${on ? " on" : ""}`} aria-pressed={on} onClick={toggle}>{label}</button>
+    );
+    const pickSelect = (label: string, k: "bed" | "view", values: string[]) => values.length > 1 ? (
+      <select className="taw-input ow-rp-sel" aria-label={label} value={rf[k]} onChange={(e) => setRf((f) => ({ ...f, [k]: e.target.value }))}>
+        <option value="">{label}</option>
+        {values.map((v) => <option key={v} value={v}>{v}</option>)}
+      </select>
+    ) : null;
     return (
       <div className="ow-rp">
         <div className="ow-rp-head">
           <h3>Select a room</h3>
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPicking(false)} disabled={adding} aria-label="Close">✕</button>
         </div>
+        <div className="ow-rp-filters">
+          {pickSelect("Bed", "bed", distinct("bed"))}
+          {pickSelect("View", "view", distinct("view"))}
+          <select className="taw-input ow-rp-sel" aria-label="Meal" value={rf.meal} onChange={(e) => setRf((f) => ({ ...f, meal: e.target.value }))}>
+            <option value="">Meal</option>
+            <option value="room">Room only</option>
+            <option value="breakfast">Breakfast included</option>
+          </select>
+          {chip(rf.free, "Free cancellation", () => setRf((f) => ({ ...f, free: !f.free })))}
+          {anyFilter ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRf({ bed: "", view: "", meal: "", free: false })}>Clear</button> : null}
+        </div>
+        {!sel || !selType ? (
+          <div className="taw-banner taw-banner--info">No rooms match these filters.</div>
+        ) : (
         <div className="ow-rp-body">
           <div className="ow-rp-list">
-            {opts.slice(0, 12).map((o) => (
-              <button key={o.code} type="button" className={`ow-rp-item${o.code === sel.code ? " on" : ""}`} onClick={() => { setSelCode(o.code); setRoomImg(0); }} disabled={adding}>
-                {o.images[0] ? <span className="ow-rp-th"><HotelImage src={o.images[0]} alt="" thumb /></span> : null}
-                <span className="ow-rp-tx"><b>{o.title}</b>
-                <span>From {inr(o.total)}</span></span>
+            {types.map((t) => (
+              <button key={t.title} type="button" className={`ow-rp-item${t.title === selType.title ? " on" : ""}`}
+                onClick={() => { setSelCode(t.rates[0].code); setRoomImg(0); }} disabled={adding}>
+                {t.images[0] ? <span className="ow-rp-th"><HotelImage src={t.images[0]} alt="" thumb /></span> : null}
+                <span className="ow-rp-tx"><b>{t.title}</b>
+                <span>From {inr(t.from)}</span></span>
               </button>
             ))}
           </div>
           <div className="ow-rp-detail">
             {pic ? (
               <div className="ow-rp-gal">
-                <HotelImage key={pic} src={pic} alt={sel.title} hero />
+                <HotelImage key={pic} src={pic} alt={selType.title} hero />
                 {pics.length > 1 ? (
                   <>
                     <span className="ow-rp-count">{pics.length} photos</span>
@@ -894,11 +937,26 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                 ) : null}
               </div>
             ) : null}
-            <h3>{sel.title}</h3>
-            {sel.chips.length ? <div className="ow-amen">{sel.chips.map((c: string) => <span key={c} className="ow-tag">{c}</span>)}</div> : null}
-            <div className="ow-rp-plan">
-              <div className="ow-seg-top"><span>{sel.inclusions || sel.board || "Room only"}</span><span>{sel.refundable ? "Refundable" : "Non-refundable booking"}</span></div>
-              <div className="ow-sub">{inr(sel.total)} · {nightsTxt}</div>
+            <h3>{selType.title}</h3>
+            {selType.chips.length ? <div className="ow-amen">{selType.chips.map((c: string) => <span key={c} className="ow-tag">{c}</span>)}</div> : null}
+            <div className="ow-rp-rates" role="radiogroup" aria-label="Rate options">
+              {selType.rates.map((r) => {
+                const on = r.code === sel.code;
+                const rc = checks[r.code] || {};
+                const shown = rc.state === "ok" ? rc.total : r.total; // the live price once it has been checked
+                return (
+                  <button key={r.code} type="button" role="radio" aria-checked={on} className={`ow-rate${on ? " on" : ""}`}
+                    onClick={() => setSelCode(r.code)} disabled={adding}>
+                    <span className="ow-rate-dot" aria-hidden="true" />
+                    <span className="ow-rate-tx">
+                      <b>{r.board || (isBreakfast(r) ? "Breakfast included" : "Room only")}</b>
+                      {r.inclusions ? <small>{r.inclusions}</small> : null}
+                      <small className={r.refundable ? "ok" : "no"}>{r.refundable ? "Free cancellation" : "Non-refundable booking"}</small>
+                    </span>
+                    <span className="ow-rate-pr"><b>{inr(shown)}</b><small>{nightsTxt}</small></span>
+                  </button>
+                );
+              })}
             </div>
             {sel.cancellation ? (
               <details className="ow-room-pol"><summary>Cancellation policy</summary><div className="ow-pre">{sel.cancellation}</div></details>
@@ -912,10 +970,11 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             <PriceBreakdown price={price} nights={nights} rooms={form.rooms} />
           </div>
         </div>
+        )}
         <div className="ow-rp-foot">
           <span><b>{inr(shownTotal)}</b> <small>{nightsTxt} · Incl. taxes &amp; fees</small></span>
-          <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={chk.state === "loading" || adding}
-            onClick={() => (verified ? confirmAdd(sel) : addRoom(sel))}>
+          <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={!sel || chk.state === "loading" || adding}
+            onClick={() => sel && (verified ? confirmAdd(sel) : addRoom(sel))}>
             {chk.state === "loading" || adding ? "Reserving…" : verified && changed ? "Accept & reserve" : "Reserve"}
           </button>
         </div>
@@ -1051,7 +1110,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             <small>{nightsTxt}</small>
             <div className="ow-hd-dates"><Icon name="calendar" size={13} /> {fmtPill(form.checkIn)} → {fmtPill(form.checkOut)}</div>
             <div className={`ow-hd-avail${!busy && !opts.length ? " none" : ""}`}>{availability}</div>
-            <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => { setSelCode((c) => c || (opts[0] && opts[0].code) || null); setRoomImg(0); setPicking(true); }} disabled={busy || !opts.length}>
+            <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => { setSelCode((c) => c || (cheapestOpt && cheapestOpt.code) || null); setRoomImg(0); setPicking(true); }} disabled={busy || !opts.length}>
               Select Room
             </button>
           </div>
