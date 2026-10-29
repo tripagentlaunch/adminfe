@@ -6,7 +6,7 @@ import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
   fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
 } from "../../services/api";
-import { airportAutosuggest } from "../../lib/airportSuggest";
+import { airportDistance, groupedAirportSuggest, nearbyAirports } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
 import { durationLabel } from "../../lib/realOrders";
@@ -149,17 +149,30 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // Only the latest search may touch results/err: a slow earlier response must not land after a newer one.
   const searchSeq = useRef(0);
 
-  const airportSuggestions = (q: string) => airportAutosuggest(q, 8);
-  // Real Tripsure autosuggest fields only: airport_name, airport_code, city, country.
-  const renderAirport = (a: any) => (
-    <span className="ow-sug">
-      <span className="ow-sug-ic"><Icon name="flight" size={16} /></span>
+  // Grouped like Paytm: a city with several airports gets a heading and its airports
+  // (busiest first, with the distance from the city centre) under it.
+  const airportSuggestions = (q: string) => groupedAirportSuggest(q);
+  const renderAirport = (a: any) => a.heading ? (
+    <span className="ow-sug nb-sug-city">
+      <span className="ow-sug-ic"><Icon name="pin" size={16} /></span>
       <span className="ow-sug-t">
-        <b>{a.airport_name || a.city} <span className="ow-sug-code">({a.airport_code})</span></b>
-        <small>{[a.city, a.country].filter(Boolean).join(" — ")}</small>
+        <b>{a.city}{a.country ? `, ${a.country}` : ""}</b>
+        <small>{a.count} airports</small>
       </span>
     </span>
+  ) : (
+    <span className={`ow-sug${a.nested ? " nb-sug-nested" : ""}`}>
+      <span className="ow-sug-ic"><Icon name="flight" size={16} /></span>
+      <span className="ow-sug-t">
+        <b>{a.airport_name || a.city}</b>
+        <small>{a.nested
+          ? (a.distance ? `${a.distance.km} km from ${a.distance.from}` : "Busiest airport")
+          : [a.city, a.country].filter(Boolean).join(", ")}</small>
+      </span>
+      <span className="nb-sug-code">{a.airport_code}</span>
+    </span>
   );
+  const airportKey = (a: any) => (a.heading ? a.key : a.airport_code);
   const [panel, setPanel] = useState<null | "trav" | "date">(null);
 
   const swapAirports = () =>
@@ -178,15 +191,17 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
   const cabinLabel = (CABINS.find((c) => c.key === form.cabin) || CABINS[0]).label;
 
-  // `cabin` re-runs the same search in another cabin (the class chips on the results screen).
-  function runSearch(cabin?: string) {
-    if (cabin) setForm((f) => ({ ...f, cabin }));
-    const cabinNow = cabin || form.cabin;
+  // `over` re-runs the same search with another cabin (the class chips on the results screen)
+  // or another airport (the nearby-airport chips when a search finds nothing).
+  function runSearch(over?: { cabin?: string; from?: string; fromCity?: string; to?: string; toCity?: string }) {
+    if (over) setForm((f) => ({ ...f, ...over }));
+    const form2 = { ...form, ...(over || {}) };
+    const cabinNow = form2.cabin;
     setErr(null);
-    if (form.from.length !== 3 || form.to.length !== 3) {
+    if (form2.from.length !== 3 || form2.to.length !== 3) {
       setErr("Pick a From and To airport from the suggestions."); return;
     }
-    if (form.from === form.to) { setErr("From and To must differ."); return; }
+    if (form2.from === form2.to) { setErr("From and To must differ."); return; }
     if (!form.date) { setErr("Pick a departure date."); return; }
     const round = tripType === "round";
     if (round && !form.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
@@ -194,7 +209,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     setSearching(true);
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
-      originCode: form.from, destCode: form.to,
+      originCode: form2.from, destCode: form2.to,
       date: form.date, returnDate: round ? form.returnDate : undefined,
       pax: form.adults, children: form.children, infants: form.infants, cabin: cabinNow,
     })
@@ -636,7 +651,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     fetchSuggestions={airportSuggestions}
                     floating
                     renderSuggestion={renderAirport}
-                    getKey={(a: any) => a.airport_code}
+                    getKey={airportKey}
+                    isHeading={(a: any) => !!a.heading}
+                    maxResults={24}
+                    listClassName="nb-airport-list"
                     placeholder="City or airport"
                   />
                   {form.from.length === 3 && form.fromCity ? (
@@ -658,7 +676,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     fetchSuggestions={airportSuggestions}
                     floating
                     renderSuggestion={renderAirport}
-                    getKey={(a: any) => a.airport_code}
+                    getKey={airportKey}
+                    isHeading={(a: any) => !!a.heading}
+                    maxResults={24}
+                    listClassName="nb-airport-list"
                     placeholder="City or airport"
                   />
                   {form.to.length === 3 && form.toCity ? (
@@ -769,7 +790,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 <button key={c.key} type="button" role="radio" aria-checked={form.cabin === c.key}
                   className={`nb-cabin${form.cabin === c.key ? " on" : ""}`}
                   disabled={searching || !!lockingId || step !== "results"}
-                  onClick={() => { if (form.cabin !== c.key) runSearch(c.key); }}>
+                  onClick={() => { if (form.cabin !== c.key) runSearch({ cabin: c.key }); }}>
                   {searching && form.cabin === c.key ? "Searching…" : c.label}
                 </button>
               ))}
@@ -797,7 +818,27 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
             ) : null}
 
             {offers && offers.length === 0 ? (
-              <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : "Try another date or cabin."} />
+              <>
+                <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : "Try another date or cabin."} />
+                {!resultsRound ? (() => {
+                  const near = [
+                    ...nearbyAirports(form.to).map((x) => ({ ...x, side: "to" as const, of: form.to })),
+                    ...nearbyAirports(form.from).map((x) => ({ ...x, side: "from" as const, of: form.from })),
+                  ].filter((x) => x.code !== form.from && x.code !== form.to).slice(0, 6);
+                  return near.length ? (
+                    <div className="nb-nearby">
+                      <div className="nb-nearby-t">Try a nearby airport</div>
+                      {near.map((x) => (
+                        <button key={`${x.side}${x.code}`} type="button" className="nb-nearby-btn" disabled={searching}
+                          onClick={() => runSearch(x.side === "to" ? { to: x.code, toCity: x.city } : { from: x.code, fromCity: x.city })}>
+                          <b>{x.code}</b> {x.name}
+                          <small>{x.km} km from {x.of} · {x.side === "to" ? "arrive here instead" : "leave from here instead"}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })() : null}
+              </>
             ) : (
               <div className="ow-fl">
                 <aside className="ow-fl-side" aria-label="Filters">
@@ -893,12 +934,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             <small><Icon name="calendar" size={11} /> {fmtDay(first.departureDateTime)}</small>
                           </div>
                           <div className="ow-route">
-                            <div className="ow-city"><div className="code">{d.depTime}</div><div className="nm">{d.originCode}</div></div>
+                            <div className="ow-city"><div className="code">{d.depTime}</div><div className="nm">{d.originCode}</div>
+                              {(() => { const want = resultsRound && activeLeg === "RETURN" ? form.to : form.from; const k = d.originCode !== want ? airportDistance(d.originCode, want) : null;
+                                return k != null ? <div className="nb-away">{k} km from {want}</div> : null; })()}
+                            </div>
                             <div className="ow-line">
                               {durationLabel(d.durationMin)}<div className="bar" />
                               {d.stops === 0 ? "Non-stop" : `${d.stops} stop${d.stops === 1 ? "" : "s"}`}
                             </div>
-                            <div className="ow-city r"><div className="code">{d.arrTime}</div><div className="nm">{d.destCode}</div></div>
+                            <div className="ow-city r"><div className="code">{d.arrTime}</div><div className="nm">{d.destCode}</div>
+                              {(() => { const want = resultsRound && activeLeg === "RETURN" ? form.from : form.to; const k = d.destCode !== want ? airportDistance(d.destCode, want) : null;
+                                return k != null ? <div className="nb-away">{k} km from {want}</div> : null; })()}
+                            </div>
                           </div>
                           <div className="ow-fcard-buy">
                             <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") : "total"}</small></div>

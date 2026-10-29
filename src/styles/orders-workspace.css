@@ -759,3 +759,21 @@
 .nb-cabin:hover:not(:disabled){color:var(--ink);border-color:var(--ink);}
 .nb-cabin.on{background:var(--ink);border-color:var(--ink);color:#fff;}
 .nb-cabin:disabled:not(.on){opacity:.5;cursor:not-allowed;}
+
+/* Grouped airport suggestions (New booking From / To) */
+.taw-typeahead-heading{padding:8px 12px 4px;cursor:default;}
+.nb-sug-city .ow-sug-t b{font-size:14px;}
+.nb-sug-city .ow-sug-ic{background:var(--gold-bg);color:var(--gold-ink);}
+.nb-sug-nested{padding-left:26px;position:relative;}
+.nb-sug-nested::before{content:"↳";position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;}
+.nb-sug-code{margin-left:auto;font:600 13px var(--sans);letter-spacing:.06em;color:var(--taupe);padding-left:12px;}
+/* "62 km from LGW" when a flight uses another airport than the one searched */
+.nb-away{font-size:11px;color:var(--warn-ink);margin-top:2px;white-space:nowrap;}
+/* Nearby airports when a search finds nothing */
+.nb-nearby{display:flex;flex-direction:column;gap:8px;max-width:560px;margin:4px auto 0;}
+.nb-nearby-t{font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.nb-nearby-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 14px;border:1px solid var(--line-2);border-radius:12px;background:var(--card);font:14px var(--sans);cursor:pointer;}
+.nb-nearby-btn b{font-weight:700;margin-right:6px;}
+.nb-nearby-btn small{color:var(--taupe);font-size:12px;}
+.nb-nearby-btn:hover:not(:disabled){border-color:var(--gold);background:var(--gold-bg);}
+.taw-typeahead-list.nb-airport-list{max-height:min(460px,62vh);}

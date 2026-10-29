@@ -30,8 +30,11 @@ import { Spinner } from "./ui";
 //   fetchSuggestions(query) -> Promise<item[]>,
 //   renderSuggestion(item) -> JSX, getKey(item) -> string,
 //   placeholder?, minChars = 1, debounceMs = 300, maxResults = 8, className?,
-//   showDefaultsOnFocus? = false, floating? = false,
+//   showDefaultsOnFocus? = false, floating? = false, isHeading?(item) -> boolean,
 // })
+//
+// isHeading (opt-in): items it returns true for are shown as non-clickable group
+// headings (e.g. "London, United Kingdom · 6 airports"); arrow keys skip them.
 //
 // floating (opt-in, default false): renders the suggestion list in a portal
 // on document.body with position:fixed, anchored under the input, instead
@@ -64,7 +67,10 @@ export function AutosuggestInput(props: any) {
     className,
     showDefaultsOnFocus = false,
     floating = false,
+    isHeading,
+    listClassName, // opt-in: extra class on the suggestion list (e.g. a taller list)
   } = props;
+  const pickable = (item: any) => !(isHeading && isHeading(item));
 
   const [open, setOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -173,14 +179,19 @@ export function AutosuggestInput(props: any) {
 
   function handleKeyDown(e: any) {
     if (!open || !suggestions.length) return;
+    // Next pickable row in the given direction (headings are skipped).
+    const step = (from: number, dir: 1 | -1) => {
+      for (let i = from + dir; i >= 0 && i < suggestions.length; i += dir) if (pickable(suggestions[i])) return i;
+      return from;
+    };
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((i) => Math.min(i + 1, suggestions.length - 1));
+      setActiveIndex((i) => step(i, 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIndex((i) => Math.max(i - 1, 0));
+      setActiveIndex((i) => step(i, -1));
     } else if (e.key === "Enter") {
-      if (activeIndex >= 0 && activeIndex < suggestions.length) {
+      if (activeIndex >= 0 && activeIndex < suggestions.length && pickable(suggestions[activeIndex])) {
         e.preventDefault();
         pick(suggestions[activeIndex]);
       }
@@ -215,7 +226,7 @@ export function AutosuggestInput(props: any) {
       {open && (!floating || coords) ? (
         floatWrap(
         <div
-          className={cx("taw-typeahead-list", floating && "taw-typeahead-list--modal")}
+          className={cx("taw-typeahead-list", floating && "taw-typeahead-list--modal", listClassName)}
           role="listbox"
           style={floating ? { position: "fixed", top: coords.top, left: coords.left, right: "auto", width: coords.width } : undefined}
         >
@@ -224,7 +235,11 @@ export function AutosuggestInput(props: any) {
               <Spinner /> Searching…
             </div>
           ) : suggestions.length ? (
-            suggestions.map((item, i) => (
+            suggestions.map((item, i) => !pickable(item) ? (
+              <div key={getKey ? getKey(item) : i} className="taw-typeahead-heading" role="presentation">
+                {renderSuggestion(item)}
+              </div>
+            ) : (
               <button
                 key={getKey ? getKey(item) : i}
                 type="button"
