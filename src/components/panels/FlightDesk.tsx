@@ -7,7 +7,7 @@
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
-import { exportTripsureFlightOffers, fastapiFlightSearch, flightFares, getTripsureFlightOffer, importTripsureFlightOffers, searchFlights, inr } from "../../services/api";
+import { exportTripsureFlightOffers, fastapiFlightSearch, importTripsureFlightOffers, newFlightJourney, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { AIRPORTS, searchAirports } from "../../lib/airports";
 import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
@@ -15,9 +15,10 @@ import { cx } from "../../lib/cx";
 import { errText, toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
-import { BAG_OPTIONS, MEAL_OPTIONS, NO_REQUESTS, SEAT_OPTIONS, paxText, type FlightRequests, type PaxMix } from "../../lib/flightRequests";
-import { Dropdown, Empty, Field, Spinner, SkeletonRows, Icon, SleekScroll } from "../ui";
-import { buildMockFlightOffers, classifyStopType, mockFlightFares } from "../../lib/mockFlightSearch";
+import { paxText, type PaxMix } from "../../lib/flightRequests";
+import { FlightQuoteDrawer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { Dropdown, Empty, Field, Spinner, Icon, SleekScroll } from "../ui";
+import { buildMockFlightOffers, classifyStopType } from "../../lib/mockFlightSearch";
 import { boundFromDateRange } from "../../lib/itineraryFromCart";
 
 // HARDCODED FALLBACK, not a real API call — GET /flights/autosuggest
@@ -153,252 +154,6 @@ function renderAirportSuggestion(a: any) {
 // flight-shop edge functions regardless of this flag.
 const USE_REAL_FLIGHTS = true;
 
-// FlightFareDetail — Wave-1 flight DEPTH expander on a selected offer. Calls
-// the DEDICATED flight-fares function (NOT data-read) for fare_family
-// (FLT-018/019), fare_rules (FLT-020/021), ancillaries (FLT-022) and seatmap
-// (FLT-023). All SELL-ONLY: the function strips offer net before deriving any
-// shop surface, so this view never carries supplier net cost. Each sub-surface
-// lazy-loads once and is cached locally.
-function FlightFareDetail(props: any) {
-  const offer = props.offer || {};
-  const [sub, setSub] = useState("fare_family");
-  const [cache, setCache] = useState<any>({});
-  const [loading, setLoading] = useState<any>({});
-  const [errs, setErrs] = useState<any>({});
-
-  function load(action: string) {
-    if (cache[action] || loading[action]) return;
-    setLoading((l: any) => ({ ...l, [action]: true }));
-    const body: any = { action: action, offer_id: offer.id };
-    // The search's per-provider trace ids: TripSure rejects fare family / fare
-    // rules / the seat-map fare lock without them ("provider_rejected").
-    const cached = getTripsureFlightOffer(offer.id);
-    if (cached && cached.supplierTraceIds) body.supplier_trace_ids = cached.supplierTraceIds;
-    if (props.memberId) body.member_id = props.memberId;
-    if (props.advisorId) body.advisor_id = props.advisorId;
-    flightFares(body)
-      .then((r: any) => {
-        setCache((c: any) => ({ ...c, [action]: r || {} }));
-        setLoading((l: any) => ({ ...l, [action]: false }));
-      })
-      // The real error, unless demo data is explicitly enabled (lib/env.ts ALLOW_DEMO_DATA).
-      .catch((e: any) => {
-        if (ALLOW_DEMO_DATA) setCache((c: any) => ({ ...c, [action]: mockFlightFares(offer.id, action) }));
-        else setErrs((x: any) => ({ ...x, [action]: fareDetailError(e) }));
-        setLoading((l: any) => ({ ...l, [action]: false }));
-      });
-  }
-  useEffect(() => {
-    load(sub);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sub]);
-
-  function Tab(key: string, label: string) {
-    return (
-      <button className={cx("taw-dx-tab", sub === key && "is-on")} onClick={() => setSub(key)}>
-        {label}
-      </button>
-    );
-  }
-  const data = cache[sub];
-  const busy = loading[sub];
-  const err = errs[sub];
-
-  function body() {
-    if (busy) {
-      return (
-        <div className="taw-dx-body">
-          <SkeletonRows count={3} height={14} />
-        </div>
-      );
-    }
-    if (err) {
-      return (
-        <div className="taw-banner taw-banner--err">
-          <Icon name="alert" size={14} />
-          {err}
-        </div>
-      );
-    }
-    if (!data) return null;
-    if (sub === "fare_family") {
-      const ff = data.fare_family || {};
-      const fams = ff.grid || ff.families || [];
-      return (
-        <div>
-          <div className="taw-dx-grid">
-            {fams.map((f: any, i: number) => {
-              const feats: string[] = [];
-              if (f.checkedBagKg != null) feats.push(f.checkedBagKg ? f.checkedBagKg + "kg checked" : "No checked bag");
-              if (f.cabinBagKg != null) feats.push(f.cabinBagKg + "kg cabin");
-              if (f.seatSelection) feats.push("Seat: " + f.seatSelection);
-              if (f.meals) feats.push("Meals: " + f.meals);
-              feats.push(f.changeable === false ? "Non-changeable" : "Changeable" + (f.changeable === "fee" ? " (fee)" : ""));
-              feats.push(f.refundable ? "Refundable" : "Non-refundable");
-              if (f.miles) feats.push("Miles " + f.miles);
-              return (
-                <div key={i} className={cx("taw-dx-fam", f.recommended && "is-rec")}>
-                  <h5>{f.name || f.code || "Fare " + (i + 1)}</h5>
-                  <div className="px ta-num">
-                    {inr(f.sell != null ? f.sell : f.price != null ? f.price : 0)}
-                    {f.sellDelta || f.upsellDelta ? (
-                      <small style={{ fontSize: 10, color: "var(--muted)", marginLeft: 6 }}>
-                        +{inr(f.sellDelta || f.upsellDelta)}
-                      </small>
-                    ) : null}
-                  </div>
-                  <ul>
-                    {feats.slice(0, 7).map((a, j) => (
-                      <li key={j}>
-                        <Icon name="check" size={11} />
-                        {a}
-                      </li>
-                    ))}
-                  </ul>
-                  {f.cancellation || f.dateChange ? (
-                    <div className="taw-dx-policy">
-                      {f.cancellation ? <div><b>Cancellation</b> {f.cancellation}</div> : null}
-                      {f.dateChange ? <div><b>Date change</b> {f.dateChange}</div> : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-          {ff.provenance || ff.source ? (
-            <div className="taw-dx-prov">
-              Source:{" "}
-              {ff.source ||
-                (typeof ff.provenance === "string" ? ff.provenance : (ff.provenance && (ff.provenance.source || ff.provenance.note)) || "unknown")}
-              {ff.freshness ? " · " + ff.freshness : ""}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-    if (sub === "fare_rules") {
-      const fr = data.fare_rules || {};
-      const cats: any[] = [];
-      if (fr.fareBasis) cats.push({ label: "Fare basis", text: fr.fareBasis + (fr.refundable ? " · refundable" : " · non-refundable") });
-      Object.keys(fr).forEach((k) => {
-        const v = fr[k];
-        if (v && typeof v === "object" && (v.title || v.note || v.non_refundable_note)) {
-          const bits: string[] = [];
-          if (v.non_refundable_note) bits.push(v.non_refundable_note);
-          if (v.note) bits.push(v.note);
-          if (v.no_show_inr != null) bits.push("No-show: " + inr(v.no_show_inr));
-          if (v.before_departure_inr != null) bits.push("Before departure: " + inr(v.before_departure_inr));
-          if (Array.isArray(v.bands))
-            bits.push(
-              v.bands
-                .map((b: any) => (b.window || b.label || "") + (b.fee_inr != null ? " " + inr(b.fee_inr) : b.penalty_inr != null ? " " + inr(b.penalty_inr) : ""))
-                .join("; ")
-            );
-          cats.push({ label: v.title || k.replace(/_/g, " "), text: bits.filter(Boolean).join(" · ") || "See airline rules." });
-        }
-      });
-      return (
-        <div>
-          {cats.map((rc, i) => (
-            <div key={i} className="taw-dx-rule">
-              <div className="k">{rc.label}</div>
-              <div className="v">{rc.text}</div>
-            </div>
-          ))}
-          {fr.provenance || fr.source ? (
-            <div className="taw-dx-prov">
-              Provenance:{" "}
-              {fr.source ||
-                (typeof fr.provenance === "string" ? fr.provenance : (fr.provenance && (fr.provenance.source || fr.provenance.note)) || "unknown")}
-              {fr.freshness ? " · " + fr.freshness : ""}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-    if (sub === "ancillaries") {
-      const anc = data.ancillaries || {};
-      const buckets = Array.isArray(anc) ? [{ name: "", items: anc }] : Object.keys(anc).map((k) => ({ name: k, items: anc[k] }));
-      let any = false;
-      const out = buckets.map((bk: any, bi: number) => {
-        if (!Array.isArray(bk.items) || !bk.items.length) return null;
-        any = true;
-        return (
-          <div key={bi} style={{ marginBottom: 8 }}>
-            {bk.name ? (
-              <div className="taw-dx-prov" style={{ marginBottom: 4, textTransform: "capitalize" }}>
-                {bk.name}
-              </div>
-            ) : null}
-            {bk.items.map((a: any, i: number) => (
-              <div key={i} className="taw-dx-anc">
-                <span className="lab">{(a.name || a.code || a.type || "Item") + (a.emd_eligible ? " · EMD" : "")}</span>
-                <span className="px ta-num">{a.sell != null ? inr(a.sell) : "—"}</span>
-              </div>
-            ))}
-          </div>
-        );
-      });
-      return any ? <div>{out}</div> : (
-        <Empty icon={<Icon name="luggage" size={22} />}>The airline offers no paid extras (bags, meals) for this fare through TripSure.</Empty>
-      );
-    }
-    if (sub === "seatmap") {
-      const sm = data.seatmap || {};
-      const segs = sm.segments || [];
-      return segs.length ? (
-        <div>
-          {segs.map((seg: any, si: number) => {
-            const rows = seg.rows || [];
-            return (
-              <div key={si} style={{ marginBottom: 12 }}>
-                <div className="taw-dx-prov" style={{ marginBottom: 6 }}>
-                  {(seg.segment || "") + (seg.flightNo ? " · " + seg.flightNo : "")}
-                </div>
-                <div className="taw-dx-seatmap">
-                  {rows.slice(0, 16).map((rw: any, ri: number) => (
-                    <div key={ri} className="taw-dx-seatrow">
-                      <span style={{ width: 18, fontSize: 9, color: "var(--muted)" }}>{rw.row}</span>
-                      {(rw.seats || []).map((s: any, k: number) => {
-                        const occ = !!s.occupied;
-                        const prem = !occ && (s.sell > 0 || s.type === "preferred" || s.exit_row);
-                        return (
-                          <span
-                            key={k}
-                            className={cx("taw-dx-seat", occ && "occ", prem && "prem")}
-                            title={(s.seat || "") + (s.sell ? " · " + inr(s.sell) : occ ? " · occupied" : "")}
-                          >
-                            {String(s.seat || "").replace(/^\d+/, "")}
-                          </span>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <Empty icon={<Icon name="flight" size={22} />}>The airline doesn&apos;t publish a seat map for this fare. Seats can still be requested when adding the flight.</Empty>
-      );
-    }
-    return null;
-  }
-
-  return (
-    <div className="taw-dx">
-      <div className="taw-dx-tabs">
-        {Tab("fare_family", "Fare families")}
-        {Tab("fare_rules", "Fare rules")}
-        {Tab("ancillaries", "Ancillaries")}
-        {Tab("seatmap", "Seat map")}
-      </div>
-      {body()}
-    </div>
-  );
-}
-
 // ── Travellers ─────────────────────────────────────────────────────────────
 // TripSure prices a fare for the whole group (adults / children 2-11 /
 // infants under 2), so the mix is part of the search, and changing it means
@@ -444,20 +199,6 @@ function TravellerStepper({ value, onChange }: { value: PaxMix; onChange: (p: Pa
       })}
     </div>
   );
-}
-
-// TripSure failures on the fare-detail tabs, in words an advisor can act on.
-function fareDetailError(e: any): string {
-  const code = (e && e.body && e.body.error) || (e && e.message) || "";
-  const detail = e && e.body && e.body.detail ? String(e.body.detail) : "";
-  if (/offer_not_found|bad_offer_id|offer_missing_fare_key/.test(code)) return "This fare is no longer available — search again.";
-  if (/provider_rejected/.test(code)) {
-    if (/expired|not found|invalid.*key|search/i.test(detail)) return "This search has expired at the supplier — search again to see details.";
-    return "The airline didn't return this for this fare." + (detail ? " (" + detail.slice(0, 160) + ")" : "");
-  }
-  if (/provider_rate_limited/.test(code)) return "The supplier is busy — try again in a few seconds.";
-  if (/provider_not_configured|provider_auth_failed/.test(code)) return "Flight supplier isn't connected on this environment.";
-  return errText(e);
 }
 
 export function FlightDesk(props: any) {
@@ -553,13 +294,6 @@ export function FlightDesk(props: any) {
   );
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
-  }
-  // Per-offer fare-detail expander (Wave-1 flight-fares). Several can be open at
-  // once, to compare fares side by side.
-  const [openOffers, setOpenOffers] = useState<string[]>([]);
-  function toggleDetail(id: any) {
-    const key = String(id);
-    setOpenOffers((cur) => (cur.includes(key) ? cur.filter((x) => x !== key) : cur.concat([key])));
   }
   // includeNearbyDates (2026-09-02) — replaces the earlier "Compare nearby
   // dates" price-matrix link entirely (that whole flight-shop date_matrix
@@ -826,10 +560,11 @@ export function FlightDesk(props: any) {
     setPaxOpen(null);
     setModifyOpen(false);
     setSearchedPax(paxRef.current);
+    // One TripSure trace per search, through to the live price checks of its results.
+    newFlightJourney();
     setLoading(true);
     setRes(null);
     setSearchedAt(null);
-    setOpenOffers([]);
     setLeg("outbound");
     setSelectedChipDate(includeNearbyDates ? searchDate : null);
     setChipWindowStart(0);
@@ -1268,8 +1003,7 @@ export function FlightDesk(props: any) {
         </div>
       ) : null}
       {!loading && res ? (
-        <FlightResults offers={offers} view={view} setV={setV} openOffers={openOffers} toggleDetail={toggleDetail} member={member} advisorId={props.advisorId} onAdd={props.onAdd} onAddSwap={props.onAddSwap}
-          pax={searchedPax} onChangeTravellers={() => { setPax(searchedPax); setPaxOpen("results"); }} />
+        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax} />
       ) : null}
     </div>
   );
@@ -1279,17 +1013,40 @@ export function FlightDesk(props: any) {
 
 // Split out of FlightDesk's render purely so the filter/sort math below reads
 // as one block, mirroring the original's inline IIFE at the same spot.
-// "Add" opens a small panel recording what the customer asked for (extra
-// baggage, seat, meal, note) with the flight. Extras are only sold after the
-// fare is locked at booking, so these are requests carried into New Booking.
-function FlightResults({ offers, view, setV, openOffers, toggleDetail, member, advisorId, onAdd, onAddSwap, pax, onChangeTravellers }: any) {
-  // The offer whose "Add" panel is open, and what's been chosen in it.
-  const [adding, setAdding] = useState<string | null>(null);
-  const [req, setReq] = useState<FlightRequests>(NO_REQUESTS);
+// "Add" opens the pricing drawer (orders/FlightQuoteDrawer.tsx): fare option, then
+// TripSure's live price for it, then the airline's seats / meals / baggage with their
+// prices. Only a live-checked price goes into the itinerary.
+function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
+  // The offer being priced, and the drawer section it opened on.
+  const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares" } | null>(null);
   const offNet = (o: any) => {
     const d = o.detail || {};
     return Number(o.base_net != null ? o.base_net : o.baseNet) || d.baseNet || 0;
   };
+  // A live-priced flight into the itinerary, with two swap options picked automatically:
+  // the closest fares on the same route and day (search prices; removable later in the
+  // Itinerary Builder).
+  function addPriced(o: any, pricing: FlightLivePrice) {
+    const myNet = offNet(o);
+    const others = shown
+      .filter((x: any) => x.id !== o.id && (x._searchDate || (x.detail || {}).date) === (o._searchDate || (o.detail || {}).date))
+      .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
+      .slice(0, 2);
+    const alternatives = others.map((alt: any) => {
+      const ad = alt.detail || {};
+      return {
+        carrier: ad.airlineName || ad.airline || "Flight",
+        flightNo: ad.flightNo || "",
+        origin: ad.originCode, dest: ad.destCode,
+        depTime: ad.depTime || null, arrTime: ad.arrTime || null, arrDayOffset: 0,
+        stops: ad.stops ?? 0, price: offNet(alt), baggageKg: ad.baggageKg ?? null, refundable: ad.refundable ?? null,
+        segments: ad.segments || [],
+        detail: [ad.duration, ad.stops ? ad.stops + " stop" + (ad.stops === 1 ? "" : "s") : "Non-stop"].filter(Boolean).join(" · "),
+      };
+    });
+    onAdd(flightCartItem(o, alternatives, { pax, pricing }));
+    setQuote(null);
+  }
   // Carriers present in this result set, for the carrier filter.
   const carriers: any[] = [];
   const seen: any = {};
@@ -1391,7 +1148,6 @@ function FlightResults({ offers, view, setV, openOffers, toggleDetail, member, a
             const d = o.detail || {};
             const net = offNet(o);
             const brand = fareBrand(d);
-            const isOpen = openOffers.includes(String(o.id));
             return (
               <div key={o.id + (o._searchDate || "")} className="taw-res" style={{ display: "block" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
@@ -1425,9 +1181,9 @@ function FlightResults({ offers, view, setV, openOffers, toggleDetail, member, a
                         </span>
                       ) : null}
                     </div>
-                    <button className="taw-linkbtn" onClick={() => toggleDetail(o.id)} aria-expanded={isOpen ? "true" : "false"}>
-                      <Icon name="chevron" size={12} style={{ transform: isOpen ? "rotate(180deg)" : "none", transition: ".15s" }} />
-                      {isOpen ? "Hide fare detail" : "Fare detail · families · rules · seats"}
+                    <button className="taw-linkbtn" onClick={() => setQuote({ offer: o, tab: "timeline" })}>
+                      <Icon name="chevron" size={12} />
+                      Timeline · fare options · seats
                     </button>
                   </div>
                   <div className="taw-res-side">
@@ -1460,78 +1216,14 @@ function FlightResults({ offers, view, setV, openOffers, toggleDetail, member, a
                     ) : null}
                     <button
                       className="taw-btn taw-btn--accent taw-btn--sm"
-                      aria-expanded={adding === o.id}
-                      onClick={() => { setReq(NO_REQUESTS); setAdding(adding === o.id ? null : o.id); }}
+                      title="Choose the fare, check its live price and pick seats / meals / baggage"
+                      onClick={() => setQuote({ offer: o, tab: "fares" })}
                     >
                       <Icon name="plus" size={13} />
                       Add
                     </button>
                   </div>
                 </div>
-                {adding === o.id ? (
-                  <div className="taw-addpanel">
-                    <div className="taw-addpanel-row">
-                      <span><b>{inr(offNet(o))}</b> for {paxText(pax)}</span>
-                      <button type="button" className="taw-linkbtn" onClick={onChangeTravellers}>Change travellers</button>
-                    </div>
-                    <div className="taw-addpanel-grid">
-                      <label>Extra baggage
-                        <select className="taw-input" value={req.extraBaggageKg} onChange={(e) => setReq({ ...req, extraBaggageKg: Number(e.target.value) })}>
-                          {BAG_OPTIONS.map((kg) => <option key={kg} value={kg}>{kg ? "+" + kg + " kg" : "None"}</option>)}
-                        </select>
-                      </label>
-                      <label>Seat
-                        <select className="taw-input" value={req.seat} onChange={(e) => setReq({ ...req, seat: e.target.value })}>
-                          {SEAT_OPTIONS.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
-                        </select>
-                      </label>
-                      <label>Meal
-                        <select className="taw-input" value={req.meal} onChange={(e) => setReq({ ...req, meal: e.target.value })}>
-                          {MEAL_OPTIONS.map((x) => <option key={x.key} value={x.key}>{x.label}</option>)}
-                        </select>
-                      </label>
-                    </div>
-                    <input className="taw-input" placeholder="Note for this flight (optional) — e.g. wheelchair at arrival" maxLength={200}
-                      value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} />
-                    <small className="taw-addpanel-hint">Extras are priced and bought when the trip is booked; these are saved as the customer&apos;s requests.</small>
-                    <div className="taw-addpanel-row">
-                      <span />
-                      <span style={{ display: "flex", gap: 6 }}>
-                        <button type="button" className="taw-btn taw-btn--sm" onClick={() => setAdding(null)}>Cancel</button>
-                        <button
-                          type="button"
-                          className="taw-btn taw-btn--sm taw-btn--primary"
-                          onClick={() => {
-                        // Two swap options picked automatically: the closest fares on the
-                        // same route and day (removable later in the Itinerary Builder).
-                        const myNet = offNet(o);
-                        const others = shown
-                          .filter((x: any) => x.id !== o.id && (x._searchDate || (x.detail || {}).date) === (o._searchDate || (o.detail || {}).date))
-                          .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
-                          .slice(0, 2);
-                        const alternatives = others.map((alt: any) => {
-                          const ad = alt.detail || {};
-                          return {
-                            carrier: ad.airlineName || ad.airline || "Flight",
-                            flightNo: ad.flightNo || "",
-                            origin: ad.originCode, dest: ad.destCode,
-                            depTime: ad.depTime || null, arrTime: ad.arrTime || null, arrDayOffset: 0,
-                            stops: ad.stops ?? 0, price: offNet(alt), baggageKg: ad.baggageKg ?? null, refundable: ad.refundable ?? null,
-                            segments: ad.segments || [],
-                            detail: [ad.duration, ad.stops ? ad.stops + " stop" + (ad.stops === 1 ? "" : "s") : "Non-stop"].filter(Boolean).join(" · "),
-                          };
-                        });
-                        onAdd(flightCartItem(o, alternatives, { pax, requests: { ...req, note: req.note.trim() } }));
-                        setAdding(null);
-                      }}
-                    >
-                          Add to itinerary
-                        </button>
-                      </span>
-                    </div>
-                  </div>
-                ) : null}
-                {isOpen ? <FlightFareDetail offer={o} memberId={member && member.id} advisorId={advisorId} /> : null}
               </div>
             );
           })
@@ -1542,6 +1234,16 @@ function FlightResults({ offers, view, setV, openOffers, toggleDetail, member, a
         )}
       </div>
       </SleekScroll>
+      {quote ? (
+        <FlightQuoteDrawer
+          key={quote.offer.id}
+          offer={quote.offer}
+          startTab={quote.tab}
+          paxNote={"for " + paxText(pax)}
+          onAdd={(p) => addPriced(quote.offer, p)}
+          onClose={() => setQuote(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -269,6 +269,26 @@ function findOrCreateDay(days: any[], iso: string, route: string) {
   return { days: next, day: inserted };
 }
 
+// A flight priced live in the Console (FlightQuoteDrawer's FlightLivePrice): the fare
+// option, refundability, each add-on picked, and when TripSure confirmed the price.
+function livePriceChips(p: any): string[] {
+  return [
+    p.fareName && p.fareName !== "Searched fare" ? p.fareName : "",
+    p.refundable ? "Refundable" : "Non-refundable",
+    p.checkinKg ? p.checkinKg + " kg check-in" : "",
+    ...(p.extras || []).map((x: any) => x.label + (x.price ? " " + inrPlain(x.price) : "") + " · " + x.segment),
+  ].filter(Boolean);
+}
+function livePriceMeta(p: any, mix: any): string {
+  const at = new Date(p.checkedAt);
+  const when = Number.isNaN(at.getTime()) ? "" : " on " + at.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return "Live TripSure price" + (mix ? " for " + paxText(mix) : "") + ", checked" + when + ": " + inrPlain(p.fare) + " fare"
+    + (p.extrasTotal ? " + " + inrPlain(p.extrasTotal) + " add-ons" : "")
+    + (p.needs && p.needs.length ? " · needs " + p.needs.join(", ") + " at booking" : "")
+    + " · airline prices can move until it is booked";
+}
+const inrPlain = (n: number) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+
 export function addCartItemToItinerary(data: any, cartItem: any) {
   const base = data || blankItinerary();
 
@@ -329,8 +349,14 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
         route: (seg.from || "") + " " + (seg.depTime || "") + " → " + (seg.to || "") + " " + (seg.arrTime || ""),
         duration: fmtSegDuration(seg.durationMin),
       })),
-      chips: [cartItem.refundable ? "Refundable" : "Non-refundable", ...requestChips(cartItem.requests)],
-      meta: cartItem.paxMix ? "Fare for " + paxText(cartItem.paxMix) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "") : "Added from Search",
+      chips: cartItem.pricing
+        ? livePriceChips(cartItem.pricing)
+        : [cartItem.refundable ? "Refundable" : "Non-refundable", ...requestChips(cartItem.requests)],
+      meta: cartItem.pricing
+        ? livePriceMeta(cartItem.pricing, cartItem.paxMix)
+        : cartItem.paxMix ? "Fare for " + paxText(cartItem.paxMix) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "") : "Added from Search",
+      // The live TripSure price it was added at (Console pricing drawer): fare, add-ons, when checked.
+      pricing: cartItem.pricing || null,
       // Carried into "Book this trip" (lib/bookingHandoff.ts): who the fare is for, and what was asked for.
       paxMix: cartItem.paxMix || null,
       requests: cartItem.requests || null,

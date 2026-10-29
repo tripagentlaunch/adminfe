@@ -17,7 +17,7 @@ import { NATIONALITIES } from "./TravellersForm";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
-import { SeatMap } from "./SeatMap";
+import { EXTRAS_TABS, FlightExtrasPicker, NO_PICK, extrasCounts, extrasDrawerTabs, extrasSum, firstExtrasTab, type ExtrasTab, type SegSel } from "./FlightExtras";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
@@ -41,26 +41,6 @@ const CABINS = [
   { key: "first", label: "First" },
 ];
 
-type Pick = { code: string; label: string; price: number };
-type SegSel = { seat: Pick | null; baggage: Pick | null; meal: Pick | null };
-
-// Sector keys look like "2_DEL$BOM" ({providerId}_{origin}${dest}).
-function ssrSector(catalog: any, o?: string, d?: string): any | null {
-  const data = catalog && typeof catalog.data === "object" && catalog.data ? catalog.data : catalog || {};
-  const suffix = `_${o}$${d}`;
-  const hits = Object.keys(data).filter((k) => k.endsWith(suffix));
-  return hits.length === 1 ? data[hits[0]] : null;
-}
-// The server's normalized SSR (flight_ssr_service): same sector keys, stable
-// baggage / meals / seats lists. Seats the airline lists as booked are left out,
-// so the grid shows them as occupied.
-function ssrNorm(catalog: any, o?: string, d?: string): any | null {
-  const n = catalog?.normalized || {};
-  const hits = Object.keys(n).filter((k) => k.endsWith(`_${o}$${d}`));
-  return hits.length === 1 ? n[hits[0]] : null;
-}
-const baggageLabel = (b: any) => b.text || (b.weight ? `Extra ${b.weight} kg` : b.code);
-const isLegroom = (s: any) => /legroom|exit/i.test(String(s.seatType || s.description || ""));
 
 const DEP_BUCKETS = [
   { key: "early", label: "Before 6 AM", test: (h: number) => h < 6 },
@@ -419,11 +399,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setSsr(catalog);
       setSelectedOffer(offer);
       setSelectedReturn(returnOffer || null);
-      setSel((segments.length ? segments : [null]).map(() => ({ seat: null, baggage: null, meal: null })));
+      setSel((segments.length ? segments : [null]).map(() => NO_PICK));
       setSeatSeg(0);
       // Open on the first tab the airline actually offers something for (Air India often has meals only).
-      const first = ssrNorm(catalog, segments[0]?.departureAirport, segments[0]?.arrivalAirport)?.offered;
-      setDrawerTab(first?.baggage ? "baggage" : first?.seats ? "seats" : first?.meals ? "meals" : "baggage");
+      setDrawerTab(firstExtrasTab(catalog, segments[0], offer.detail));
       setStep("seats");
       setFareFor(null);
     } catch (e: any) {
@@ -469,16 +448,6 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   });
-
-  function pickSeat(i: number, v: Pick | null) {
-    setSel((prev) => prev.map((p, j) => (j === i ? { ...p, seat: v } : p)));
-  }
-  function pickMeal(i: number, v: Pick | null) {
-    setSel((prev) => prev.map((p, j) => (j === i ? { ...p, meal: v } : p)));
-  }
-  function pickBaggage(i: number, v: Pick | null) {
-    setSel((prev) => prev.map((p, j) => (j === i ? { ...p, baggage: v } : p)));
-  }
 
   // ── Create itinerary ──────────────────────────────────────────────────────
   const [creating, setCreating] = useState(false);
@@ -1168,36 +1137,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           const priceMoved = lockInfo?.locked != null && Math.abs(lockInfo.locked - lockInfo.shown) > 1 ? lockInfo : null;
           const d = selectedOffer.detail;
           const rows = segments.length > 0 ? segments : [null];
-          const si = Math.min(seatSeg, rows.length - 1);
-          const seg = rows[si];
-          const block = seg ? ssrNorm(ssr, seg.departureAirport, seg.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
-          const bagOpts: any[] = (block?.baggage || []).map((b: any) => ({ ...b, text: b.label }));
-          const mealOpts: any[] = block?.meals || [];
-          const noneAtAll = rows.every((s: any) => {
-            const b = s ? ssrNorm(ssr, s.departureAirport, s.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
-            return !b?.offered?.baggage && !b?.offered?.seats && !b?.offered?.meals;
-          });
-          const cur = sel[si] || { seat: null, baggage: null, meal: null };
-          const mealCount = sel.filter((p) => p.meal).length;
-          const bagCount = sel.filter((p) => p.baggage).length;
-          const seatCount = sel.filter((p) => p.seat).length;
-          const extrasTotal = sel.reduce((n, p) => n + (p.seat?.price || 0) + (p.baggage?.price || 0) + (p.meal?.price || 0), 0);
+          const extrasTotal = extrasSum(sel);
+          const counts = extrasCounts(sel);
           const busy = creating || leaving;
-          const extrasKeys = ["baggage", "meals", "seats"];
-          const tab = drawerTab === "timeline" || drawerTab === "fares" || extrasKeys.includes(drawerTab) ? drawerTab : "baggage";
-          const offeredAnywhere = (k: string) => rows.some((r: any) => {
-            const b = r ? ssrNorm(ssr, r.departureAirport, r.arrivalAirport) : ssrNorm(ssr, d.originCode, d.destCode);
-            return !!b?.offered?.[k];
-          });
-          const kindOf: Record<string, "baggage" | "meal" | "seat"> = { baggage: "baggage", meals: "meal", seats: "seat" };
+          const tab = drawerTab === "timeline" || drawerTab === "fares" || EXTRAS_TABS.includes(drawerTab) ? drawerTab : "baggage";
           return (
             <ItineraryDrawer
               tabs={[
                 { key: "timeline", label: "Timeline", icon: "clock" },
                 { key: "fares", label: "Fare options", icon: "list" },
-                { key: "baggage", label: "Baggage", icon: "luggage", badge: bagCount ? String(bagCount) : null, muted: !offeredAnywhere("baggage") },
-                { key: "meals", label: "Meals", icon: "note", badge: mealCount ? String(mealCount) : null, muted: !offeredAnywhere("meals") },
-                { key: "seats", label: "Seats", icon: "flight", badge: seatCount ? String(seatCount) : null, muted: !offeredAnywhere("seats") },
+                ...extrasDrawerTabs(ssr, rows, d, sel),
               ]}
               active={tab}
               onTab={setDrawerTab}
@@ -1206,7 +1155,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               busy={busy}
               price={inr(fareTotal + extrasTotal)}
               priceNote={extrasTotal > 0
-                ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} add-ons (${[bagCount ? `${bagCount} baggage` : "", seatCount ? `${seatCount} seat` : "", mealCount ? `${mealCount} meal` : ""].filter(Boolean).join(", ")})`
+                ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} add-ons (${counts.text})`
                 : "Add-ons are optional"}
               actions={<>
                 <button type="button" className="taw-btn" onClick={backToResults} disabled={busy}>{leaving ? "Releasing…" : "Back"}</button>
@@ -1252,107 +1201,20 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   ))}
                   <div className="ow-sub" style={{ whiteSpace: "normal" }}>This fare is locked with TripSure. To choose a different fare, use Back — it releases this one.</div>
                 </div>
-              ) : noneAtAll ? (
-                <div className="ow-empty">
-                  <Icon name="luggage" size={20} />
-                  <div><b>No add-ons available for this fare</b></div>
-                  <div className="ow-sub">The airline returned no seat map, extra baggage or meals for this flight ({d.airlineName || d.airline}). That is the airline&apos;s answer for this fare, not an error — Next locks the fare without add-ons.</div>
-                </div>
               ) : (
-                <>
-                  {preset?.requests && (requestChips(preset.requests).length || preset.requests.note) ? (
-                    <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
-                      The customer asked for: {[...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ")}.
-                    </div>
-                  ) : null}
-                  <div className="fi-segs" role="tablist" aria-label="Flight segments">
-                    {rows.map((r: any, i: number) => {
-                      const k = kindOf[tab];
-                      const n = sel[i]?.[k] ? 1 : 0;
-                      return (
-                        <button key={i} type="button" role="tab" aria-selected={i === si} className={`fi-seg${i === si ? " on" : ""}`} onClick={() => setSeatSeg(i)}>
-                          <small>{r?.airlineCode || d.airline || ""}</small>
-                          {r ? `${r.departureAirport} → ${r.arrivalAirport}` : `Segment ${i + 1}`}
-                          <em className={n ? "got" : ""}>{n}/1</em>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="ow-sel-title">
-                    {tab === "baggage" ? "Extra baggage" : tab === "meals" ? "Meals" : "Seat selection"}
-                    <span className="ow-sub">
-                      {seg ? `${seg.departureAirport} → ${seg.arrivalAirport} · ${fmtDay(seg.departureDateTime)}` : "Flight preferences"}
-                    </span>
-                  </div>
-                    {tab === "baggage" ? (
-                      bagOpts.length === 0 ? (
-                        <div className="ow-sub" style={{ whiteSpace: "normal" }}>{d.airlineName || d.airline} offers no extra baggage for this segment on this fare — the fare&apos;s included baggage applies.</div>
-                      ) : (
-                        <div className="ow-cards">
-                          {bagOpts.map((b: any) => {
-                            const on = cur.baggage?.code === b.code;
-                            const pick: Pick = { code: b.code, label: baggageLabel(b), price: Number(b.price) || 0 };
-                            return (
-                              <div key={b.code} className={`ow-card${on ? " on" : ""}`}>
-                                <span className="ow-card-ic"><Icon name="luggage" size={18} /></span>
-                                <div className="ow-card-main">
-                                  <div className="ow-card-t">{pick.label}</div>
-                                  <div className="ow-card-s">{inr(pick.price)}</div>
-                                </div>
-                                <div className="ow-step" aria-label={`Quantity for ${pick.label}`}>
-                                  <button type="button" disabled={!on || busy} aria-label={`Remove ${pick.label}`}
-                                    onClick={() => pickBaggage(si, null)}><Icon name="minus" size={13} /></button>
-                                  <b>{on ? 1 : 0}</b>
-                                  <button type="button" disabled={on || busy} aria-label={`Add ${pick.label}`}
-                                    onClick={() => pickBaggage(si, pick)}><Icon name="plus" size={13} /></button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          <div className="ow-sub">One extra-baggage option per segment.</div>
-                        </div>
-                      )
-                    ) : tab === "meals" ? (
-                      mealOpts.length === 0 ? (
-                        <div className="ow-sub">No meals can be pre-ordered for this segment.</div>
-                      ) : (
-                        <div className="ow-cards">
-                          {mealOpts.map((m: any) => {
-                            const on = cur.meal?.code === m.code;
-                            const pick: Pick = { code: m.code, label: m.label, price: Number(m.price) || 0 };
-                            return (
-                              <div key={m.code} className={`ow-card${on ? " on" : ""}`}>
-                                <span className="ow-card-ic"><Icon name="note" size={18} /></span>
-                                <div className="ow-card-main">
-                                  <div className="ow-card-t">{m.label}{m.special ? " · special" : ""}</div>
-                                  <div className="ow-card-s">{pick.price > 0 ? inr(pick.price) : "Included"}</div>
-                                </div>
-                                <button type="button" className={`taw-btn taw-btn--sm${on ? "" : " taw-btn--primary"}`} disabled={busy}
-                                  onClick={() => pickMeal(si, on ? null : pick)}>{on ? "Remove" : "Add"}</button>
-                              </div>
-                            );
-                          })}
-                          <div className="ow-sub">One meal per segment, for the lead traveller.</div>
-                        </div>
-                      )
-                    ) : !block?.offered?.seats ? (
-                      <div className="ow-sub" style={{ whiteSpace: "normal" }}>
-                        {d.airlineName || d.airline} doesn&apos;t offer seat selection for this segment on this fare through TripSure
-                        {block?.offered?.meals ? " — only meals can be pre-ordered. The seat is assigned by the airline at check-in." : ". The seat is assigned by the airline at check-in."}
-                      </div>
-                    ) : (
-                      <SeatMap
-                        seats={block.seats}
-                        grid={block.grid || { rows: 0, cols: 0 }}
-                        selected={cur.seat?.code || null}
-                        disabled={busy}
-                        onPick={(x) => pickSeat(si, x ? { code: x.code, label: `Seat ${x.code}`, price: Number(x.price) || 0 } : null)}
-                      />
-                    )}
-                  <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 10 }}>
-                    Add-ons are priced by the airline and sent with the passengers when the ticket is issued — one of each per segment, for the lead traveller.
-                  </div>
-                </>
+                <FlightExtrasPicker
+                  ssr={ssr}
+                  rows={rows}
+                  detail={d}
+                  tab={tab as ExtrasTab}
+                  sel={sel}
+                  seg={seatSeg}
+                  onSeg={setSeatSeg}
+                  onPick={(i, kind, v) => setSel((prev) => prev.map((p, j) => (j === i ? { ...p, [kind]: v } : p)))}
+                  busy={busy}
+                  asked={preset?.requests && (requestChips(preset.requests).length || preset.requests.note)
+                    ? [...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ") : null}
+                />
               )}
             </ItineraryDrawer>
           );

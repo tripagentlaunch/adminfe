@@ -2080,6 +2080,13 @@ function bookingCreateFlightItinerary(payload) {
 function flightSsr(tripsureItineraryId) {
   return fastapiFlightCall("/flights/itinerary/" + encodeURIComponent(tripsureItineraryId) + "/ssr", { method: "GET" });
 }
+// flightPriceCheck(flights) — POST /flights/itinerary: TripSure Create Itinerary on its own,
+// nothing recorded on our side. The airline's actual price for a fare right now (plus whether it
+// moved since the search), and the itineraryId flightSsr() needs for the add-on prices. Used to
+// price a Console flight for the customer's itinerary; TripSure lets the unused itinerary expire.
+function flightPriceCheck(flights) {
+  return fastapiFlightCall("/flights/itinerary", { method: "POST", body: { flights: flights } });
+}
 // Every fare option (Saver/Flex...) of one searched flight, and the fare rules
 // of one fare. Body fields: see backend flight_router FareOptionsRequest.
 function flightFareOptions(payload) {
@@ -2867,6 +2874,7 @@ export {
   bookingCustomerSearch,
   bookingCreateFlightItinerary,
   flightSsr,
+  flightPriceCheck,
   bookingConfirmFlightItinerary,
   bookingDiscardFlightItinerary,
   bookingAddHotelStay,

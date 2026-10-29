@@ -217,9 +217,13 @@ export function fareBrand(d: any) {
 // extra.pax — the traveller mix the fare was searched for; extra.requests —
 // the customer's extra-baggage / seat / meal requests (FlightDesk's Add panel).
 // Both ride along onto the itinerary item and into "Book this trip".
-export function flightCartItem(offer: any, alternatives?: any[], extra?: { pax?: any; requests?: any }) {
+// extra.pricing: the live TripSure price from the Console's pricing drawer
+// (FlightQuoteDrawer) — fare + picked add-ons. When present it is the item's price,
+// not the search list's.
+export function flightCartItem(offer: any, alternatives?: any[], extra?: { pax?: any; requests?: any; pricing?: any }) {
   var d = offer.detail || {};
-  var net = Number(offer.base_net != null ? offer.base_net : offer.baseNet != null ? offer.baseNet : d.baseNet) || 0;
+  var pricing = (extra && extra.pricing) || null;
+  var net = pricing ? pricing.total : Number(offer.base_net != null ? offer.base_net : offer.baseNet != null ? offer.baseNet : d.baseNet) || 0;
   return {
     _cid: uniqId(),
     type: "flight",
@@ -233,13 +237,14 @@ export function flightCartItem(offer: any, alternatives?: any[], extra?: { pax?:
     destCode: d.destCode,
     cabin: d.cabin,
     pax: d.pax,
-    refundable: d.refundable,
+    refundable: pricing ? pricing.refundable : d.refundable,
     alternatives: alternatives || [],
     _title: (d.airlineName || d.airline || "Flight") + " " + (d.flightNo || ""),
     _sub: (d.originCode || "") + " → " + (d.destCode || "") + (d.duration ? " · " + d.duration : ""),
     _detail: d,
     paxMix: (extra && extra.pax) || null,
     requests: (extra && extra.requests) || null,
+    pricing: pricing,
   };
 }
 // _looksLikeRealHotelKey(id) (2026-09-15, real Maldives 404 reproduction)
