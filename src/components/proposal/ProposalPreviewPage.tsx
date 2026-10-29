@@ -522,7 +522,7 @@ export function ProposalPreviewPage({
   payToken?: string | null;
 }) {
   // Customer "Pay now" (public link only): which stays can be booked online + the pay modal.
-  const [payQuote, setPayQuote] = useState<{ payable: boolean; stays: any[]; gateway_configured: boolean } | null>(null);
+  const [payQuote, setPayQuote] = useState<{ payable: boolean; stays: any[]; gateway_configured: boolean; guest?: any } | null>(null);
   const [payingStay, setPayingStay] = useState<any | null>(null);
   // Flights priced live by the advisor are paid through the flight flow (the hotel flow above is
   // for hotel-only proposals).
@@ -604,6 +604,7 @@ export function ProposalPreviewPage({
           token={payToken}
           stay={payingStay}
           gatewayConfigured={!!payQuote?.gateway_configured}
+          prefill={payQuote?.guest}
           onClose={() => setPayingStay(null)}
         />
       ) : null}

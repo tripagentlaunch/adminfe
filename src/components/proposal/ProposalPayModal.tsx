@@ -28,12 +28,17 @@ function loadCheckout(): Promise<boolean> {
 
 type Stay = { id?: string; name?: string; room?: string; price?: number; check_in?: string; check_out?: string };
 
-export function ProposalPayModal({ token, stay, gatewayConfigured, onClose }:
-  { token: string; stay: Stay; gatewayConfigured: boolean; onClose: (booked: boolean) => void }) {
+type Prefill = { firstName?: string; lastName?: string; email?: string; mobile?: string } | null;
+
+export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onClose }:
+  { token: string; stay: Stay; gatewayConfigured: boolean; prefill?: Prefill; onClose: (booked: boolean) => void }) {
   const [step, setStep] = useState<"form" | "working" | "done">("form");
   const [err, setErr] = useState<string | null>(null);
   const [priceNote, setPriceNote] = useState<{ was: number; now: number } | null>(null);
-  const [g, setG] = useState({ title: "Mr", firstName: "", lastName: "", mobile: "", email: "", pan: "" });
+  const [g, setG] = useState({
+    title: "Mr", firstName: prefill?.firstName || "", lastName: prefill?.lastName || "",
+    mobile: prefill?.mobile || "", email: prefill?.email || "", pan: "",
+  });
   const set = (k: string, v: string) => setG((f) => ({ ...f, [k]: v }));
 
   const panBad = g.pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(g.pan.toUpperCase());

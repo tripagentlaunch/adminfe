@@ -19,6 +19,7 @@ import { Spinner } from "../ui";
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
   pax: { adults: number; children: number; infants: number };
+  guest?: { firstName: string; lastName: string; email: string; mobile: string } | null;
   flights: { id: string; title: string; date: string; route: string; fare_name: string | null; extras: { label: string; segment: string }[] }[];
 };
 
@@ -57,10 +58,13 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const kinds: Pax["pax_type"][] = [
     ...Array(quote.pax.adults).fill("adult"), ...Array(quote.pax.children).fill("child"), ...Array(quote.pax.infants).fill("infant"),
   ];
-  const [pax, setPax] = useState<Pax[]>(() => kinds.map((k) => ({
-    pax_type: k, title: TITLES[k][0], first_name: "", last_name: "", gender: "", date_of_birth: "", nationality: "IN", passport_number: "", passport_expiry: "",
+  // The enquiry's traveller fills the lead passenger and the contact; everything stays editable.
+  const guest = quote.guest || null;
+  const [pax, setPax] = useState<Pax[]>(() => kinds.map((k, i) => ({
+    pax_type: k, title: TITLES[k][0], first_name: i === 0 && guest ? guest.firstName : "", last_name: i === 0 && guest ? guest.lastName : "",
+    gender: "", date_of_birth: "", nationality: "IN", passport_number: "", passport_expiry: "",
   })));
-  const [contact, setContact] = useState({ email: "", mobile: "" });
+  const [contact, setContact] = useState({ email: guest?.email || "", mobile: guest?.mobile || "" });
   const setP = (i: number, k: keyof Pax, v: string) => setPax((cur) => cur.map((p, j) => (j === i ? { ...p, [k]: v } : p)));
 
   const intl = quote.international;
