@@ -40,6 +40,8 @@ const noSubscribe = () => () => {};
 // "?payment=success&ref=TA-…" / "?payment=failed" when the customer comes back from paying.
 const readPayment = () => new URLSearchParams(window.location.search).get("payment") || "";
 const readPaymentRef = () => new URLSearchParams(window.location.search).get("ref") || "";
+// "?pay=open": opened from the advisor's preview — start with the payment window open.
+const readPayOpen = () => new URLSearchParams(window.location.search).get("pay") === "open";
 import "../../styles/proposal-preview.css";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
@@ -513,6 +515,7 @@ export function ProposalPreviewPage({
   onSwapFlight,
   onDownload,
   payToken,
+  payPreviewUrl,
 }: {
   data: any;
   onSwapHotel?: (stayId: string, hotelKey: string) => void;
@@ -520,6 +523,8 @@ export function ProposalPreviewPage({
   onDownload?: () => void;
   /** Set only on the public customer web link — enables the "Pay now" button. */
   payToken?: string | null;
+  /** Advisor's preview only: the proposal's live customer link — Pay now opens it in a new tab. */
+  payPreviewUrl?: string | null;
 }) {
   // Customer "Pay now" (public link only): which stays can be booked online + the pay modal.
   const [payQuote, setPayQuote] = useState<{ payable: boolean; stays: any[]; gateway_configured: boolean; guest?: any } | null>(null);
@@ -528,15 +533,23 @@ export function ProposalPreviewPage({
   // for hotel-only proposals).
   const [flightQuote, setFlightQuote] = useState<FlightPayQuote | null>(null);
   const [payingFlights, setPayingFlights] = useState(false);
+  const payOpen = useSyncExternalStore(noSubscribe, readPayOpen, () => false);
+  const autoOpened = useRef(false);
   const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
   const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
   useEffect(() => {
     if (!payToken) return;
     proposalPayQuote(payToken).then((q: any) => setPayQuote(q)).catch(() => setPayQuote(null));
-    proposalFlightPayQuote(payToken).then((q: any) => setFlightQuote(q)).catch(() => setFlightQuote(null));
-  }, [payToken]);
+    proposalFlightPayQuote(payToken)
+      .then((q: any) => {
+        setFlightQuote(q);
+        if (q && q.payable && payOpen && !autoOpened.current) { autoOpened.current = true; setPayingFlights(true); }
+      })
+      .catch(() => setFlightQuote(null));
+  }, [payToken, payOpen]);
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
-  const previewPayable = !payToken && (data.flights || []).some((f: any) => f.fareLine);
+  const previewPayable = !payToken && ((data.flights || []).some((f: any) => f.fareLine)
+    || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -820,10 +833,18 @@ export function ProposalPreviewPage({
                         Pay now · {inr(flightQuote.amount)}
                       </button>
                     ) : previewPayable ? (
-                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c", opacity: 0.55, cursor: "default" }} disabled
-                        title="Works on the customer's web link: the price is checked live with the airline when they press it">
-                        Pay now
-                      </button>
+                      payPreviewUrl ? (
+                        <a className="pv-cta" style={{ background: "#1f6f5c", textDecoration: "none", textAlign: "center" }}
+                          href={`${payPreviewUrl}?pay=open`} target="_blank" rel="noreferrer"
+                          title="Opens the customer's web link in a new tab, with the payment window open">
+                          Pay now ↗
+                        </a>
+                      ) : (
+                        <button type="button" className="pv-cta" style={{ background: "#1f6f5c", opacity: 0.55, cursor: "default" }} disabled
+                          title="Create the web link first: Pay now runs on the customer's link">
+                          Pay now
+                        </button>
+                      )
                     ) : null}
                     {payToken && payQuote?.payable && !flightQuote?.payable ? (
                       <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }}

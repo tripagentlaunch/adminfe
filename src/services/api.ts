@@ -2552,6 +2552,11 @@ function enquiryWorkspaceSave(enquiryId, payload) {
 // (the exact same object ProposalDocument/downloadPdf already render from);
 // this call mints a token and stores a sanitized, frozen copy of it server-
 // side. Returns { token, expires_at }.
+// enquiryProposalShareGet(enquiryId) — the enquiry's one live customer link ({ token } or
+// { token: null }). Create (below) re-publishes into that same link when there is one.
+function enquiryProposalShareGet(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/proposal-share", { method: "GET" });
+}
 function enquiryProposalShareCreate(enquiryId, snapshot) {
   return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/proposal-share", {
     method: "POST",
@@ -2832,6 +2837,7 @@ export {
   enquiryProposalOutcome,
   enquiryPipelineStatus,
   enquiryProposalShareCreate,
+  enquiryProposalShareGet,
   proposalShareGet,
   proposalPayQuote,
   proposalPayPrepare,

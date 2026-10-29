@@ -39,6 +39,8 @@ import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from 
 import { blankItinerary, addCartItemToItinerary, addSwapOption, boundFromDateRange, replacesExisting, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
 import { useWorkspacePersistence } from "../lib/useWorkspacePersistence";
 
+const PARKED_KEY = "taw.console.parked.v1";
+
 // The enquiry open in the Console, so a reload reopens it (sessionStorage: per tab).
 const SELECTED_ENQUIRY_KEY = "taw.console.selectedEnquiry";
 export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }: { advisorId: string; children: React.ReactNode }) {
@@ -93,7 +95,19 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // so WorkbenchTab's chooser screen needs a per-enquiry flag to show a
   // real loading state while that's in flight.
   // parkedItineraries — Tara's itinerary set aside by "← Back" (see parkTaraItinerary), keyed by enquiry id.
-  const [parkedItineraries, setParkedItineraries] = useState<Record<string, any>>({});
+  // Kept in this browser too: parking clears the saved itinerary, so a reload must not lose
+  // the set-aside one (and Tara's auto-open must not see an "empty" Builder and replace it).
+  // (The workbench renders only after the advisor sign-in check, in the browser.)
+  const [parkedItineraries, setParkedItineraries] = useState<Record<string, any>>(() => {
+    try {
+      return (typeof window !== "undefined" && JSON.parse(window.localStorage.getItem(PARKED_KEY) || "{}")) || {};
+    } catch {
+      return {}; // storage blocked: memory only
+    }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(PARKED_KEY, JSON.stringify(parkedItineraries)); } catch { /* not critical */ }
+  }, [parkedItineraries]);
   const [generatingItinerary, setGeneratingItinerary] = useState<Record<string, boolean>>({});
   const [retryingSearch, setRetryingSearch] = useState<Record<string, boolean>>({});
   // pipelineStatusByEnquiry (real backend, GET /enquiries/pipeline-status) —
@@ -109,7 +123,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // Itineraries and the proposal queue are saved per enquiry on the server
   // (GET/PUT /enquiries/{id}/workspace, db/150) and restored on load, so a
   // reload no longer loses the advisor's work.
-  useWorkspacePersistence({ itinerariesByEnquiry, setItinerariesByEnquiry, proposalQueue, setProposalQueue });
+  // workspaceRestored: the saved itineraries have been read back from the server — until then an
+  // enquiry with no itinerary in memory may still have one saved (Tara's auto-open waits for it).
+  const { restored: workspaceRestored } = useWorkspacePersistence({ itinerariesByEnquiry, setItinerariesByEnquiry, proposalQueue, setProposalQueue });
 
   // reloadInbox (2026-10-09) — also called after "Invite someone", which
   // creates a member + open enquiry server-side, so the invitee shows up
@@ -498,6 +514,20 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     enquiryItineraryStarted(enquiryId).catch(() => {});
   }
 
+  // Tara's newest plan opened by itself: only into a Builder that is still empty at that moment
+  // (decided on the latest state, not the render that started the fetch), so it can never
+  // replace an itinerary that was restored or built in the meantime.
+  function autoLoadTaraItinerary(enquiryId: string, itinerary: any) {
+    let loaded = false;
+    setItinerariesByEnquiry((m) => {
+      const cur = m[enquiryId];
+      if (cur && Array.isArray(cur.days) && cur.days.length) return m;
+      loaded = true;
+      return { ...m, [enquiryId]: itinerary };
+    });
+    if (loaded) enquiryItineraryStarted(enquiryId).catch(() => {});
+  }
+
   // "← Back" from Tara's itinerary: the itinerary (with any edits) is parked, not discarded,
   // so the Builder shows its usual Generate / Start-from-scratch chooser, and "Return to
   // Tara's itinerary" puts the parked one back exactly as it was.
@@ -616,6 +646,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         retryItinerarySearch,
         initItinerary,
         loadTaraItinerary,
+        autoLoadTaraItinerary,
+        workspaceRestored,
         parkedItineraries,
         parkTaraItinerary,
         resumeParkedItinerary,

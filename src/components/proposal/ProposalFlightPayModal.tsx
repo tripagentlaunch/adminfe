@@ -21,6 +21,10 @@ export type FlightPayQuote = {
   pax: { adults: number; children: number; infants: number };
   guest?: { firstName: string; lastName: string; email: string; mobile: string } | null;
   flights: { id: string; title: string; date: string; route: string; fare_name: string | null; extras: { label: string; segment: string }[] }[];
+  /** Hotels booked in the same payment (rooms re-checked and locked when the customer presses Pay). */
+  stays?: { id: string; name: string; room: string; check_in: string; check_out: string }[];
+  /** "all": every flight passenger; "lead": hotels only, just the lead guest. */
+  travellers?: "all" | "lead";
 };
 
 type Pax = {
@@ -55,9 +59,12 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const [err, setErr] = useState<string | null>(null);
   const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number } | null>(null);
   const [paidRef, setPaidRef] = useState<string | null>(null);
-  const kinds: Pax["pax_type"][] = [
+  const stays = quote.stays || [];
+  const kinds: Pax["pax_type"][] = quote.travellers === "lead" ? ["adult"] : [
     ...Array(quote.pax.adults).fill("adult"), ...Array(quote.pax.children).fill("child"), ...Array(quote.pax.infants).fill("infant"),
   ];
+  const [pan, setPan] = useState("");
+  const panBad = pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan);
   // The enquiry's traveller fills the lead passenger and the contact; everything stays editable.
   const guest = quote.guest || null;
   const [pax, setPax] = useState<Pax[]>(() => kinds.map((k, i) => ({
@@ -71,7 +78,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const paxOk = pax.every((p) => p.first_name.trim() && p.last_name.trim() && p.gender
     && (p.pax_type === "adult" && !intl ? true : !!p.date_of_birth)
     && (!intl || (p.passport_number.trim() && p.passport_expiry)));
-  const ready = paxOk && contact.email.includes("@") && /^\d{10}$/.test(contact.mobile.replace(/\D/g, "").slice(-10));
+  const ready = paxOk && !panBad && contact.email.includes("@") && /^\d{10}$/.test(contact.mobile.replace(/\D/g, "").slice(-10));
 
   async function prepare() {
     setErr(null);
@@ -84,7 +91,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
         nationality: p.nationality || null,
         passport_number: intl ? p.passport_number.trim().toUpperCase() : null, passport_expiry: intl ? p.passport_expiry : null,
       }));
-      const r: any = await proposalFlightPayPrepare(token, { travellers });
+      const r: any = await proposalFlightPayPrepare(token, { travellers, pan: stays.length && pan ? pan : null });
       setPrep(r);
       // The airline's price moved since the proposal: show it before taking any money.
       if (r.price_changed) { setStep("changed"); return; }
@@ -140,18 +147,24 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 40 }}>✓</div>
             <h2 style={{ margin: "8px 0" }}>Payment received</h2>
-            <p style={{ color: "#555" }}>Thank you — your advisor is issuing your tickets now and will send them to {contact.email || "your email"}.{paidRef ? ` Booking ${paidRef}.` : ""}</p>
+            <p style={{ color: "#555" }}>Thank you — {quote.flights.length ? "your advisor is issuing your tickets now and will send them" : "your stay is being confirmed; your advisor will send the voucher"} to {contact.email || "your email"}.{paidRef ? ` Booking ${paidRef}.` : ""}</p>
             <button type="button" onClick={() => onClose(true)} style={btn(true)}>Done</button>
           </div>
         ) : (
           <>
-            <h2 style={{ margin: "0 0 6px" }}>Pay for your flights</h2>
+            <h2 style={{ margin: "0 0 6px" }}>{quote.flights.length && stays.length ? "Pay for your trip" : quote.flights.length ? "Pay for your flights" : "Pay for your stay"}</h2>
             <div style={{ display: "grid", gap: 8, margin: "0 0 14px" }}>
               {quote.flights.map((f) => (
                 <div key={f.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
                   <b>{f.title}</b> · {f.route} · {fmtDate(f.date)}
                   {f.fare_name && f.fare_name !== "Searched fare" ? <span style={{ color: "#777" }}> · {f.fare_name} fare</span> : null}
                   {f.extras.length ? <div style={{ color: "#666", marginTop: 3 }}>{f.extras.map((x) => x.label).join(" · ")}</div> : null}
+                </div>
+              ))}
+              {stays.map((h) => (
+                <div key={h.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
+                  <b>{h.name}</b>{h.room ? ` · ${h.room}` : ""}
+                  <div style={{ color: "#666", marginTop: 3 }}>{fmtDate(h.check_in)} → {fmtDate(h.check_out)}</div>
                 </div>
               ))}
             </div>
@@ -214,6 +227,10 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                     <input aria-label="Email" placeholder="Email (tickets go here)" type="email" value={contact.email} onChange={(e) => setContact({ ...contact, email: e.target.value })} style={inp} />
                     <input aria-label="Mobile" placeholder="Mobile (10 digits)" inputMode="numeric" value={contact.mobile} onChange={(e) => setContact({ ...contact, mobile: e.target.value })} style={inp} />
                   </div>
+                  {stays.length ? (
+                    <input aria-label="PAN" placeholder="PAN (if the hotel asks for it)" maxLength={10} value={pan}
+                      onChange={(e) => setPan(e.target.value.toUpperCase())} style={{ ...inp, borderColor: panBad ? "#c0392b" : "#ddd" }} />
+                  ) : null}
                 </div>
                 <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                   <button type="button" onClick={() => onClose(false)} disabled={busy} style={btn(false)}>Cancel</button>
@@ -222,7 +239,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                   </button>
                 </div>
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
-                  Secured by Razorpay. Price includes taxes and fees; it is re-checked with the airline when you press Pay.
+                  Secured by Razorpay. Price includes taxes and fees; it is re-checked with the airline{stays.length ? " and the hotel" : ""} when you press Pay.
                 </p>
               </>
             )}

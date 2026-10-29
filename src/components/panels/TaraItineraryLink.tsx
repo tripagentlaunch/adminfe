@@ -61,7 +61,7 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
     return () => { cancelled = true; };
   }, [baseCode, memberKey, phone, email]);
   const code = baseCode || (found && found.key === memberKey ? found.code : "");
-  const { itinerariesByEnquiry, loadTaraItinerary, parkedItineraries, resumeParkedItinerary } = useWorkbench();
+  const { itinerariesByEnquiry, loadTaraItinerary, autoLoadTaraItinerary, workspaceRestored, parkedItineraries, resumeParkedItinerary } = useWorkbench();
   const parked = !!(selEnqId && parkedItineraries[selEnqId]);
   // Plans are stored with the code they were fetched for, so switching traveller
   // shows nothing (not the previous traveller's plans) until the new list arrives.
@@ -89,7 +89,9 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
   const autoTried = useRef<Set<string>>(new Set());
   const latest = plans[0];
   useEffect(() => {
-    if (!checked || !latest || parked) return;
+    // Not before the saved itineraries are back from the server: until then "empty" may just
+    // mean "not loaded yet", and opening Tara's plan would replace the advisor's work.
+    if (!checked || !latest || parked || !workspaceRestored) return;
     const existing = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
     if (existing && Array.isArray(existing.days) && existing.days.length) return;
     const tryKey = `${code}:${latest.planId}:${latest.updatedAt || ""}`;
@@ -99,10 +101,10 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
       const d: any = await getTaraPlan(code, latest.planId);
       if (!d || !d.itinerary) return;
       const enquiryId = selEnqId || (onEnsureEnquiry && member ? (await onEnsureEnquiry(member)).id : null);
-      if (enquiryId) loadTaraItinerary(enquiryId, d.itinerary);
+      if (enquiryId) autoLoadTaraItinerary(enquiryId, d.itinerary);
     })().catch(() => { /* the button below still works */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checked, latest && latest.planId, latest && latest.updatedAt, selEnqId, parked, code]);
+  }, [checked, latest && latest.planId, latest && latest.updatedAt, selEnqId, parked, code, workspaceRestored]);
 
   // A Tara itinerary is on screen: when the traveller has several, switch between them here.
   if (hidden) {

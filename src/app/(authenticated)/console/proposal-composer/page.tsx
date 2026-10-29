@@ -55,7 +55,7 @@ import { cartFromItinerary } from "../../../../lib/itineraryFromCart";
 import { useQuotePricing } from "../../../../lib/useQuotePricing";
 import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
 import { toast, errText } from "../../../../lib/advisorHelpers";
-import { enquiryProposalShareCreate, getDestinationPhoto } from "../../../../services/api";
+import { enquiryProposalShareCreate, enquiryProposalShareGet, getDestinationPhoto } from "../../../../services/api";
 import { buildProposalTemplateData } from "../../../../lib/proposalTemplateData";
 import { ProposalDocument, PAGE_COUNT } from "../../../../components/proposal/ProposalDocument";
 import { ProposalPreviewPage } from "../../../../components/proposal/ProposalPreviewPage";
@@ -382,30 +382,60 @@ export default function ProposalComposerPage() {
     });
   }
 
-  // Web link (2026-09-10) — mints a real, tokenised public share of the
-  // CURRENT proposalData (snapshot-at-share-time, confirmed with the user:
-  // the link shows what was actually sent, never silently updates if the
-  // advisor keeps editing the itinerary afterward — see backend/app/
-  // services/proposal_share_service.py's own module note). Replaces the
-  // old "isn't built yet" placeholder toast.
+  // Web link — ONE live customer link per proposal (enquiry). The first press creates it; after
+  // that the same URL is kept, and the proposal's content is re-published into it whenever the
+  // advisor's edits change it (debounced, only once pricing has settled), so the customer always
+  // sees the current proposal at the URL they were sent. The downloaded PDF is the frozen copy.
   const [creatingLink, setCreatingLink] = useState(false);
+  const [link, setLink] = useState<{ enquiryId: string; token: string | null } | null>(null);
+  const published = useRef<string>("");
+  const enquiryIdSel = selected?.enquiryId || null;
+  useEffect(() => {
+    if (!enquiryIdSel) return;
+    let live = true;
+    published.current = "";
+    enquiryProposalShareGet(enquiryIdSel)
+      .then((r: any) => { if (live) setLink({ enquiryId: enquiryIdSel, token: (r && r.token) || null }); })
+      .catch(() => { if (live) setLink({ enquiryId: enquiryIdSel, token: null }); });
+    return () => { live = false; };
+  }, [enquiryIdSel]);
+  const linkToken = link && link.enquiryId === enquiryIdSel ? link.token : null;
+  const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/proposal/${linkToken}` : null;
+
   function createWebLink() {
     if (!selected || creatingLink) return;
     setCreatingLink(true);
+    const body = JSON.stringify(proposalData);
     enquiryProposalShareCreate(selected.enquiryId, proposalData)
       .then((res: any) => {
         setCreatingLink(false);
+        published.current = body;
+        setLink({ enquiryId: selected.enquiryId, token: res.token });
         const url = `${window.location.origin}/proposal/${res.token}`;
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(url).catch(() => {});
         }
-        toast("Link copied — valid for 14 days: " + url, "success");
+        toast((res.reused ? "Same link, updated with this proposal — copied: " : "Link copied — valid for 14 days: ") + url, "success");
       })
       .catch((e: any) => {
         setCreatingLink(false);
         toast("Couldn't create the link: " + errText(e), "error");
       });
   }
+
+  // Keep the live link in step with the proposal on screen.
+  useEffect(() => {
+    if (!linkToken || !enquiryIdSel || pricingLoading || !cart.length) return;
+    const body = JSON.stringify(proposalData);
+    // Also once on opening: edits made in the Console since the last publish reach the link too.
+    if (body === published.current) return;
+    const t = setTimeout(() => {
+      enquiryProposalShareCreate(enquiryIdSel, proposalData)
+        .then(() => { published.current = body; })
+        .catch(() => { /* the next change, or Web link, publishes again */ });
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [linkToken, enquiryIdSel, proposalData, pricingLoading, cart.length]);
 
   return (
     <div className="taw-grid taw-cols-2">
@@ -575,7 +605,7 @@ export default function ProposalComposerPage() {
               ) : null}
               <button className="taw-btn taw-btn--primary" onClick={createWebLink} disabled={creatingLink || !cart.length}>
                 <Icon name="send" size={14} />
-                {creatingLink ? "Creating link…" : "Web link"}
+                {creatingLink ? (linkToken ? "Updating link…" : "Creating link…") : linkToken ? "Copy web link" : "Web link"}
               </button>
               <button className="taw-btn taw-btn--primary taw-btn--brown" onClick={downloadPdf} disabled={!cart.length}>
                 <Icon name="download" size={14} />
@@ -595,7 +625,7 @@ export default function ProposalComposerPage() {
                 className="taw-pdf-preview"
                 style={{ overflow: "auto", alignItems: "flex-start", justifyContent: "flex-start" }}
               >
-                <ProposalPreviewPage onDownload={cart.length ? downloadPdf : undefined} onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} onSwapFlight={selected ? (flightId, altIndex) => swapProposalFlight(selected.enquiryId, flightId, altIndex) : undefined} data={{ ...(proposalData || {}), destination: (proposalData && proposalData.destination) || "Your trip" }} />
+                <ProposalPreviewPage payPreviewUrl={linkUrl} onDownload={cart.length ? downloadPdf : undefined} onSwapHotel={selected ? (stayId, hotelKey) => swapProposalHotel(selected.enquiryId, stayId, hotelKey) : undefined} onSwapFlight={selected ? (flightId, altIndex) => swapProposalFlight(selected.enquiryId, flightId, altIndex) : undefined} data={{ ...(proposalData || {}), destination: (proposalData && proposalData.destination) || "Your trip" }} />
               </div>
             ) : (
             <div className={cx("taw-pdf-preview", isFullscreen && "is-maximized")} ref={previewRef}>
