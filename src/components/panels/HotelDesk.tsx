@@ -516,6 +516,8 @@ function roomOptions(det: any, nights: number): any[] {
         perNight: Number(o.totalRate) > 0 && nights > 0 ? Number(o.totalRate) / nights / ((o.standardRooms || []).length || 1) : null,
         total: Number(o.totalRate) || 0,
         maxAdults: rt.maxAdults,
+        inclusions: (sr.inclusions || []).join(", "),
+        bed: String(sr.bedType || "").trim(),
       });
     })
   );
@@ -627,8 +629,24 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const info = (det && det.hotelInfo) || {};
   const opts = roomOptions(det, Number((offer && offer.detail && offer.detail.nights) || 0));
   const description = readableDescription(info.description);
-  // every option of every roomGroup, in the supplier's own order (no cap)
-  const shownOpts = opts;
+  // One card per room type (supplier roomGroup) with its rate options underneath, cheapest first,
+  // the same way the New Booking room picker lists them; a repeated booking code shows once.
+  const seenCodes = new Set<string>();
+  const types: { group: number; title: string; bed: string; rates: any[] }[] = [];
+  opts.forEach((o) => {
+    if (seenCodes.has(o.code)) return;
+    seenCodes.add(o.code);
+    let t = types.find((x) => x.group === o.group);
+    if (!t) types.push((t = { group: o.group, title: o.title, bed: o.bed, rates: [] }));
+    t.rates.push(o);
+  });
+  types.forEach((t) => t.rates.sort((x, y) => x.total - y.total));
+  types.sort((x, y) => x.rates[0].total - y.rates[0].total);
+  const TYPES_SHOWN = 3;
+  const shownTypes = showAll ? types : types.slice(0, TYPES_SHOWN);
+  const stayNights = Number((offer && offer.detail && offer.detail.nights) || 0);
+  const stayRooms = Number((offer && offer.detail && offer.detail.rooms) || 1);
+  const priceNote = (stayNights ? stayNights + " night" + (stayNights === 1 ? "" : "s") + ", " : "") + stayRooms + " room" + (stayRooms === 1 ? "" : "s");
   const amenities: string[] = [];
   (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
   const rev = (info.reviews || [])[0];
@@ -676,51 +694,66 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
           <input className="taw-input" placeholder="Note for the hotel (optional) — e.g. anniversary, airport pickup" maxLength={200}
             value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} />
         </div>
-        <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
+        <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>
+          Select a room <small className="taw-muted">{types.length} room{types.length === 1 ? "" : "s"} · {opts.length} rate option{opts.length === 1 ? "" : "s"}</small>
+        </div>
         {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
-        {shownOpts.map((opt, oi) => {
-          const firstOfGroup = oi === 0 || shownOpts[oi - 1].group !== opt.group;
-          const chk = checks[opt.code] || {};
-          const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
-          return (
-            <div key={opt.code + ":" + opt.group}>
-            {firstOfGroup ? <div className="taw-res-sub" style={{ fontWeight: 600, margin: "8px 0 4px" }}>{opt.title} ({shownOpts.filter((x) => x.group === opt.group).length})</div> : null}
-            <div style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{opt.title}{opt.rooms > 1 ? " × " + opt.rooms : ""}</div>
-                  <div className="taw-res-sub">
-                    {opt.board ? <span>{opt.board}</span> : null}
-                    {opt.refundable ? <span className="taw-chip taw-chip--ref">Refundable</span> : <span className="taw-chip taw-chip--noref">Non-ref</span>}
-                    {opt.perNight ? <span className="ta-num">{inr(opt.perNight)}/night/room</span> : null}
+        {shownTypes.map((t) => (
+          <div key={t.group} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{t.title}</div>
+              <small className="taw-muted ta-num" style={{ whiteSpace: "nowrap" }}>From {inr(t.rates[0].total)}</small>
+            </div>
+            {t.bed ? <div className="taw-res-sub"><span>{t.bed}</span></div> : null}
+            {t.rates.map((opt) => {
+              const chk = checks[opt.code] || {};
+              const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
+              const refundable = chk.state === "ok" ? chk.refundable : opt.refundable;
+              return (
+                <div key={opt.code} style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{opt.board || (/breakfast/i.test(opt.inclusions) ? "Breakfast included" : "Room only")}</div>
+                      {opt.inclusions ? <div className="taw-res-sub"><span>{opt.inclusions}</span></div> : null}
+                      <div className="taw-res-sub">
+                        {refundable ? <span className="taw-chip taw-chip--ref">Free cancellation</span> : <span className="taw-chip taw-chip--noref">Non-refundable</span>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
+                      <small className="taw-muted">{priceNote}</small>
+                      <div>
+                        {chk.state === "ok" ? (
+                          <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} disabled={!!adding} onClick={() => addRoom(opt, chk)}>
+                            <Icon name="plus" size={13} /> {adding === opt.code ? "Adding…" : "Add this room"}
+                          </button>
+                        ) : (
+                          <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
+                            {chk.state === "loading" ? <Spinner /> : "Confirm price"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
                   {chk.state === "ok" ? (
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} disabled={!!adding} onClick={() => addRoom(opt, chk)}>
-                      <Icon name="plus" size={13} /> {adding === opt.code ? "Adding…" : "Add this room"}
-                    </button>
-                  ) : (
-                    <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
-                      {chk.state === "loading" ? <Spinner /> : "Confirm price"}
-                    </button>
-                  )}
+                    <div style={{ fontSize: 11.5, marginTop: 5, color: changed ? "#B03434" : "var(--taupe)" }}>
+                      {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
+                      {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
+                    </div>
+                  ) : null}
+                  {chk.state === "err" ? (
+                    <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
+                  ) : null}
                 </div>
-              </div>
-              {chk.state === "ok" ? (
-                <div style={{ fontSize: 11.5, marginTop: 5, color: changed ? "#B03434" : "var(--taupe)" }}>
-                  {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
-                  {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
-                </div>
-              ) : null}
-              {chk.state === "err" ? (
-                <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
-              ) : null}
-            </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
+        {types.length > TYPES_SHOWN ? (
+          <button className="taw-btn taw-btn--sm" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? "Show fewer rooms" : "Show all " + types.length + " rooms"}
+          </button>
+        ) : null}
       </div>
     </div>
   );
