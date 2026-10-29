@@ -11,7 +11,7 @@ type Ev = { id: number; item_type: string | null; step: string; status: "ok" | "
 
 const STEP: Record<string, string> = {
   lock: "Locked with TripSure", book: "Booking sent to TripSure", ticket: "Ticket issued", cancel: "Cancelled",
-  payment_recorded: "Payment recorded", refund_recorded: "Refund recorded",
+  payment_started: "Online payment started", payment_paid: "Online payment received", payment_recorded: "Payment recorded", refund_recorded: "Refund recorded",
 };
 const TONE: Record<string, string> = { ok: "success", failed: "danger", unclear: "warn" };
 const KIND: Record<string, string> = { flight: "Flight", hotel: "Hotel", payment: "Payment", order: "Order", visa: "Visa" };
@@ -21,7 +21,7 @@ function detail(e: Ev): string {
   return [
     s.hotel, s.amount != null ? fmtINR(Number(s.amount)) : null, s.method, s.reference ? `ref ${s.reference}` : null,
     s.booking_ref ? `ref ${s.booking_ref}` : null, s.pnrs && s.pnrs.length ? `PNR ${s.pnrs.join(", ")}` : null,
-    s.supplier_status ? `supplier: ${s.supplier_status}` : null, s.error,
+    s.supplier_status ? `supplier: ${s.supplier_status}` : null, s.razorpay_payment_id ? `txn ${s.razorpay_payment_id}` : s.razorpay_order_id ? `Razorpay order ${s.razorpay_order_id}` : null, s.error,
   ].filter(Boolean).join(" · ");
 }
 

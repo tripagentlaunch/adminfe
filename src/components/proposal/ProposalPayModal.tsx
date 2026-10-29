@@ -33,6 +33,7 @@ type Prefill = { firstName?: string; lastName?: string; email?: string; mobile?:
 export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onClose }:
   { token: string; stay: Stay; gatewayConfigured: boolean; prefill?: Prefill; onClose: (booked: boolean) => void }) {
   const [step, setStep] = useState<"form" | "working" | "done">("form");
+  const [reserved, setReserved] = useState(false); // locked, awaiting payment details from the advisor
   const [err, setErr] = useState<string | null>(null);
   const [priceNote, setPriceNote] = useState<{ was: number; now: number } | null>(null);
   const [g, setG] = useState({
@@ -48,6 +49,18 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
     setErr(null);
     setStep("working");
     try {
+      // Online payment not switched on: record the order and lock the room only, so the advisor sees it
+      // under All orders and sends payment details. Nothing is charged.
+      if (!gatewayConfigured) {
+        const guest = {
+          title: g.title, firstName: g.firstName.trim(), lastName: g.lastName.trim(),
+          mobile: g.mobile.replace(/\D/g, "").slice(-10), email: g.email.trim(), pan: g.pan.trim().toUpperCase() || null,
+        };
+        await proposalPayPrepare(token, { stay_id: stay.id, guest, adults: 1, rooms: 1, accept_changes: true });
+        setReserved(true);
+        setStep("done");
+        return;
+      }
       const guest = {
         title: g.title, firstName: g.firstName.trim(), lastName: g.lastName.trim(),
         mobile: g.mobile.replace(/\D/g, "").slice(-10), email: g.email.trim(),
@@ -92,9 +105,11 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
         {step === "done" ? (
           <div style={{ textAlign: "center" }}>
             <div style={{ fontSize: 40 }}>✓</div>
-            <h2 style={{ margin: "8px 0" }}>Booking confirmed</h2>
+            <h2 style={{ margin: "8px 0" }}>{reserved ? "Room reserved" : "Booking confirmed"}</h2>
             <p style={{ color: "#555" }}>
-              Thank you — your payment went through and your hotel is booked.{stay.name ? ` (${stay.name})` : ""} Your advisor will send the voucher shortly.
+              {reserved
+                ? `Thank you — ${stay.name || "your room"} is held for you. Nothing has been charged; your advisor will contact you with the payment details.`
+                : `Thank you — your payment went through and your hotel is booked.${stay.name ? ` (${stay.name})` : ""} Your advisor will send the voucher shortly.`}
             </p>
             <button type="button" onClick={() => onClose(true)} style={btn(true)}>Done</button>
           </div>
@@ -108,7 +123,7 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
             </p>
 
             {!gatewayConfigured ? (
-              <div style={banner("warn")}>Online payment isn&apos;t set up yet. Please contact your advisor to complete this booking.</div>
+              <div style={banner("warn")}>Online payment isn&apos;t switched on yet. Reserve the room now and your advisor will send you the payment details — nothing is charged today.</div>
             ) : null}
             {priceNote ? (
               <div style={banner("warn")}>
@@ -133,8 +148,8 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
 
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button type="button" onClick={() => onClose(false)} disabled={step === "working"} style={btn(false)}>Cancel</button>
-              <button type="button" onClick={pay} disabled={!ready || !gatewayConfigured || step === "working"} style={btn(true)}>
-                {step === "working" ? <Spinner /> : `Pay ${stay.price != null ? inr(stay.price) : "now"}`}
+              <button type="button" onClick={pay} disabled={!ready || step === "working"} style={btn(true)}>
+                {step === "working" ? <Spinner /> : gatewayConfigured ? `Pay ${stay.price != null ? inr(stay.price) : "now"}` : "Reserve this room"}
               </button>
             </div>
             <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
