@@ -7,12 +7,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./ui";
 import { getChatNotifications } from "../services/api";
+import { client as supabaseClient } from "../services/auth";
 import { toast } from "../lib/advisorHelpers";
 import { relTime } from "../lib/relTime";
 
-// Checked every 6 hours (each check is a call to chatbot-be), plus whenever the bell is opened.
-// The last answer is kept in the browser, so reloading or opening another tab within 6 hours
-// doesn't call again. Instant alerts need chatbot-be to push new chats instead (not built yet).
+// Live: chatbot-be adds a row to public.desk_chat_events for every new customer message
+// (adminbe db/154) and this listens to it with Supabase Realtime, so a new chat refreshes the
+// bell at once. As a backup it also checks every 6 hours and whenever the bell is opened. The
+// last answer is kept in the browser, so reloads and other tabs within 6 hours don't call again.
 const POLL_MS = 6 * 3600 * 1000;
 const OPEN_FRESH_MS = 60 * 1000;          // opening the bell re-checks at most once a minute
 const LAST_KEY = "ta-bell-last";          // { at, items } of the last good check
@@ -101,9 +103,35 @@ export function NotificationBell() {
     pollRef.current = (force?: boolean) => { void poll(force); };
     void poll();
     const t = setInterval(() => { void poll(); }, POLL_MS);
-    const onVisible = () => { if (!document.hidden) void poll(); };
+
+    // Live updates: one refresh per burst of new messages (a customer typing several lines
+    // quickly is one check). In a background tab it waits and catches up when shown again.
+    let missed = false;
+    let burst: ReturnType<typeof setTimeout> | null = null;
+    const onEvent = () => {
+      if (document.hidden) { missed = true; return; }
+      if (burst) clearTimeout(burst);
+      burst = setTimeout(() => { burst = null; void poll(true); }, 1500);
+    };
+    const sb: any = supabaseClient();
+    const live = sb
+      ? sb.channel("desk-chat-events")
+          .on("postgres_changes", { event: "INSERT", schema: "public", table: "desk_chat_events" }, onEvent)
+          .subscribe()
+      : null;
+
+    const onVisible = () => {
+      if (document.hidden) return;
+      if (missed) { missed = false; void poll(true); } else void poll();
+    };
     document.addEventListener("visibilitychange", onVisible);
-    return () => { cancelled = true; clearInterval(t); document.removeEventListener("visibilitychange", onVisible); };
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      if (burst) clearTimeout(burst);
+      if (live) sb.removeChannel(live);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   useEffect(() => {
