@@ -110,6 +110,13 @@ function PriceBreakdown({ price, nights, rooms }: { price: { base: number; tax: 
   );
 }
 
+// Every amenity the supplier sent for one standard room, de-duplicated (Tripsure lists them all).
+function roomAmenityList(sr: any): string[] {
+  return ((((sr || {}).roomAmenities) || []) as any[])
+    .map((a) => String(typeof a === "string" ? a : (a && (a.name || a.amenity)) || "").trim())
+    .filter((x, i, arr) => x && arr.indexOf(x) === i);
+}
+
 function roomOptions(det: any): any[] {
   const out: any[] = [];
   ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any, gi: number) =>
@@ -129,6 +136,8 @@ function roomOptions(det: any): any[] {
         // end of the zero-charge window, when the supplier's own rules carry one
         freeUntil: (((sr0.cancellationRules || [])[0] || {}).rules || []).find((r: any) => r.valueType === "Amount" && Number(r.value) === 0 && r.end)?.end || null,
         inclusions: (sr0.inclusions || []).join(", "),
+        sleeps: Number(sr0.maxGuestCount || rt.maxOccupancy) || 0,
+        amenities: roomAmenityList(sr0),
         bed: String(sr0.bedType || "").trim(),
         view: String(sr0.roomViewName || "").trim(),
         total: Number(o.totalRate) || 0,
@@ -381,6 +390,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
           rules: ((rate.cancellationRules || [])[0] || {}).rules || [],
           policyText: typeof rate.cancellation === "string" ? rate.cancellation : "",
+          amenities: roomAmenityList(((r.standardRooms || [])[0]) || rate),
+          bed: String((rate && rate.bedType) || "").trim(),
+          sleeps: Number(rate && ((rate.maxGuestCount) || (rate.roomType && rate.roomType.maxOccupancy))) || 0,
           refundable: rate.roomType && rate.roomType.refundable != null ? !!rate.roomType.refundable : opt.refundable,
           // what the live check says that the room list didn't (guide: show the customer any change)
           changes: [
@@ -883,7 +895,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const freeUntil = live.refundable ? (freeRule && freeRule.end) || opt.freeUntil : null;
     const changed = Math.round(live.total) !== Math.round(live.listed);
     const guestsTxt = `${form.rooms} room${form.rooms === 1 ? "" : "s"} · ${form.adults} adult${form.adults === 1 ? "" : "s"}${form.children ? ` · ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}`;
-    const rulesList: string[] = (live.instructions || []).flatMap((t: string) => {
+    // The live check often sends no check-in lines (Four Seasons does not); fall back to the
+    // hotel's own "know before you go" / must-read rules from the details call.
+    const rulesList: string[] = ((live.instructions || []).length ? live.instructions : know).flatMap((t: string) => {
       if (/^check-?in time-?end:/i.test(t)) return [];
       const m = t.match(/^check-?out time:\s*(.+)$/i); if (m) return [`Check-out before ${m[1]}`];
       const b = t.match(/^check-?in time-?begin:\s*(.+)$/i); if (b) return [`Check-in from ${b[1]}`];
@@ -956,11 +970,37 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             </aside>
           </div>
         ) : null}
-        {rvPop === "policy" || rvPop === "room" ? (
+        {rvPop === "room" ? (() => {
+          const amenities: string[] = opt.amenities.length ? opt.amenities : (live.amenities || []);
+          const bed = opt.bed || live.bed;
+          const sleeps = opt.sleeps || live.sleeps;
+          return (
+            <div className="ow-drawer-back" onClick={() => setRvPop(null)}>
+              <aside className="ow-drawer" role="dialog" aria-label="Room details" onClick={(e) => e.stopPropagation()}>
+                <div className="ow-drawer-head"><b>Room details</b><button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setRvPop(null)}>✕</button></div>
+                {opt.images[0] ? <img className="ow-rd-photo" src={opt.images[0]} alt={opt.title} /> : null}
+                <h3 className="ow-rd-title">{opt.title}</h3>
+                {bed || sleeps || opt.view ? (
+                  <div className="ow-rd-meta">
+                    {bed ? <span>🛏 {bed}</span> : null}
+                    {sleeps ? <span>👤 Sleeps {sleeps}</span> : null}
+                    {opt.view ? <span>{opt.view}</span> : null}
+                  </div>
+                ) : null}
+                {opt.board ? <p className="ow-sub" style={{ whiteSpace: "normal" }}>{opt.board}{opt.inclusions ? ` · Includes: ${opt.inclusions}` : ""}</p> : null}
+                <h4 className="ow-rd-h">Amenities</h4>
+                {amenities.length
+                  ? <ul className="ow-rd-list">{amenities.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                  : <p className="ow-sub">The hotel hasn&apos;t listed amenities for this room.</p>}
+              </aside>
+            </div>
+          );
+        })() : null}
+        {rvPop === "policy" ? (
           <div className="ow-fare-back" onClick={() => setRvPop(null)}>
-            <div className="ow-pop" role="dialog" aria-label={rvPop === "policy" ? "Cancellation policy" : "Room details"} onClick={(e) => e.stopPropagation()}>
-              <div className="ow-drawer-head"><b>{rvPop === "policy" ? "Cancellation policy" : "Room details"}</b><button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setRvPop(null)}>✕</button></div>
-              {rvPop === "policy" ? (
+            <div className="ow-pop" role="dialog" aria-label="Cancellation policy" onClick={(e) => e.stopPropagation()}>
+              <div className="ow-drawer-head"><b>Cancellation policy</b><button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setRvPop(null)}>✕</button></div>
+              {(
                 <>
                   <ul className="ow-pop-list">
                     {(rules.length ? rules : []).map((r, i) => {
@@ -981,11 +1021,6 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                   {!rules.length ? <div className="ow-pre">{live.policyText || opt.cancellation || "No cancellation details were sent."}</div> : null}
                   <p className="ow-sub" style={{ whiteSpace: "normal" }}>* You&apos;ll be charged the cancellation fee if you don&apos;t check in. The fee is based on the total amount paid.</p>
                   <p className="ow-sub" style={{ whiteSpace: "normal" }}>* All times are in the hotel&apos;s local time.</p>
-                </>
-              ) : (
-                <>
-                  {opt.chips.length ? <div className="ow-amen">{opt.chips.map((c: string) => <span key={c} className="ow-tag">{c}</span>)}</div> : <p className="ow-sub">No room details were sent.</p>}
-                  {opt.inclusions ? <p className="ow-sub" style={{ whiteSpace: "normal" }}>Includes: {opt.inclusions}</p> : null}
                 </>
               )}
               <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => setRvPop(null)}>Got it</button>

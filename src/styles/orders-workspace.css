@@ -653,3 +653,9 @@
 .ow-rp-list{padding-right:2px;}
 .ow-rp-head h3 small{display:block;font-size:11.5px;font-weight:400;margin-top:2px;}
 @media(max-width:640px){.ow-rp-list{max-height:34vh;}.ow-rp-detail{max-height:none;overflow-y:visible;}}
+
+.ow-rd-photo{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;margin:4px 0 12px;}
+.ow-rd-title{font-size:18px;margin:0 0 6px;}
+.ow-rd-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:12px;}
+.ow-rd-h{font-size:15px;margin:12px 0 6px;}
+.ow-rd-list{margin:0;padding-left:18px;font-size:13px;line-height:1.9;}
