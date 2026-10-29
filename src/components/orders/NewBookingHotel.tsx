@@ -102,13 +102,14 @@ function PriceBreakdown({ price, nights, rooms }: { price: { base: number; tax: 
 
 function roomOptions(det: any): any[] {
   const out: any[] = [];
-  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
+  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any, gi: number) =>
     (g.options || []).forEach((o: any) => {
       const rt = ((o.standardRooms || [])[0] || {}).roomType || {};
       const rb = ((o.standardRooms || [])[0] || {}).rateBreakdown || {};
       const sr0 = (o.standardRooms || [])[0] || {};
       if (!o.recommendationId) return;
       out.push({
+        gid: String((g.standardRoomIds || []).join(",") || `g${gi}`), // Tripsure's own room group = one room in the list
         code: String(o.recommendationId),
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
@@ -198,6 +199,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [picking, setPicking] = useState(false); // the "Select a room" panel
   const [selCode, setSelCode] = useState<string | null>(null);
   const [roomImg, setRoomImg] = useState(0);
+  const rpDetailRef = useRef<HTMLDivElement>(null); // the room panel's right side, scrolled back to its top when another room is picked
   const [rf, setRf] = useState({ bed: "", view: "", meal: "", free: false }); // the room panel's filters
   // The "Review your stay" step after Reserve (like Tripsure's Review & pay) and its popups.
   const [reviewing, setReviewing] = useState<{ opt: any; chk: any } | null>(null);
@@ -853,7 +855,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const txt = [name, [listInfo.address || info.address, listInfo.city || info.city].filter(Boolean).join(", "), `${fmtPill(form.checkIn)} → ${fmtPill(form.checkOut)}`].filter(Boolean).join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { setShared(true); setTimeout(() => setShared(false), 1800); }, () => onError("Couldn't copy to the clipboard."));
   };
-  const availability = busy ? "Checking availability…" : opts.length ? `${opts.length} room option${opts.length === 1 ? "" : "s"} available` : "No rooms available for these dates";
+  const roomCount = new Set(opts.map((o) => o.gid)).size;
+  const availability = busy ? "Checking availability…" : opts.length ? `${roomCount} room${roomCount === 1 ? "" : "s"} · ${opts.length} rate option${opts.length === 1 ? "" : "s"} available` : "No rooms available for these dates";
   if (reviewing) {
     const { opt, chk } = reviewing;
     const live = checks[opt.code] && checks[opt.code].state === "ok" ? checks[opt.code] : chk;
@@ -989,13 +992,14 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const passes = (o: any) =>
       (!rf.bed || o.bed === rf.bed) && (!rf.view || o.view === rf.view) && (!rf.free || o.refundable) &&
       (!rf.meal || (rf.meal === "breakfast" ? isBreakfast(o) : !isBreakfast(o)));
-    const byTitle = new Map<string, any[]>();
-    opts.filter(passes).forEach((o) => { byTitle.set(o.title, (byTitle.get(o.title) || []).concat(o)); });
-    const types = Array.from(byTitle, ([title, rates]) => {
+    const byGroup = new Map<string, any[]>();
+    opts.filter(passes).forEach((o) => { byGroup.set(o.gid, (byGroup.get(o.gid) || []).concat(o)); });
+    const types = Array.from(byGroup, ([gid, rates]) => {
       const sorted = rates.slice().sort((a, b) => a.total - b.total);
       const lead = sorted.find((r) => r.images.length) || sorted[0];
-      return { title, rates: sorted, from: sorted[0].total, images: lead.images, chips: sorted.find((r) => r.chips.length)?.chips || [] };
+      return { gid, title: sorted[0].title, rates: sorted, from: sorted[0].total, images: lead.images, chips: sorted.find((r) => r.chips.length)?.chips || [] };
     }).sort((a, b) => a.from - b.from);
+    const rateCount = types.reduce((n, t) => n + t.rates.length, 0);
     const distinct = (k: "bed" | "view") => Array.from(new Set(opts.map((o) => o[k]).filter(Boolean))) as string[];
     const anyFilter = !!(rf.bed || rf.view || rf.meal || rf.free);
     const sel = types.flatMap((t) => t.rates).find((o) => o.code === selCode) || (types[0] && types[0].rates[0]) || null;
@@ -1019,7 +1023,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     return (
       <div className="ow-rp">
         <div className="ow-rp-head">
-          <h3>Select a room</h3>
+          <h3>Select a room <small className="ow-sub">{types.length} room{types.length === 1 ? "" : "s"} · {rateCount} rate option{rateCount === 1 ? "" : "s"}</small></h3>
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPicking(false)} disabled={adding} aria-label="Close">✕</button>
         </div>
         <div className="ow-rp-filters">
@@ -1039,15 +1043,15 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         <div className="ow-rp-body">
           <div className="ow-rp-list">
             {types.map((t) => (
-              <button key={t.title} type="button" className={`ow-rp-item${t.title === selType.title ? " on" : ""}`}
-                onClick={() => { setSelCode(t.rates[0].code); setRoomImg(0); }} disabled={adding}>
+              <button key={t.gid} type="button" className={`ow-rp-item${t.gid === selType.gid ? " on" : ""}`}
+                onClick={() => { setSelCode(t.rates[0].code); setRoomImg(0); if (rpDetailRef.current) rpDetailRef.current.scrollTop = 0; }} disabled={adding}>
                 {t.images[0] ? <span className="ow-rp-th"><HotelImage src={t.images[0]} alt="" thumb /></span> : null}
                 <span className="ow-rp-tx"><b>{t.title}</b>
                 <span>From {inr(t.from)}</span></span>
               </button>
             ))}
           </div>
-          <div className="ow-rp-detail">
+          <div className="ow-rp-detail" ref={rpDetailRef}>
             {pic ? (
               <div className="ow-rp-gal">
                 <HotelImage key={pic} src={pic} alt={selType.title} hero />
