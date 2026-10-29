@@ -222,6 +222,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const rpDetailRef = useRef<HTMLDivElement>(null); // the room panel's right side, scrolled back to its top when another room is picked
   const [rf, setRf] = useState({ bed: "", view: "", meal: "", free: false }); // the room panel's filters
   // The "Review your stay" step after Reserve (like Tripsure's Review & pay) and its popups.
+  const [priceAlert, setPriceAlert] = useState<{ title: string; was: number; now: number } | null>(null);
   const [reviewing, setReviewing] = useState<{ opt: any; chk: any } | null>(null);
   const [rvPop, setRvPop] = useState<null | "rules" | "policy" | "room">(null);
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
@@ -379,12 +380,12 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   function runCheck(opt: any): Promise<any> {
     const sess = sessOf(hotel);
     if (!sess || !hotel) return Promise.reject(new Error("Open a hotel first."));
-    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code })
+    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code, listedTotal: opt.total })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         if (!rate) throw new Error("Tripsure returned no rate for this room.");
         return {
-          state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total,
+          state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total, changeInPrice: r.changeInPrice === true,
           price: splitPrice(rate.rateBreakdown, Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0),
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
@@ -418,7 +419,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     if (have && have.state === "ok") { setReviewing({ opt, chk: have }); return; }
     setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
     runCheck(opt)
-      .then((chk) => { setChecks((c) => ({ ...c, [opt.code]: chk })); setReviewing({ opt, chk }); })
+      .then((chk) => { setChecks((c) => ({ ...c, [opt.code]: chk })); setReviewing({ opt, chk });
+        if (chk.changeInPrice || Math.round(chk.total) !== Math.round(chk.listed)) setPriceAlert({ title: opt.title, was: chk.listed, now: chk.total }); })
       .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
   }
 
@@ -894,7 +896,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const rules = (live.rules || []) as any[];
     const freeRule = rules.find((r) => r.valueType === "Amount" && Number(r.value) === 0 && r.end);
     const freeUntil = live.refundable ? (freeRule && freeRule.end) || opt.freeUntil : null;
-    const changed = Math.round(live.total) !== Math.round(live.listed);
+    const changed = live.changeInPrice || Math.round(live.total) !== Math.round(live.listed);
     const guestsTxt = `${form.rooms} room${form.rooms === 1 ? "" : "s"} · ${form.adults} adult${form.adults === 1 ? "" : "s"}${form.children ? ` · ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}`;
     // The live check often sends no check-in lines (Four Seasons does not); fall back to the
     // hotel's own "know before you go" / must-read rules from the details call.
@@ -911,6 +913,19 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     );
     return (
       <div className="ow-rv">
+        {priceAlert ? (
+          <div className="ow-pop-back" role="alertdialog" aria-label="Price changed" onClick={() => setPriceAlert(null)}
+            style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "grid", placeItems: "center", zIndex: 60 }}>
+            <div className="ow-pop" onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface, #fff)", borderRadius: 14, padding: 22, maxWidth: 380, width: "90%" }}>
+              <h3 style={{ margin: "0 0 8px" }}>Price changed</h3>
+              <p className="ow-sub" style={{ whiteSpace: "normal" }}>{priceAlert.title}</p>
+              <div className="ow-pb-row"><span>Old rate</span><span style={{ textDecoration: "line-through" }}>{inr(priceAlert.was)}</span></div>
+              <div className="ow-pb-row tot"><span>New rate</span><span>{inr(priceAlert.now)}</span></div>
+              <p className="ow-sub" style={{ whiteSpace: "normal" }}>The new rate is the final price. Tell the customer before continuing.</p>
+              <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => setPriceAlert(null)}>OK</button>
+            </div>
+          </div>
+        ) : null}
         <div className="ow-rp-head">
           <h3>Review your stay</h3>
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setReviewing(null); setRvPop(null); }} disabled={adding} aria-label="Back to rooms">✕</button>
@@ -1059,7 +1074,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const selType = sel ? types.find((t) => t.rates.some((r) => r.code === sel.code)) || types[0] : null;
     const chk = (sel && checks[sel.code]) || {};
     const verified = chk.state === "ok";
-    const changed = !!sel && verified && Math.round(chk.total) !== Math.round(chk.listed);
+    const changed = !!sel && verified && (chk.changeInPrice || Math.round(chk.total) !== Math.round(chk.listed));
     const price = sel ? (verified && chk.price ? chk.price : sel.price) : null;
     const pics: string[] = selType ? (selType.images.length ? selType.images : hero ? [hero.large] : []) : [];
     const pic = pics[Math.min(roomImg, Math.max(0, pics.length - 1))];
