@@ -1503,9 +1503,15 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
     if (!todo.length) return;
     todo.forEach((t: any) => FROM_FAILED.delete(fromKey(t)));
     let live = true;
-    (async () => {
-      for (let i = 0; i < todo.length && live; i += 5) {
-        const batch = todo.slice(i, i + 5).filter((t: any) => !FROM_PRICES.has(fromKey(t)));
+    // Batches of 5 (the backend prices a batch in parallel); three batches in flight at once,
+    // so the first screenful is priced in one round trip instead of one batch after another.
+    const batches: any[][] = [];
+    for (let i = 0; i < todo.length; i += 5) batches.push(todo.slice(i, i + 5));
+    let next = 0;
+    let stopped = false;
+    const worker = async () => {
+      while (live && !stopped && next < batches.length) {
+        const batch = batches[next++].filter((t: any) => !FROM_PRICES.has(fromKey(t)));
         if (!batch.length) continue;
         try {
           const r: any = await hotelRates(batch.map((t: any) => ({ hotelId: String(t.hotelId), docKey: t.docKey, token: t.token })));
@@ -1520,19 +1526,19 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
           });
           if (!answered) {
             // TripSure is failing for every hotel: stop rather than keep asking.
-            todo.slice(i + 5).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
-            if (live) setPricedTick((n) => n + 1);
-            break;
+            stopped = true;
+            batches.slice(next).forEach((b) => b.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now())));
           }
         } catch {
           // Keep "Rates on selection"; the next scroll or filter change tries again.
-          todo.slice(i).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
-          if (live) setPricedTick((n) => n + 1);
-          break;
+          stopped = true;
+          batch.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
+          batches.slice(next).forEach((b) => b.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now())));
         }
         if (live) setPricedTick((n) => n + 1);
       }
-    })();
+    };
+    Promise.all([worker(), worker(), worker()]);
     return () => { live = false; };
   }, [shown, visible]);
   const fromPrice = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
