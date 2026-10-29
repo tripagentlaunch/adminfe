@@ -76,6 +76,30 @@ function plainInstructions(list: any): string[] {
     .filter(Boolean);
 }
 
+// Tripsure's review-page split: base fare per night per room, taxes & fees, total.
+function splitPrice(rb: any, total: number) {
+  const base = rb && rb.baseFare != null ? Number(rb.baseFare) : null;
+  const tax = rb && rb.tax != null ? Number(rb.tax) : null;
+  if (base == null && tax == null) return null;
+  return { base: base ?? total - (tax || 0), tax: tax ?? total - (base || 0), total };
+}
+
+function PriceBreakdown({ price, nights, rooms }: { price: { base: number; tax: number; total: number } | null; nights: number; rooms: number }) {
+  if (!price) return null;
+  const n = Math.max(1, nights), r = Math.max(1, rooms);
+  const row = (l: string, v: number, strong = false) => (
+    <div className={`ow-pb-row${strong ? " tot" : ""}`}><span>{l}</span><span>{inr(v)}</span></div>
+  );
+  return (
+    <div className="ow-pb">
+      <h4>Price breakdown</h4>
+      {row(`${inr(Math.round(price.base / n / r))} × ${n} night${n === 1 ? "" : "s"} × ${r} room${r === 1 ? "" : "s"}`, price.base)}
+      {row("Taxes & fees", price.tax)}
+      {row("Total Amount", price.total, true)}
+    </div>
+  );
+}
+
 function roomOptions(det: any): any[] {
   const out: any[] = [];
   ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
@@ -95,6 +119,7 @@ function roomOptions(det: any): any[] {
         freeUntil: (((sr0.cancellationRules || [])[0] || {}).rules || []).find((r: any) => r.valueType === "Amount" && Number(r.value) === 0 && r.end)?.end || null,
         inclusions: (sr0.inclusions || []).join(", "),
         total: Number(o.totalRate) || 0,
+        price: splitPrice(rb, Number(o.totalRate) || 0),
       });
     })
   );
@@ -138,7 +163,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [adding, setAdding] = useState(false);
 
   // Stage A: the recorded row + the handles needed to lock it.
-  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string } | null>(null);
+  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
     mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
@@ -159,7 +184,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [moreDesc, setMoreDesc] = useState(false);
   const [moreKnow, setMoreKnow] = useState(false);
   const [moreCancel, setMoreCancel] = useState(false);
-  const roomsRef = useRef<HTMLDivElement>(null);
+  const [picking, setPicking] = useState(false); // the "Select a room" panel
+  const [selCode, setSelCode] = useState<string | null>(null);
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
 
   // ── Results: the same filters, sort, list/map and paging as the Search desk's Hotels ──────────
@@ -294,6 +320,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     setImgIdx(0); setAllThumbs(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
     setDetails(null);
     setChecks({});
+    setPicking(false); setSelCode(null);
     setSub("rooms");
     setBusy(true);
     hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
@@ -305,6 +332,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // Leaving the detail page invalidates any details call still in flight.
   function leaveDetail() {
     pickReq.current++;
+    setPicking(false);
     setBusy(false);
     setSub("results");
   }
@@ -319,6 +347,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         if (!rate) throw new Error("Tripsure returned no rate for this room.");
         return {
           state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total,
+          price: splitPrice(rate.rateBreakdown, Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0),
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
@@ -397,6 +426,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
           handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
+          price: (fresh || checks[opt.code] || {}).price || opt.price || null,
         });
         setSub("guest");
       })
@@ -725,6 +755,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             </div>
           </div>
         ) : null}
+        <PriceBreakdown price={added.price} nights={nights} rooms={form.rooms} />
         <div className="ow-modal-foot">
           <button type="button" className="taw-btn" onClick={() => onAdded(added.orderId)} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
             Skip (lock later by searching again)
@@ -802,15 +833,58 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const txt = [name, [listInfo.address || info.address, listInfo.city || info.city].filter(Boolean).join(", "), `${fmtPill(form.checkIn)} → ${fmtPill(form.checkOut)}`].filter(Boolean).join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { setShared(true); setTimeout(() => setShared(false), 1800); }, () => onError("Couldn't copy to the clipboard."));
   };
-  const toRooms = () => {
-    const el = roomsRef.current;
-    if (!el) return;
-    const box = el.closest(".ow-modal") as HTMLElement | null; // the modal is the scroll container
-    if (!box) { el.scrollIntoView({ behavior: "smooth", block: "start" }); return; }
-    const top = el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 8;
-    box.scrollTo({ top, behavior: "smooth" });
-  };
   const availability = busy ? "Checking availability…" : opts.length ? `${opts.length} room option${opts.length === 1 ? "" : "s"} available` : "No rooms available for these dates";
+  if (picking && opts.length) {
+    const sel = opts.find((o) => o.code === selCode) || opts[0];
+    const chk = checks[sel.code] || {};
+    const verified = chk.state === "ok";
+    const changed = verified && Math.round(chk.total) !== Math.round(chk.listed);
+    const price = verified && chk.price ? chk.price : sel.price;
+    const shownTotal = verified ? chk.total : sel.total;
+    return (
+      <div className="ow-rp">
+        <div className="ow-rp-head">
+          <h3>Select a room</h3>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPicking(false)} disabled={adding} aria-label="Close">✕</button>
+        </div>
+        <div className="ow-rp-body">
+          <div className="ow-rp-list">
+            {opts.slice(0, 12).map((o) => (
+              <button key={o.code} type="button" className={`ow-rp-item${o.code === sel.code ? " on" : ""}`} onClick={() => setSelCode(o.code)} disabled={adding}>
+                <b>{o.title}</b>
+                <span>From {inr(o.total)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="ow-rp-detail">
+            {hero ? <HotelImage key={hero.large} src={hero.large} alt={sel.title} hero /> : null}
+            <h3>{sel.title}</h3>
+            <div className="ow-rp-plan">
+              <div className="ow-seg-top"><span>{sel.inclusions || sel.board || "Room only"}</span><span>{sel.refundable ? "Refundable" : "Non-refundable booking"}</span></div>
+              <div className="ow-sub">{inr(sel.total)} · {nightsTxt}</div>
+            </div>
+            {sel.cancellation ? (
+              <details className="ow-room-pol"><summary>Cancellation policy</summary><div className="ow-pre">{sel.cancellation}</div></details>
+            ) : null}
+            {changed || (verified && chk.changes && chk.changes.length) ? (
+              <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+                {changed ? `Price changed from ${inr(chk.listed)} to ${inr(chk.total)}. ` : ""}{chk.changes && chk.changes.length ? `${chk.changes.join("; ")}. ` : ""}Tell the customer before reserving.
+              </div>
+            ) : null}
+            {chk.state === "err" ? <div className="taw-banner taw-banner--warn">{chk.msg}</div> : null}
+            <PriceBreakdown price={price} nights={nights} rooms={form.rooms} />
+          </div>
+        </div>
+        <div className="ow-rp-foot">
+          <span><b>{inr(shownTotal)}</b> <small>{nightsTxt} · Incl. taxes &amp; fees</small></span>
+          <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={chk.state === "loading" || adding}
+            onClick={() => (verified ? confirmAdd(sel) : addRoom(sel))}>
+            {chk.state === "loading" || adding ? "Reserving…" : verified && changed ? "Accept & reserve" : "Reserve"}
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <>
       <div className="ow-modal-foot" style={{ marginTop: 0 }}>
@@ -940,73 +1014,14 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             <small>{nightsTxt}</small>
             <div className="ow-hd-dates"><Icon name="calendar" size={13} /> {fmtPill(form.checkIn)} → {fmtPill(form.checkOut)}</div>
             <div className={`ow-hd-avail${!busy && !opts.length ? " none" : ""}`}>{availability}</div>
-            <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={toRooms} disabled={busy || !opts.length}>
+            <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => { setSelCode((c) => c || (opts[0] && opts[0].code) || null); setPicking(true); }} disabled={busy || !opts.length}>
               Select Room
             </button>
           </div>
         </aside>
       </div>
 
-      <div ref={roomsRef} className="ow-rooms-h">Choose a room</div>
-      {busy ? <Spinner /> : null}
       {!busy && opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
-      {opts.slice(0, 12).map((opt) => {
-        const chk = checks[opt.code] || {};
-        const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
-        return (
-          <div key={opt.code} className="ow-seg">
-            <div className="ow-seg-top">
-              <span>{opt.title}</span>
-              <span>{opt.refundable ? "Refundable" : "Non-refundable"}</span>
-            </div>
-            {opt.board ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>{opt.board}</div> : null}
-            {opt.inclusions ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>Includes: {opt.inclusions}</div> : null}
-            {opt.cancellation ? (
-              <details className="ow-room-pol">
-                <summary>Cancellation policy</summary>
-                <div className="ow-pre">{opt.cancellation}</div>
-              </details>
-            ) : null}
-            {chk.state === "ok" && chk.changes && chk.changes.length ? (
-              <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
-                Changed since the room list: {chk.changes.join("; ")}. Tell the customer before adding.
-              </div>
-            ) : null}
-            {chk.state === "ok" && chk.instructions && chk.instructions.length ? (
-              <details className="ow-room-pol">
-                <summary>Check-in instructions, fees &amp; rules</summary>
-                <ul className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0 0", paddingLeft: 18 }}>
-                  {chk.instructions.map((t: string, i: number) => <li key={i}>{t}</li>)}
-                </ul>
-              </details>
-            ) : null}
-            <div className="ow-seg-foot">
-              <span>
-                <b>{inr(chk.state === "ok" ? chk.total : opt.total)}</b> <small>total</small>
-                {opt.perNight ? <> · <small>{inr(opt.perNight)}/night/room</small></> : null}
-                {changed ? <> · <small>price changed from {inr(chk.listed)}</small></> : null}
-                {chk.state === "err" ? <> · <small style={{ color: "var(--danger, #b00020)" }}>{chk.msg}</small></> : null}
-              </span>
-              {chk.state === "ok" ? (
-                <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => confirmAdd(opt)} disabled={adding}>
-                  <Icon name="plus" size={13} /> {adding ? "Adding…" : "Confirm & add hotel"}
-                </button>
-              ) : (
-                <span style={{ display: "inline-flex", gap: 6 }}>
-                  <button type="button" className="taw-btn taw-btn--sm" onClick={() => priceCheck(opt)} disabled={chk.state === "loading" || adding}
-                    title="See Tripsure's live price and terms first, without adding the room">
-                    Check price
-                  </button>
-                  <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => addRoom(opt)} disabled={chk.state === "loading" || adding}
-                    title="Checks the live price and adds the room — it stops to show you if the price or terms changed">
-                    <Icon name="plus" size={13} /> {chk.state === "loading" || adding ? "Adding…" : "Add hotel"}
-                  </button>
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
     </>
   );
 }
