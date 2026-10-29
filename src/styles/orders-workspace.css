@@ -281,6 +281,15 @@
 .ow-cal-pill small{font-size:10.5px;color:var(--muted);font-family:var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;}
 .ow-cal-pill b{font-size:13.5px;}
 .ow-cal-pill.on{border-color:var(--ink,#171310);box-shadow:0 0 0 1px var(--ink,#171310);}
+.ow-cal-pill small{display:flex;align-items:center;gap:5px;}
+.ow-cal-pill.p-start{background:var(--success-bg);border-color:rgba(91,122,91,.35);}
+.ow-cal-pill.p-start small{color:var(--success-ink);}
+.ow-cal-pill.p-start .nb-dot{background:transparent;color:var(--success-ink);}
+.ow-cal-pill.p-end{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.ow-cal-pill.p-end small{color:var(--gold-ink);}
+.ow-cal-pill.p-end .nb-dot{background:currentColor;color:var(--gold-ink);}
+.ow-cal-pill.p-start.on{border-color:var(--success);box-shadow:0 0 0 2px var(--success);}
+.ow-cal-pill.p-end.on{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold);}
 .ow-cal-nights{font-size:11.5px;color:var(--taupe);}
 .ow-cal-nav{position:absolute;left:12px;right:12px;top:76px;display:flex;justify-content:space-between;pointer-events:none;z-index:1;}
 .ow-cal-arrow{pointer-events:auto;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;}
@@ -293,11 +302,12 @@
 .ow-cal-day:hover:not(:disabled):not(.is-start):not(.is-end){background:rgba(23,19,16,.08);border-radius:50%;}
 .ow-cal-day:disabled{color:rgba(0,0,0,.25);cursor:not-allowed;text-decoration:line-through;}
 .ow-cal-day.is-today{font-weight:700;}
-.ow-cal-day.in-range{background:rgba(23,19,16,.12);}
-.ow-cal-day.is-start,.ow-cal-day.is-end{background:var(--ink,#171310);color:#fff;font-weight:600;}
-.ow-cal-day.is-start{border-radius:50% 0 0 50%;}
-.ow-cal-day.is-end{border-radius:0 50% 50% 0;}
+/* Start = green (check-in / depart), end = gold (check-out / return), stay in between = warm band. */
+.ow-cal-day.in-range{background:var(--bone);}
+.ow-cal-day.is-start{background:var(--success);color:#fff;font-weight:600;border-radius:50% 0 0 50%;}
 .ow-cal-day.is-start:not(.has-range){border-radius:50%;}
+.ow-cal-day.is-end{background:var(--gold);color:var(--ink);font-weight:600;border-radius:0 50% 50% 0;}
+.ow-cal-day.is-start.is-end{border-radius:50%;}
 .ow-gpanel{display:flex;align-items:center;gap:22px;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;padding:12px 16px;background:var(--card);}
 .ow-gstep{display:flex;align-items:center;gap:12px;font-size:13px;}
 @media (max-width:640px){.ow-cal-months{grid-template-columns:1fr;}.ow-cal-nav{display:none;}}
@@ -369,7 +379,7 @@
 
 /* Single-date calendar (flight Depart) — shares .ow-cal; gold selected day */
 .ow-cal--single{max-width:340px;}
-.ow-cal--single .ow-cal-day.is-start{background:var(--gold);color:var(--ink);font-weight:700;border-radius:50%;}
+.ow-cal--single .ow-cal-day.is-start{background:var(--success);color:#fff;font-weight:700;border-radius:50%;}
 .ow-cal--single .ow-cal-day.is-today:not(.is-start){box-shadow:inset 0 0 0 1px var(--gold);border-radius:50%;}
 .ow-cal-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);}
 .ow-cal-foot .ow-link:disabled{opacity:.4;cursor:not-allowed;}
@@ -479,3 +489,104 @@
 .ow-rp-foot b{font-size:17px;}
 .ow-rp-foot small{display:block;color:var(--taupe);font-size:11.5px;}
 @media(max-width:640px){.ow-rp-body{grid-template-columns:1fr;}}
+/* ── New booking (NewBookingModal): header, step bar, customer cards, search ── */
+.nb-modal{gap:14px;padding:22px 26px;}
+.nb-mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.nb-mtitle h2{margin:0;font:600 21px/1.2 var(--serif);color:var(--ink);}
+.nb-mtitle span{display:block;margin-top:2px;font-size:12.5px;color:var(--taupe);}
+.nb-close{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;color:var(--taupe);}
+.nb-close:hover:not(:disabled){color:var(--ink);background:var(--bone);}
+.nb-steps{display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0 0 14px;border-bottom:1px solid var(--line);overflow-x:auto;}
+.nb-steps li{display:flex;align-items:center;gap:7px;font:500 11px var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
+.nb-steps li+li::before{content:"";width:22px;height:1px;background:var(--line-2);margin-right:2px;}
+.nb-steps li i{font-style:normal;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-2);font:600 11px var(--sans);letter-spacing:0;color:var(--taupe);background:var(--card);}
+.nb-steps li.on{color:var(--ink);}
+.nb-steps li.on i{border-color:var(--gold);background:var(--gold-bg);color:var(--gold-ink);}
+.nb-steps li.done i{border-color:var(--gold);background:var(--gold);color:#fff;}
+
+.nb-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;}
+.nb-card-t{display:flex;align-items:center;gap:8px;font:600 12px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--taupe);}
+.nb-card-t svg{color:var(--gold-ink);}
+.nb-cust{display:grid;grid-template-columns:minmax(0,1.2fr) auto minmax(0,1fr);gap:16px;align-items:stretch;}
+.nb-or{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;}
+.nb-or::before,.nb-or::after{content:"";flex:1;width:1px;background:var(--line-2);}
+.nb-search{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:12px;padding:0 14px;background:var(--card);height:46px;}
+.nb-search:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+.nb-search svg{color:var(--taupe);flex:none;}
+.nb-search input,.nb-search input:focus{flex:1;min-width:0;height:100%;border:0;outline:0;box-shadow:none;padding:0;border-radius:0;background:transparent;font:15px var(--sans);color:var(--ink);}
+.nb-hits{display:flex;flex-direction:column;gap:6px;min-height:170px;max-height:300px;overflow-y:auto;}
+.nb-hint{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;color:var(--muted);font-size:13px;padding:18px;border:1px dashed var(--line-2);border-radius:12px;}
+.nb-hint svg{color:var(--muted-deco);}
+.nb-hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:10px 12px;cursor:pointer;font-family:inherit;transition:background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease);}
+.nb-hit:hover{background:var(--bone);border-color:var(--gold);}
+.nb-hit .ow-av{width:36px;height:36px;font-size:13px;}
+.nb-hit .who{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink);}
+.nb-hit .who small{display:block;font-weight:400;color:var(--taupe);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.nb-hit .go{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--gold-ink);font-weight:600;opacity:0;transition:opacity var(--dur-fast);}
+.nb-hit .go svg{transform:rotate(-90deg);}
+.nb-hit:hover .go,.nb-hit:focus-visible .go{opacity:1;}
+.nb-cta{margin-top:auto;height:44px;}
+
+/* Flights | Hotels switch */
+.nb-product{display:inline-flex;align-self:flex-start;gap:4px;padding:4px;border-radius:999px;background:var(--bone);border:1px solid var(--line);}
+.nb-product button{display:inline-flex;align-items:center;gap:8px;border:0;background:transparent;border-radius:999px;padding:8px 18px;font:600 13.5px var(--sans);color:var(--taupe);cursor:pointer;}
+.nb-product button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow);}
+.nb-product button:not(.on):hover{color:var(--ink);}
+
+/* Flight search: route on its own row (From = green, To = gold), then dates /
+   travellers / search. A picked place shows its full city and airport name. */
+.nb-searchwrap{display:flex;flex-direction:column;gap:10px;}
+.nb-searchwrap .ow-sbar--flight{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
+.nb-searchwrap .ow-sbar--flight .ow-sbar-route{flex:1 1 100%;gap:0;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--field{border-radius:14px;padding:10px 18px;min-height:76px;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--date{flex:1 1 150px;border-radius:14px;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--trav{flex:1.4 1 200px;border-radius:14px;}
+.nb-searchwrap .ow-sbar--flight .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
+.nb-searchwrap .ow-swap{width:38px;height:38px;margin:0 -10px;box-shadow:var(--shadow);}
+.nb-searchwrap .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
+.nb-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px;border:2px solid currentColor;}
+.nb-from .ow-pill-l{color:var(--success-ink);}
+.nb-to .ow-pill-l{color:var(--gold-ink);}
+.nb-from .nb-dot{background:transparent;}
+.nb-to .nb-dot{background:currentColor;}
+.nb-from.set{background:var(--success-bg);border-color:rgba(91,122,91,.35);}
+.nb-to.set{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.nb-from:focus-within{border-color:var(--success);box-shadow:0 0 0 3px rgba(91,122,91,.15);}
+.nb-to:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+.nb-place{white-space:normal;overflow:visible;font-size:12px;line-height:1.35;}
+.nb-place b{color:var(--ink);font-weight:600;}
+
+/* Hotel search, same pattern: destination on its own row (gold, like a flight's
+   To), then check-in (green) / check-out (gold) / guests / search. */
+.nb-modal .ow-sbar--hotel{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-where{flex:1 1 100%;border-radius:14px;padding:10px 18px;min-height:76px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-date{flex:1 1 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-guests{flex:1.4 1 200px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
+.nb-dest .ow-pill-l{color:var(--gold-ink);display:inline-flex;align-items:center;gap:5px;}
+.nb-dest.set{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.nb-dest:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+/* Start / end of a stay or trip: green = depart / check-in, gold = return / check-out. */
+.nb-start{color:var(--success-ink);}
+.nb-end{color:var(--gold-ink);}
+.nb-end .nb-dot{background:currentColor;}
+
+.nb-done{border:1px solid var(--line);border-radius:14px;padding:28px 24px;background:var(--card);display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;}
+.nb-done-ic{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--success-bg);color:var(--success-ink);}
+.nb-done h3{margin:4px 0 0;font:600 22px/1.2 var(--serif);}
+.nb-done p{margin:0;max-width:520px;color:var(--taupe);font-size:13.5px;}
+.nb-next{list-style:none;counter-reset:nb;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0 6px;padding:0;width:100%;max-width:600px;}
+.nb-next li{counter-increment:nb;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--ivory);text-align:left;display:flex;flex-direction:column;gap:2px;}
+.nb-next li::before{content:counter(nb);font:600 11px var(--sans);color:var(--gold-ink);}
+.nb-next b{font-size:13.5px;}
+.nb-next span{font-size:12px;color:var(--taupe);}
+.nb-done-btns{display:flex;gap:10px;margin-top:6px;}
+
+@media (max-width:820px){
+  .nb-cust{grid-template-columns:minmax(0,1fr);}
+  .nb-or{flex-direction:row;}
+  .nb-or::before,.nb-or::after{width:auto;height:1px;}
+  .nb-steps li:not(.on) span{display:none;}
+  .nb-next{grid-template-columns:1fr;}
+}

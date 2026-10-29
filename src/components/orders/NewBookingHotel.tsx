@@ -479,8 +479,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     return (
       <>
         <div className="ow-sbar ow-sbar--hotel">
-          <label className="ow-pill ow-pill--field ow-sbar-where">
-            <span className="ow-pill-l">Where to?</span>
+          <label className={`ow-pill ow-pill--field ow-sbar-where nb-dest${location ? " set" : ""}`}>
+            <span className="ow-pill-l"><Icon name="pin" size={12} /> Where to?</span>
             <AutosuggestInput
               className="ow-pill-input"
               value={form.city}
@@ -493,18 +493,24 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                   <span className="ow-sug-ic"><Icon name="hotel" size={16} /></span>
                   <span className="ow-sug-t">
                     <b>{l.name}</b>
-                    <small>{[l.state, l.country].filter(Boolean).join(", ")}</small>
+                    <small>{[l.type, l.fullName && l.fullName !== l.name ? l.fullName : [l.state, l.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</small>
                   </span>
                 </span>
               )}
               getKey={(l: any) => String(l.id)}
               placeholder="City, area or hotel"
             />
-            <span className="ow-pill-s">{location ? [location.state, location.country].filter(Boolean).join(", ") : "Destination, area or hotel"}</span>
+            {/* Only once a place is picked, and in full: half a line reads worse than none. */}
+            {location ? (
+              <span className="ow-pill-s nb-place">
+                <b>{location.fullName || [location.name, location.state, location.country].filter(Boolean).join(", ")}</b>
+                {location.type ? ` · ${location.type}` : ""}
+              </span>
+            ) : null}
           </label>
 
           <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
-            <span className="ow-pill-l">Check-in</span>
+            <span className="ow-pill-l nb-start"><i className="nb-dot" /> Check-in</span>
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
               onClick={() => setPanel(panel === "dates" ? null : "dates")}>
               <Icon name="calendar" size={14} />
@@ -513,7 +519,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           </div>
 
           <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
-            <span className="ow-pill-l">Check-out{nights >= 1 ? ` · ${nights}N` : ""}</span>
+            <span className="ow-pill-l nb-end"><i className="nb-dot" /> Check-out{nights >= 1 ? ` · ${nights} night${nights === 1 ? "" : "s"}` : ""}</span>
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
               onClick={() => setPanel(panel === "dates" ? null : "dates")}>
               <Icon name="calendar" size={14} />

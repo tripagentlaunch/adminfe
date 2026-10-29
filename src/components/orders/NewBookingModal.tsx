@@ -116,6 +116,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // ── Step 2: search ────────────────────────────────────────────────────────
   const [form, setForm] = useState({
     from: preset?.from || "", to: preset?.to || "", fromCity: preset?.fromCity || "", toCity: preset?.toCity || "",
+    fromName: "", toName: "",
     date: preset?.date && preset.date >= todayISO() ? preset.date : todayISO(),
     returnDate: preset?.returnDate || "",
     adults: Math.min(9, Math.max(1, preset?.adults || 1)),
@@ -161,7 +162,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   const [panel, setPanel] = useState<null | "trav" | "date">(null);
 
   const swapAirports = () =>
-    setForm((f) => ({ ...f, from: f.to, to: f.from, fromCity: f.toCity, toCity: f.fromCity }));
+    setForm((f) => ({ ...f, from: f.to, to: f.from, fromCity: f.toCity, toCity: f.fromCity, fromName: f.toName, toName: f.fromName }));
   // Switching trip type: round trip opens the date picker so the return gets chosen
   // straight away; back to one way drops the return date.
   function goRound() {
@@ -458,14 +459,22 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const stepNo = step === "customer" ? 1 : step === "search" ? 2 : step === "results" ? 3 : 4;
-  const stepLabel =
-    step === "customer" ? "Customer" :
-    step === "search" ? "Flight search" :
-    step === "results" ? "Choose a fare" :
-    step === "hotel" ? "Hotel" :
-    step === "flightDone" ? "Fare locked" : "Seats & baggage";
-  const title = step === "hotel" ? "Add hotel" : addToOrder ? "Add flight itinerary" : "New booking";
+  const STEPS = ["Customer", "Search", "Choose fare", "Extras", "Fare locked"];
+  const stepIdx =
+    step === "customer" ? 0 :
+    step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
+    step === "results" ? 2 :
+    step === "seats" ? 3 : 4;
+  const title = step === "hotel" && hotelBack !== "search" ? "Add hotel" : addToOrder ? "Add to order" : "New booking";
+  const blocked = creating || leaving || !!lockingId;
+  // Once a fare is locked, closing should refresh the orders list (same as Escape).
+  function leave() {
+    if (blocked) return;
+    const orderId = step === "flightDone" || step === "hotel" ? lock?.orderId || addToOrder?.dbId : null;
+    if (orderId) onCreated(orderId); else onClose();
+  }
+  const initials = (n?: string) => String(n || "?").split(/\s+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join("").toUpperCase();
+  const manualOk = !!manual.name.trim() && manual.email.includes("@") && manual.phone.replace(/\D/g, "").length >= 10;
 
   return (
     <div
@@ -473,127 +482,167 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       role="dialog"
       aria-modal="true"
       aria-label={title}
-      onClick={(e) => { if (e.target === e.currentTarget && !creating && !leaving && !lockingId) onClose(); }}
+      onClick={(e) => { if (e.target === e.currentTarget && !blocked) onClose(); }}
     >
-      <div className={`taw-modal-panel ow-modal${step === "results" || step === "search" || step === "hotel" ? " ow-modal--wide" : ""}`}>
-        <div className="ow-modal-head">
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
-            <div className="ow-sub">
-              {step === "hotel" || step === "flightDone" ? stepLabel : `Step ${stepNo} of 4 · ${stepLabel}`}{customer ? ` · ${customer.name}` : ""}
-            </div>
+      <div className={`taw-modal-panel ow-modal ow-modal--wide nb-modal`}>
+        <div className="nb-mhead">
+          <div className="nb-mtitle">
+            <h2>{title}</h2>
+            <span>{addToOrder ? `Order for ${addToOrder.customerName}` : customer ? `For ${customer.name}` : "Flights and hotels, booked live with the supplier"}</span>
           </div>
-          <button type="button" className="taw-btn taw-btn--sm" onClick={onClose} disabled={creating || leaving || !!lockingId} aria-label="Close">
-            <Icon name="x" size={14} />
+          <button type="button" className="nb-close" onClick={leave} disabled={blocked} aria-label="Close">
+            <Icon name="x" size={16} />
           </button>
         </div>
+        <ol className="nb-steps" aria-label="Booking steps">
+          {STEPS.map((s, i) => (
+            <li key={s} className={i < stepIdx ? "done" : i === stepIdx ? "on" : ""} aria-current={i === stepIdx ? "step" : undefined}>
+              <i>{i < stepIdx ? <Icon name="check" size={11} /> : i + 1}</i>
+              <span>{s}</span>
+            </li>
+          ))}
+        </ol>
 
         {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
 
         {/* ── Step 1: Customer ── */}
         {step === "customer" ? (
           <>
-            <Field label="Find an existing customer" htmlFor="nb-cust">
-              <input
-                className="taw-input"
-                value={custQuery}
-                onChange={(e) => setCustQuery(e.target.value)}
-                placeholder="Search by name or email"
-              />
-            </Field>
-            {/* custBusy alone sticks if the query is deleted back under 2 chars mid-request
-                (that request's `live` flag flips, so its finally never clears it). */}
-            {custBusy && custQuery.trim().length >= 2 ? <Spinner /> : null}
-            {(custQuery.trim().length < 2 ? [] : custHits).map((m) => (
-              <button
-                key={m.id}
-                type="button"
-                className="ow-pick"
-                onClick={() => { setCustomer({ member_id: m.id, name: m.name, email: m.email || "", phone: m.phone || "" }); setStep("search"); }}
-              >
-                <span className="ow-av">{String(m.name || "?").split(" ").map((p: string) => p[0]).slice(0, 2).join("")}</span>
-                <span className="who">{m.name}<small>{m.email || m.phone || ""}</small></span>
-              </button>
-            ))}
-            <div className="ow-or">or add a new customer</div>
-            <div className="ow-grid2">
-              <Field label="Name" htmlFor="nb-name">
-                <input className="taw-input" value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} />
-              </Field>
-              <Field label="Email" htmlFor="nb-email">
-                <input className="taw-input" type="email" value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
-              </Field>
-              <Field label="Mobile" htmlFor="nb-phone">
-                <input className="taw-input" inputMode="tel" placeholder="98xxxxxxxx" value={manual.phone} onChange={(e) => setManual({ ...manual, phone: e.target.value })} />
-              </Field>
+            <div className="nb-cust">
+              <section className="nb-card">
+                <div className="nb-card-t"><Icon name="search" size={15} /> Existing customer</div>
+                <div className="nb-search">
+                  <Icon name="search" size={16} />
+                  <input
+                    id="nb-cust"
+                    autoFocus
+                    value={custQuery}
+                    onChange={(e) => setCustQuery(e.target.value)}
+                    placeholder="Search by name or email"
+                    aria-label="Search customers"
+                  />
+                  {/* custBusy alone sticks if the query is deleted back under 2 chars mid-request
+                      (that request's `live` flag flips, so its finally never clears it). */}
+                  {custBusy && custQuery.trim().length >= 2 ? <Spinner /> : null}
+                </div>
+                <div className="nb-hits">
+                  {custQuery.trim().length < 2 ? (
+                    <div className="nb-hint"><Icon name="people" size={20} /><span>Type at least two letters of a name or email.</span></div>
+                  ) : !custBusy && custHits.length === 0 ? (
+                    <div className="nb-hint"><Icon name="user" size={20} /><span>No customer matches “{custQuery.trim()}”. Add them as a new customer.</span></div>
+                  ) : (
+                    custHits.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className="nb-hit"
+                        onClick={() => { setCustomer({ member_id: m.id, name: m.name, email: m.email || "", phone: m.phone || "" }); setStep("search"); }}
+                      >
+                        <span className="ow-av">{initials(m.name)}</span>
+                        <span className="who">{m.name}<small>{[m.email, m.phone].filter(Boolean).join(" · ")}</small></span>
+                        <span className="go">Select <Icon name="chevron" size={12} /></span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <div className="nb-or"><span>or</span></div>
+
+              <section className="nb-card">
+                <div className="nb-card-t"><Icon name="plus" size={15} /> New customer</div>
+                <Field label="Full name" htmlFor="nb-name">
+                  <input id="nb-name" className="taw-input" value={manual.name} onChange={(e) => setManual({ ...manual, name: e.target.value })} />
+                </Field>
+                <Field label="Email" htmlFor="nb-email">
+                  <input id="nb-email" className="taw-input" type="email" value={manual.email} onChange={(e) => setManual({ ...manual, email: e.target.value })} />
+                </Field>
+                <Field label="Mobile" htmlFor="nb-phone">
+                  <input id="nb-phone" className="taw-input" inputMode="tel" placeholder="10-digit mobile" value={manual.phone} onChange={(e) => setManual({ ...manual, phone: e.target.value })} />
+                </Field>
+                <button
+                  type="button"
+                  className="taw-btn taw-btn--primary nb-cta"
+                  disabled={!manualOk}
+                  onClick={() => {
+                    setCustomer({ member_id: null, name: manual.name.trim(), email: manual.email.trim(), phone: manual.phone.replace(/\D/g, "") });
+                    setStep("search");
+                  }}
+                >
+                  Continue with this customer
+                </button>
+              </section>
             </div>
-            <div className="ow-sub" style={{ whiteSpace: "normal" }}>Tickets and vouchers go to this email and mobile.</div>
-            <button
-              type="button"
-              className="taw-btn taw-btn--primary"
-              disabled={!manual.name.trim() || !manual.email.includes("@") || manual.phone.replace(/\D/g, "").length < 10}
-              onClick={() => {
-                setCustomer({ member_id: null, name: manual.name.trim(), email: manual.email.trim(), phone: manual.phone.replace(/\D/g, "") });
-                setStep("search");
-              }}
-            >
-              Continue with this customer
-            </button>
           </>
         ) : null}
 
         {/* ── Step 2: Search ── */}
         {step === "search" ? (
           <>
+            <div className="nb-product" role="tablist" aria-label="Product">
+              <button type="button" role="tab" aria-selected className="on"><Icon name="flight" size={16} /> Flights</button>
+              <button type="button" role="tab" aria-selected={false} onClick={() => { setErr(null); setLock(null); setHotelBack("search"); setStep("hotel"); }}>
+                <Icon name="hotel" size={16} /> Hotels
+              </button>
+            </div>
+            <div className="nb-searchwrap">
             <div className="ow-trip" role="tablist" aria-label="Trip type">
               <button type="button" role="tab" aria-selected={tripType === "oneway"} className={`ow-trip-pill${tripType === "oneway" ? " on" : ""}`} onClick={goOneWay}>One way</button>
               <button type="button" role="tab" aria-selected={tripType === "round"} className={`ow-trip-pill${tripType === "round" ? " on" : ""}`} onClick={goRound}>Round trip</button>
             </div>
             <div className="ow-sbar ow-sbar--flight">
               <div className="ow-sbar-route">
-                <label className="ow-pill ow-pill--field">
-                  <span className="ow-pill-l">From</span>
+                <label className={`ow-pill ow-pill--field nb-from${form.from.length === 3 && form.fromCity ? " set" : ""}`}>
+                  <span className="ow-pill-l"><i className="nb-dot" /> From</span>
                   <AutosuggestInput
                     className="ow-pill-input"
                     value={form.from}
-                    onChange={(v: any) => set("from", String(v).toUpperCase())}
-                    onSelect={(a: any) => setForm((f) => ({ ...f, from: a.airport_code, fromCity: a.city }))}
+                    onChange={(v: any) => setForm((f) => ({ ...f, from: String(v).toUpperCase(), fromCity: "", fromName: "" }))}
+                    onSelect={(a: any) => setForm((f) => ({ ...f, from: a.airport_code, fromCity: a.city, fromName: a.airport_name || "" }))}
                     fetchSuggestions={airportSuggestions}
                     floating
                     renderSuggestion={renderAirport}
                     getKey={(a: any) => a.airport_code}
-                    placeholder="DEL"
+                    placeholder="City or airport"
                   />
-                  <span className="ow-pill-s">{form.from.length === 3 && form.fromCity ? form.fromCity : "City or airport"}</span>
+                  {form.from.length === 3 && form.fromCity ? (
+                    <span className="ow-pill-s nb-place" title={[form.fromCity, form.fromName].filter(Boolean).join(" · ")}>
+                      <b>{form.fromCity}</b>{form.fromName ? ` · ${form.fromName}` : ""}
+                    </span>
+                  ) : null}
                 </label>
                 <button type="button" className="ow-swap" onClick={swapAirports} aria-label="Swap From and To" title="Swap">
                   <Icon name="swap" size={16} />
                 </button>
-                <label className="ow-pill ow-pill--field">
-                  <span className="ow-pill-l">To</span>
+                <label className={`ow-pill ow-pill--field nb-to${form.to.length === 3 && form.toCity ? " set" : ""}`}>
+                  <span className="ow-pill-l"><i className="nb-dot" /> To</span>
                   <AutosuggestInput
                     className="ow-pill-input"
                     value={form.to}
-                    onChange={(v: any) => set("to", String(v).toUpperCase())}
-                    onSelect={(a: any) => setForm((f) => ({ ...f, to: a.airport_code, toCity: a.city }))}
+                    onChange={(v: any) => setForm((f) => ({ ...f, to: String(v).toUpperCase(), toCity: "", toName: "" }))}
+                    onSelect={(a: any) => setForm((f) => ({ ...f, to: a.airport_code, toCity: a.city, toName: a.airport_name || "" }))}
                     fetchSuggestions={airportSuggestions}
                     floating
                     renderSuggestion={renderAirport}
                     getKey={(a: any) => a.airport_code}
-                    placeholder="BOM"
+                    placeholder="City or airport"
                   />
-                  <span className="ow-pill-s">{form.to.length === 3 && form.toCity ? form.toCity : "City or airport"}</span>
+                  {form.to.length === 3 && form.toCity ? (
+                    <span className="ow-pill-s nb-place" title={[form.toCity, form.toName].filter(Boolean).join(" · ")}>
+                      <b>{form.toCity}</b>{form.toName ? ` · ${form.toName}` : ""}
+                    </span>
+                  ) : null}
                 </label>
               </div>
               <div className={`ow-pill ow-pill--btn ow-pill--date${panel === "date" ? " open" : ""}`}>
-                <span className="ow-pill-l">Depart</span>
+                <span className="ow-pill-l nb-start"><i className="nb-dot" /> Depart</span>
                 <button type="button" className="ow-pillbtn" aria-expanded={panel === "date"} onClick={() => setPanel(panel === "date" ? null : "date")} aria-label="Choose departure date">
                   <Icon name="calendar" size={14} />
                   <span>{fmtDay(form.date) || "Select date"}</span>
                 </button>
               </div>
               <div className={`ow-pill ow-pill--btn ow-pill--date${tripType === "round" ? "" : " ow-pill--idle"}${panel === "date" && tripType === "round" ? " open" : ""}`}>
-                <span className="ow-pill-l">Return</span>
+                <span className="ow-pill-l nb-end"><i className="nb-dot" /> Return</span>
                 <button type="button" className="ow-pillbtn" aria-label="Choose return date" onClick={tripType === "round" ? () => setPanel(panel === "date" ? null : "date") : goRound}>
                   <Icon name="calendar" size={14} />
                   <span>{tripType === "round" ? (fmtDay(form.returnDate) || "Select date") : "Add return"}</span>
@@ -661,10 +710,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               </div>
             ) : null}
 
-            <div className="ow-sub" style={{ whiteSpace: "normal" }}>Live Tripsure fares for the whole group. Passenger names are added on the order before ticketing.</div>
-            <button type="button" className="taw-btn taw-btn--sm" style={{ alignSelf: "flex-start" }} onClick={() => { setErr(null); setLock(null); setHotelBack("search"); setStep("hotel"); }}>
-              <Icon name="hotel" size={13} /> Hotel only (no flight)
-            </button>
+            </div>
             {!addToOrder ? (
               <div className="ow-modal-foot">
                 <button type="button" className="taw-btn" onClick={() => setStep("customer")}>Back</button>
@@ -863,20 +909,37 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
         {/* ── After the fare lock: optionally add a hotel to the same itinerary ── */}
         {step === "flightDone" && lock ? (
-          <>
-            <div className="taw-banner taw-banner--info">
-              Fare locked and saved to the order. Add a hotel to this itinerary, or finish — then add the travellers, record the payment and issue the ticket from the order&apos;s Booking progress. The fare lock is short-lived, so ticket soon.
-            </div>
-            <div className="ow-modal-foot">
-              <button type="button" className="taw-btn" onClick={() => onCreated(lock.orderId)}>Finish</button>
-              <button type="button" className="taw-btn taw-btn--primary" onClick={() => { setErr(null); setHotelBack("flightDone"); setStep("hotel"); }}>
-                <Icon name="hotel" size={14} /> Add hotel to this itinerary
+          <div className="nb-done">
+            <span className="nb-done-ic"><Icon name="check" size={26} /></span>
+            <h3>Fare locked and saved to the order</h3>
+            <p>The fare lock is short-lived, so finish the booking soon. Add a hotel to the same itinerary now, or go to the order to complete it.</p>
+            <ol className="nb-next">
+              <li><b>Travellers</b><span>Names exactly as on their ID</span></li>
+              <li><b>Payment</b><span>Collect online or record it</span></li>
+              <li><b>Ticket</b><span>Issue with the airline</span></li>
+            </ol>
+            <div className="nb-done-btns">
+              <button type="button" className="taw-btn" onClick={() => { setErr(null); setHotelBack("flightDone"); setStep("hotel"); }}>
+                <Icon name="hotel" size={14} /> Add a hotel
+              </button>
+              <button type="button" className="taw-btn taw-btn--primary" onClick={() => onCreated(lock.orderId)}>
+                Go to the order
               </button>
             </div>
-          </>
+          </div>
         ) : null}
 
         {/* ── Hotel steps ── */}
+        {step === "hotel" && customer && hotelBack === "search" ? (
+          <>
+            <div className="nb-product" role="tablist" aria-label="Product">
+              <button type="button" role="tab" aria-selected={false} onClick={() => { setErr(null); setStep("search"); }}>
+                <Icon name="flight" size={16} /> Flights
+              </button>
+              <button type="button" role="tab" aria-selected className="on"><Icon name="hotel" size={16} /> Hotels</button>
+            </div>
+          </>
+        ) : null}
         {step === "hotel" && customer ? (
           <NewBookingHotel
             customer={customer}
