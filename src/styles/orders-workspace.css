@@ -489,6 +489,7 @@
 .ow-rp-foot b{font-size:17px;}
 .ow-rp-foot small{display:block;color:var(--taupe);font-size:11.5px;}
 @media(max-width:640px){.ow-rp-body{grid-template-columns:1fr;}}
+<<<<<<< HEAD
 /* ── New booking (NewBookingModal): header, step bar, customer cards, search ── */
 .nb-modal{gap:14px;padding:22px 26px;}
 .nb-mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
@@ -590,3 +591,16 @@
   .nb-steps li:not(.on) span{display:none;}
   .nb-next{grid-template-columns:1fr;}
 }
+=======
+.ow-rp-item{flex-direction:row;align-items:center;gap:10px;}
+.ow-rp-th{width:56px;height:44px;flex:none;border-radius:8px;overflow:hidden;display:block;}
+.ow-rp-tx{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.ow-rp-gal{position:relative;}
+.ow-rp-count{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.92);border-radius:999px;padding:3px 9px;font-size:11px;}
+.ow-rp-nav{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.92);cursor:pointer;font-size:18px;line-height:1;}
+.ow-rp-nav.l{left:10px;}.ow-rp-nav.r{right:10px;}
+.ow-rp-dots{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:5px;}
+.ow-rp-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.6);}
+.ow-rp-dots i.on{background:#fff;}
+.ow-rp-th img,.ow-rp-th .ow-thumb-ph{width:100%;height:100%;object-fit:cover;display:block;}
+>>>>>>> d781e39 (Hotel room panel: per-room photo gallery, thumbnails and room chips)
