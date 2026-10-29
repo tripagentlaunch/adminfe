@@ -199,6 +199,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [selCode, setSelCode] = useState<string | null>(null);
   const [roomImg, setRoomImg] = useState(0);
   const [rf, setRf] = useState({ bed: "", view: "", meal: "", free: false }); // the room panel's filters
+  // The "Review your stay" step after Reserve (like Tripsure's Review & pay) and its popups.
+  const [reviewing, setReviewing] = useState<{ opt: any; chk: any } | null>(null);
+  const [rvPop, setRvPop] = useState<null | "rules" | "policy" | "room">(null);
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
 
   // ── Results: the same filters, sort, list/map and paging as the Search desk's Hotels ──────────
@@ -333,7 +336,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     setImgIdx(0); setAllThumbs(false); setAllAmen(false); setShared(false); setMoreDesc(false); setMoreKnow(false); setMoreCancel(false);
     setDetails(null);
     setChecks({});
-    setPicking(false); setSelCode(null); setRf({ bed: "", view: "", meal: "", free: false });
+    setPicking(false); setReviewing(null); setRvPop(null); setSelCode(null); setRf({ bed: "", view: "", meal: "", free: false });
     setSub("rooms");
     setBusy(true);
     hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
@@ -345,7 +348,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // Leaving the detail page invalidates any details call still in flight.
   function leaveDetail() {
     pickReq.current++;
-    setPicking(false);
+    setPicking(false); setReviewing(null); setRvPop(null);
     setBusy(false);
     setSub("results");
   }
@@ -364,6 +367,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
+          rules: ((rate.cancellationRules || [])[0] || {}).rules || [],
+          policyText: typeof rate.cancellation === "string" ? rate.cancellation : "",
+          refundable: rate.roomType && rate.roomType.refundable != null ? !!rate.roomType.refundable : opt.refundable,
           // what the live check says that the room list didn't (guide: show the customer any change)
           changes: [
             rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
@@ -381,24 +387,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       });
   }
 
-  function priceCheck(opt: any) {
+  // Reserve: Tripsure's live check first, then the review page (nothing is added until Continue there).
+  function reserve(opt: any) {
+    const have = checks[opt.code];
+    if (have && have.state === "ok") { setReviewing({ opt, chk: have }); return; }
     setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
     runCheck(opt)
-      .then((chk) => setChecks((c) => ({ ...c, [opt.code]: chk })))
-      .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
-  }
-
-  // One click: the live check, then straight on to adding the room — unless the check found a
-  // different price or different terms, in which case it stops and shows them (the advisor
-  // confirms with the second click, as before).
-  function addRoom(opt: any) {
-    setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
-    runCheck(opt)
-      .then((chk) => {
-        setChecks((c) => ({ ...c, [opt.code]: chk }));
-        if (Math.round(chk.total) !== Math.round(opt.total) || chk.changes.length) return;
-        confirmAdd(opt, chk);
-      })
+      .then((chk) => { setChecks((c) => ({ ...c, [opt.code]: chk })); setReviewing({ opt, chk }); })
       .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
   }
 
@@ -446,6 +441,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           label: `${info.name || "Hotel"} — ${opt.title}`,
           price: (fresh || checks[opt.code] || {}).price || opt.price || null,
         });
+        setReviewing(null); setRvPop(null);
         setSub("guest");
       })
       .catch((e: any) => onError(errText(e)))
@@ -858,6 +854,134 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { setShared(true); setTimeout(() => setShared(false), 1800); }, () => onError("Couldn't copy to the clipboard."));
   };
   const availability = busy ? "Checking availability…" : opts.length ? `${opts.length} room option${opts.length === 1 ? "" : "s"} available` : "No rooms available for these dates";
+  if (reviewing) {
+    const { opt, chk } = reviewing;
+    const live = checks[opt.code] && checks[opt.code].state === "ok" ? checks[opt.code] : chk;
+    const dayOf = (iso: string) => {
+      const d = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+      return `${d.toLocaleDateString("en-US", { weekday: "short" })}, ${d.getDate()} ${d.toLocaleDateString("en-US", { month: "short" })}`;
+    };
+    const when = searched || form;
+    const timeOf = (re: RegExp) => ((live.instructions || []).map((t: string) => t.match(re)).find(Boolean) || [])[1] || "";
+    const inTime = timeOf(/check-?in time-?begin:\s*(.+)$/i);
+    const outTime = timeOf(/check-?out time:\s*(.+)$/i);
+    const rules = (live.rules || []) as any[];
+    const freeRule = rules.find((r) => r.valueType === "Amount" && Number(r.value) === 0 && r.end);
+    const freeUntil = live.refundable ? (freeRule && freeRule.end) || opt.freeUntil : null;
+    const changed = Math.round(live.total) !== Math.round(live.listed);
+    const guestsTxt = `${form.rooms} room${form.rooms === 1 ? "" : "s"} · ${form.adults} adult${form.adults === 1 ? "" : "s"}${form.children ? ` · ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}`;
+    const rulesList: string[] = (live.instructions || []).flatMap((t: string) => {
+      if (/^check-?in time-?end:/i.test(t)) return [];
+      const m = t.match(/^check-?out time:\s*(.+)$/i); if (m) return [`Check-out before ${m[1]}`];
+      const b = t.match(/^check-?in time-?begin:\s*(.+)$/i); if (b) return [`Check-in from ${b[1]}`];
+      return [t];
+    });
+    const cityName = listInfo.city || info.city || "";
+    const hotelPic = (photos[0] && (photos[0].thumb || photos[0].large)) || "";
+    const link = (label: string, which: "rules" | "policy" | "room") => (
+      <button type="button" className="ow-rv-link" onClick={() => setRvPop(which)}>{label}</button>
+    );
+    return (
+      <div className="ow-rv">
+        <div className="ow-rp-head">
+          <h3>Review your stay</h3>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setReviewing(null); setRvPop(null); }} disabled={adding} aria-label="Back to rooms">✕</button>
+        </div>
+        <div className="ow-rv-card">
+          <div className="ow-rv-hotel">
+            {hotelPic ? <span className="ow-rv-hpic"><HotelImage src={hotelPic} alt="" thumb /></span> : null}
+            <div><b>{name}</b><span className="ow-sub">Hotel{cityName ? ` in ${cityName}` : ""}</span></div>
+          </div>
+          <div className="ow-rv-row ow-rv-stay">
+            <div className="ow-rv-nights"><b>{Math.max(1, nights)}</b><small>NIGHT{nights === 1 ? "" : "S"}</small></div>
+            <div className="ow-rv-lines">
+              <div><span>Check-in</span><b>{dayOf(when.checkIn)}{inTime ? ` · ${inTime}` : ""}</b></div>
+              <div><span>Check-out</span><b>{dayOf(when.checkOut)}{outTime ? ` · ${outTime}` : ""}</b></div>
+              {link("Check-in rules", "rules")}
+            </div>
+          </div>
+          <div className="ow-rv-row">
+            {opt.images[0] ? <span className="ow-rv-rpic"><HotelImage src={opt.images[0]} alt="" thumb /></span> : null}
+            <div className="ow-rv-lines">
+              <span className="ow-sub">{guestsTxt}</span>
+              <b>{opt.title}</b>
+              {opt.board ? <span className="ow-sub">{opt.board}{opt.inclusions ? ` · ${opt.inclusions}` : ""}</span> : null}
+              {link("Room details", "room")}
+            </div>
+          </div>
+          <div className="ow-rv-row">
+            <span className="ow-rv-ic" aria-hidden="true">{live.refundable ? "✓" : "⦸"}</span>
+            <div className="ow-rv-lines">
+              {live.refundable
+                ? <span>{freeUntil ? <>Free cancellation until <b>{dayOf(freeUntil)}</b></> : <>This booking is <b>refundable</b></>}</span>
+                : <span>This booking is <b>non-refundable</b>, cancellations are not allowed</span>}
+              {link("See policy", "policy")}
+            </div>
+          </div>
+        </div>
+        {changed || (live.changes && live.changes.length) ? (
+          <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+            {changed ? `Price changed from ${inr(live.listed)} to ${inr(live.total)}. ` : ""}{live.changes && live.changes.length ? `${live.changes.join("; ")}. ` : ""}Tell the customer before continuing.
+          </div>
+        ) : null}
+        <PriceBreakdown price={live.price} nights={nights} rooms={form.rooms} />
+        <div className="ow-rp-foot">
+          <span><b>{inr(live.total)}</b> <small>{guestsTxt} · Incl. taxes &amp; fees</small></span>
+          <span style={{ display: "inline-flex", gap: 8 }}>
+            <button type="button" className="taw-btn" onClick={() => { setReviewing(null); setRvPop(null); }} disabled={adding}>Back</button>
+            <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={adding} onClick={() => confirmAdd(opt, live)}>
+              {adding ? "Adding…" : changed ? "Accept & continue" : "Continue"}
+            </button>
+          </span>
+        </div>
+
+        {rvPop === "rules" ? (
+          <div className="ow-drawer-back" onClick={() => setRvPop(null)}>
+            <aside className="ow-drawer" role="dialog" aria-label="Check-in rules" onClick={(e) => e.stopPropagation()}>
+              <div className="ow-drawer-head"><b>Check-in rules</b><button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setRvPop(null)}>✕</button></div>
+              {rulesList.length ? <ul>{rulesList.map((t, i) => <li key={i}>{t}</li>)}</ul> : <p className="ow-sub">The hotel hasn&apos;t sent any check-in rules.</p>}
+            </aside>
+          </div>
+        ) : null}
+        {rvPop === "policy" || rvPop === "room" ? (
+          <div className="ow-fare-back" onClick={() => setRvPop(null)}>
+            <div className="ow-pop" role="dialog" aria-label={rvPop === "policy" ? "Cancellation policy" : "Room details"} onClick={(e) => e.stopPropagation()}>
+              <div className="ow-drawer-head"><b>{rvPop === "policy" ? "Cancellation policy" : "Room details"}</b><button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setRvPop(null)}>✕</button></div>
+              {rvPop === "policy" ? (
+                <>
+                  <ul className="ow-pop-list">
+                    {(rules.length ? rules : []).map((r, i) => {
+                      const free = r.valueType === "Amount" && Number(r.value) === 0;
+                      const fee = Number(r.estimatedValue) || (r.valueType === "Amount" ? Number(r.value) : 0);
+                      const noRefund = !free && fee >= Math.round(live.total);
+                      return (
+                        <li key={i}>
+                          <i className={`ow-pop-dot${free ? " ok" : ""}`} />
+                          <span>
+                            {free ? <>Free cancellation{r.end ? <> until <b>{dayOf(r.end)}</b></> : null}</>
+                              : <>Cancellation fee <b>{inr(fee)}</b>{noRefund ? " • No refund" : ""}{i > 0 && r.start ? <> from {dayOf(r.start)}</> : null}</>}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {!rules.length ? <div className="ow-pre">{live.policyText || opt.cancellation || "No cancellation details were sent."}</div> : null}
+                  <p className="ow-sub" style={{ whiteSpace: "normal" }}>* You&apos;ll be charged the cancellation fee if you don&apos;t check in. The fee is based on the total amount paid.</p>
+                  <p className="ow-sub" style={{ whiteSpace: "normal" }}>* All times are in the hotel&apos;s local time.</p>
+                </>
+              ) : (
+                <>
+                  {opt.chips.length ? <div className="ow-amen">{opt.chips.map((c: string) => <span key={c} className="ow-tag">{c}</span>)}</div> : <p className="ow-sub">No room details were sent.</p>}
+                  {opt.inclusions ? <p className="ow-sub" style={{ whiteSpace: "normal" }}>Includes: {opt.inclusions}</p> : null}
+                </>
+              )}
+              <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => setRvPop(null)}>Got it</button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   if (picking && opts.length) {
     // Like Tripsure: ONE entry per room type, with that room's rate options (room only / breakfast,
     // refundable or not) underneath; picking a rate changes the price.
@@ -974,8 +1098,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         <div className="ow-rp-foot">
           <span><b>{inr(shownTotal)}</b> <small>{nightsTxt} · Incl. taxes &amp; fees</small></span>
           <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={!sel || chk.state === "loading" || adding}
-            onClick={() => sel && (verified ? confirmAdd(sel) : addRoom(sel))}>
-            {chk.state === "loading" || adding ? "Reserving…" : verified && changed ? "Accept & reserve" : "Reserve"}
+            onClick={() => sel && reserve(sel)}>
+            {chk.state === "loading" ? "Checking price…" : "Reserve"}
           </button>
         </div>
       </div>
