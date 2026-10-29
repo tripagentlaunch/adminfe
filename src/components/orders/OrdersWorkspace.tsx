@@ -81,11 +81,15 @@ export function OrdersWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadOrders = useCallback(() => {
-    setLoading(true);
+  // silent = background refresh: no loading spinner, selection untouched.
+  const loadOrders = useCallback((silent: boolean | unknown = false) => {
+    if (silent !== true) setLoading(true);
     bookingListOrders()
       .then((rows: any[]) => {
-        const mapped = (rows || []).map(summaryToOrder);
+        // newest first, always
+        const mapped = (rows || []).slice()
+          .sort((a, b) => (new Date(b.created_at).getTime() || 0) - (new Date(a.created_at).getTime() || 0) || (Number(b.seq) || 0) - (Number(a.seq) || 0))
+          .map(summaryToOrder);
         setOrders(mapped);
         setLiveError(null);
         setSelectedId((prev) => prev ?? (mapped[0]?.id || null));
@@ -95,6 +99,15 @@ export function OrdersWorkspace() {
   }, []);
 
   useEffect(() => { loadOrders(); }, [loadOrders]);
+
+  // New orders appear without a manual refresh: poll while the tab is visible, and refresh on focus.
+  useEffect(() => {
+    const tick = () => { if (document.visibilityState === "visible") loadOrders(true); };
+    const id = window.setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(id); document.removeEventListener("visibilitychange", tick); window.removeEventListener("focus", tick); };
+  }, [loadOrders]);
 
   const loadDetail = useCallback((o: RealOrder) => {
     bookingGetOrder(o.dbId)
@@ -142,6 +155,7 @@ export function OrdersWorkspace() {
   function handleCreated(orderId: string) {
     setShowNew(false);
     setAddTo(null);
+    loadOrders(true);
     bookingGetOrder(orderId)
       .then((d: any) => {
         const full = detailToOrder(d);
@@ -243,7 +257,7 @@ export function OrdersWorkspace() {
 
       {(showNew || addTo) && (
         <NewBookingModal
-          onClose={() => { setShowNew(false); setAddTo(null); setPreset(null); }}
+          onClose={() => { setShowNew(false); setAddTo(null); setPreset(null); loadOrders(true); }}
           onCreated={(id) => { setPreset(null); handleCreated(id); }}
           addToOrder={addTo?.dbId ? { dbId: addTo.dbId, customerName: addTo.customerName, email: addTo.email } : undefined}
           preset={addTo ? undefined : preset || undefined}

@@ -765,11 +765,15 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           <Field label="Mobile (India, 10 digits)" htmlFor="nbg-mob"><input className="taw-input" inputMode="numeric" value={guest.mobile} onChange={(e) => setG("mobile", e.target.value)} /></Field>
           <Field label="Email" htmlFor="nbg-em"><input className="taw-input" type="email" value={guest.email} onChange={(e) => setG("email", e.target.value)} /></Field>
         </div>
-        <Field label={added.panRequired ? "PAN (required for this rate)" : "PAN (optional)"} htmlFor="nbg-pan">
+        {added.panRequired ? (
+          <>
+        <Field label={"PAN (required for this rate)"} htmlFor="nbg-pan">
           <input className="taw-input" maxLength={10} value={guest.pan} placeholder="ABCDE1234F"
             onChange={(e) => setG("pan", e.target.value.toUpperCase())} />
         </Field>
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>PAN is sent to Tripsure only and is never stored.</div>
+          </>
+        ) : null}
         {added.addressRequired ? (
           <>
             <div className="taw-banner taw-banner--info">This rate needs the customer&apos;s address.</div>
