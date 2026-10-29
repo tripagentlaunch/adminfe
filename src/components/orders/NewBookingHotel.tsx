@@ -9,7 +9,7 @@ import { AutosuggestInput } from "../AutosuggestInput";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
-  bookingAddHotelStay, bookingLockHotelItinerary, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
+  bookingAddHotelStay, bookingLockHotelItinerary, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
@@ -117,8 +117,11 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   onError: (msg: string | null) => void;
 }) {
   const [sub, setSub] = useState<Sub>("search");
-  const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16), rooms: 1, adults: 2 });
+  const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16), rooms: 1, adults: 2, children: 0, childAges: [] as number[] });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
+  // children change together with their ages (one age per child, 0-17; new ones start at 5)
+  const setChildren = (n: number) => setForm((f) => ({ ...f, children: n, childAges: Array.from({ length: n }, (_, i) => f.childAges[i] ?? 5) }));
+  const setAge = (i: number, age: number) => setForm((f) => ({ ...f, childAges: f.childAges.map((a, j) => (j === i ? age : a)) }));
   // Dates of the search that minted `session` (docKey/token). The form can be edited
   // after "Change search" without re-searching, so recording a stay must use these.
   const [searched, setSearched] = useState<{ checkIn: string; checkOut: string } | null>(null);
@@ -140,6 +143,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
     mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
     streetAddress1: "", city: "", state: "", postalCode: "",
+    gstNumber: "", gstName: "", gstAddress: "", gstState: "", gstCity: "", gstPincode: "",
   });
   const [lockChanges, setLockChanges] = useState<string | null>(null); // "changed since added" message awaiting the advisor's OK
   const [lockInfo, setLockInfo] = useState<any | null>(null);
@@ -201,6 +205,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     if (!form.city.trim()) { onError("Enter a city or destination."); return; }
     if (!form.checkOut) { setPanel("dates"); onError("Pick a check-out date."); return; }
     if (!(nights >= 1)) { onError("Check-out must be after check-in."); return; }
+    newHotelJourney(); // one trace id for this search, through to the room that gets booked
     setBusy(true);
     const withLoc = location
       ? Promise.resolve(location)
@@ -212,18 +217,22 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     withLoc
       .then((top: any): Promise<any> | any => {
         const countryCode = top.country || "IN";
-        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, form.rooms, form.adults]);
+        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, form.rooms, form.adults, form.childAges.join(",")]);
         searchKeyRef.current = key;
         const kept = keptSearch(key);
         if (kept) return { kept };
         return hotelListingStart({
           checkIn: form.checkIn,
           checkOut: form.checkOut,
-          rooms: Array.from({ length: form.rooms }, () => ({
-            numberOfAdults: String(Math.max(1, Math.ceil(form.adults / form.rooms))),
-            numberOfChildren: "0",
-            childrenAge: "",
-          })),
+          // children are dealt out room by room, the same way the server does when it locks the room
+          rooms: Array.from({ length: form.rooms }, (_, i) => {
+            const ages = form.childAges.filter((_a, j) => j % form.rooms === i);
+            return {
+              numberOfAdults: String(Math.max(1, Math.ceil(form.adults / form.rooms))),
+              numberOfChildren: String(ages.length),
+              childrenAge: ages.join(","),
+            };
+          }),
           city: top.city || top.name,
           locationSuggestion: { id: String(top.id), name: top.name, type: top.type, lat: top.coordinates.lat, lon: top.coordinates.lon },
           state: resolveState(top),
@@ -300,36 +309,53 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     setSub("results");
   }
 
-  function priceCheck(opt: any) {
+  // Tripsure's live check of one room, shaped for the UI (what it needs from the guest, what changed).
+  function runCheck(opt: any): Promise<any> {
     const sess = sessOf(hotel);
-    if (!sess || !hotel) return;
-    setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
-    hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code })
+    if (!sess || !hotel) return Promise.reject(new Error("Open a hotel first."));
+    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         if (!rate) throw new Error("Tripsure returned no rate for this room.");
-        setChecks((c) => ({
-          ...c,
-          [opt.code]: {
-            state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total,
-            panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
-            addressRequired: !!r.customerAddressRequired,
-            instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
-            // what the live check says that the room list didn't (guide: show the customer any change)
-            changes: [
-              rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
-              rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
-                ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
-              (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end
-                !== opt.freeUntil && opt.freeUntil ? "Free-cancellation deadline changed" : null,
-            ].filter(Boolean),
-          },
-        }));
+        return {
+          state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total,
+          panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
+          addressRequired: !!r.customerAddressRequired,
+          instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
+          // what the live check says that the room list didn't (guide: show the customer any change)
+          changes: [
+            rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
+            rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
+              ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
+            (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end
+              !== opt.freeUntil && opt.freeUntil ? "Free-cancellation deadline changed" : null,
+          ].filter(Boolean),
+        };
+      });
+  }
+
+  function priceCheck(opt: any) {
+    setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
+    runCheck(opt)
+      .then((chk) => setChecks((c) => ({ ...c, [opt.code]: chk })))
+      .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
+  }
+
+  // One click: the live check, then straight on to adding the room — unless the check found a
+  // different price or different terms, in which case it stops and shows them (the advisor
+  // confirms with the second click, as before).
+  function addRoom(opt: any) {
+    setChecks((c) => ({ ...c, [opt.code]: { state: "loading" } }));
+    runCheck(opt)
+      .then((chk) => {
+        setChecks((c) => ({ ...c, [opt.code]: chk }));
+        if (Math.round(chk.total) !== Math.round(opt.total) || chk.changes.length) return;
+        confirmAdd(opt, chk);
       })
       .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
   }
 
-  function confirmAdd(opt: any) {
+  function confirmAdd(opt: any, fresh?: any) {
     const sess = sessOf(hotel);
     if (!sess || !hotel || !searched) return;
     const info = hotel.hotelInfo || {};
@@ -361,11 +387,14 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       check_out: (searched || form).checkOut,
       rooms: form.rooms,
       adults: form.adults,
+      children: form.children,
+      children_ages: form.childAges,
+      journey_id: currentHotelJourney(),
     })
       .then((r: any) => {
         setAdded({
-          orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(checks[opt.code] || {}).panRequired,
-          addressRequired: !!(checks[opt.code] || {}).addressRequired,
+          orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(fresh || checks[opt.code] || {}).panRequired,
+          addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
           handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
         });
@@ -387,6 +416,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
         mobile: nationalMobile(guest.mobile), email: guest.email.trim(), pan: guest.pan.trim() || null,
         streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
+        gstNumber: guest.gstNumber.trim().toUpperCase(), gstName: guest.gstName.trim(), gstAddress: guest.gstAddress.trim(),
+        gstState: guest.gstState.trim(), gstCity: guest.gstCity.trim(), gstPincode: guest.gstPincode.trim(),
       },
       accept_changes: acceptChanges,
     })
@@ -400,13 +431,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   if (sub === "search") {
-    const stepper = (label: string, k: "rooms" | "adults", min: number, max: number) => (
+    const stepper = (label: string, k: "rooms" | "adults" | "children", min: number, max: number) => (
       <div className="ow-gstep">
         <span>{label}</span>
         <div className="ow-step">
-          <button type="button" disabled={form[k] <= min} aria-label={`Fewer ${label}`} onClick={() => set(k, form[k] - 1)}><Icon name="minus" size={13} /></button>
+          <button type="button" disabled={form[k] <= min} aria-label={`Fewer ${label}`} onClick={() => (k === "children" ? setChildren(form[k] - 1) : set(k, form[k] - 1))}><Icon name="minus" size={13} /></button>
           <b>{form[k]}</b>
-          <button type="button" disabled={form[k] >= max} aria-label={`More ${label}`} onClick={() => set(k, form[k] + 1)}><Icon name="plus" size={13} /></button>
+          <button type="button" disabled={form[k] >= max} aria-label={`More ${label}`} onClick={() => (k === "children" ? setChildren(form[k] + 1) : set(k, form[k] + 1))}><Icon name="plus" size={13} /></button>
         </div>
       </div>
     );
@@ -460,7 +491,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "guests"}
               onClick={() => setPanel(panel === "guests" ? null : "guests")}>
               <Icon name="people" size={14} />
-              <span>{form.adults} Guest{form.adults === 1 ? "" : "s"} · {form.rooms} Room{form.rooms === 1 ? "" : "s"}</span>
+              <span>{form.adults} Guest{form.adults === 1 ? "" : "s"}{form.children ? ` + ${form.children} child${form.children === 1 ? "" : "ren"}` : ""} · {form.rooms} Room{form.rooms === 1 ? "" : "s"}</span>
             </button>
           </div>
 
@@ -481,6 +512,18 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           <div className="ow-gpanel">
             {stepper("Rooms", "rooms", 1, 9)}
             {stepper("Adults (total)", "adults", 1, 36)}
+            {stepper("Children (total)", "children", 0, 18)}
+            {form.children > 0 ? (
+              <div className="ow-gstep" style={{ flexWrap: "wrap", gap: 8 }}>
+                <span style={{ width: "100%" }}>Age of each child on the day of travel</span>
+                {form.childAges.map((age, i) => (
+                  <select key={i} className="taw-input" aria-label={`Age of child ${i + 1}`} value={age} style={{ width: 92 }}
+                    onChange={(e) => setAge(i, Number(e.target.value))}>
+                    {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : `${a} yr${a === 1 ? "" : "s"}`}</option>)}
+                  </select>
+                ))}
+              </div>
+            ) : null}
             <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPanel(null)}>Done</button>
           </div>
         ) : null}
@@ -625,8 +668,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   if (sub === "guest" && added) {
     const pan = guest.pan.trim().toUpperCase();
     const panBad = (added.panRequired && !pan) || (pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan));
+    const gstOk = guest.gstNumber.trim() === "" || guest.gstNumber.trim().length === 15;
     const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad;
+    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad && gstOk;
     return (
       <>
         <div className="taw-banner taw-banner--info">
@@ -660,6 +704,18 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             </div>
           </>
         ) : null}
+        <details className="ow-room-pol">
+          <summary>GST invoice details (optional, for a business customer)</summary>
+          <div className="ow-grid2" style={{ marginTop: 8 }}>
+            <Field label="GST number (15 characters)" htmlFor="nbg-gst"><input className="taw-input" maxLength={15} value={guest.gstNumber} onChange={(e) => setG("gstNumber", e.target.value.toUpperCase())} /></Field>
+            <Field label="Company name" htmlFor="nbg-gstn"><input className="taw-input" value={guest.gstName} onChange={(e) => setG("gstName", e.target.value)} /></Field>
+            <Field label="Company address" htmlFor="nbg-gsta"><input className="taw-input" value={guest.gstAddress} onChange={(e) => setG("gstAddress", e.target.value)} /></Field>
+            <Field label="City" htmlFor="nbg-gstc"><input className="taw-input" value={guest.gstCity} onChange={(e) => setG("gstCity", e.target.value)} /></Field>
+            <Field label="State" htmlFor="nbg-gsts"><input className="taw-input" value={guest.gstState} onChange={(e) => setG("gstState", e.target.value)} /></Field>
+            <Field label="Pincode" htmlFor="nbg-gstp"><input className="taw-input" value={guest.gstPincode} onChange={(e) => setG("gstPincode", e.target.value)} /></Field>
+          </div>
+          {guest.gstNumber.trim() !== "" && guest.gstNumber.trim().length !== 15 ? <div className="ow-sub" style={{ color: "var(--danger, #b00020)" }}>A GST number has 15 characters.</div> : null}
+        </details>
         {lockChanges ? (
           <div className="taw-banner taw-banner--warn" role="alert">
             <div style={{ whiteSpace: "normal" }}>{lockChanges}</div>
@@ -936,9 +992,16 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                   <Icon name="plus" size={13} /> {adding ? "Adding…" : "Confirm & add hotel"}
                 </button>
               ) : (
-                <button type="button" className="taw-btn taw-btn--sm" onClick={() => priceCheck(opt)} disabled={chk.state === "loading"}>
-                  {chk.state === "loading" ? "Checking…" : "Check price"}
-                </button>
+                <span style={{ display: "inline-flex", gap: 6 }}>
+                  <button type="button" className="taw-btn taw-btn--sm" onClick={() => priceCheck(opt)} disabled={chk.state === "loading" || adding}
+                    title="See Tripsure's live price and terms first, without adding the room">
+                    Check price
+                  </button>
+                  <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => addRoom(opt)} disabled={chk.state === "loading" || adding}
+                    title="Checks the live price and adds the room — it stops to show you if the price or terms changed">
+                    <Icon name="plus" size={13} /> {chk.state === "loading" || adding ? "Adding…" : "Add hotel"}
+                  </button>
+                </span>
               )}
             </div>
           </div>

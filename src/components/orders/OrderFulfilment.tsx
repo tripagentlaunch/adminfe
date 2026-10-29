@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
   bookingCancelHotel, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
-  bookingRazorpayOrder, bookingRecordPayment, bookingResetItem,
+  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
@@ -90,6 +90,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     return () => { live = false; };
   }, []);
   const [cancelling, setCancelling] = useState<Cancelling>(null);
+  const [refundOpen, setRefundOpen] = useState<{ amount: number } | null>(null); // opened after a cancel, pre-filled with Tripsure's refund
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
 
   if (!f) return null;
@@ -156,7 +157,9 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     try {
       await bookingCancelHotel(item.id);
       toast("Hotel booking cancelled", "success");
+      const owed = cancelling?.quote?.refund_amount ?? 0;
       setCancelling(null);
+      if (owed > 0 && f && f.payment.paid - (f.payment.refunded || 0) > 0.5) setRefundOpen({ amount: owed });
     } catch (e) {
       setErr(errText(e));
     } finally {
@@ -322,6 +325,25 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                 ))}
               </ul>
             ) : null}
+            {(f.payment.refunded || 0) > 0 ? (
+              <ul className="ow-ful-pays">
+                {f.payment.payments.filter((p) => p.status === "refunded").map((p) => (
+                  <li key={p.id}>
+                    <span>Refunded {fmtINR(p.amount)} · {(METHODS.find((m) => m.key === p.method) || { label: p.method || "Refund" }).label}</span>
+                    <span className="ow-sub">{p.reference ? `Ref ${p.reference} · ` : ""}{p.paid_at ? String(p.paid_at).slice(0, 10) : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {f.items.some((i) => i.status === "cancelled") && f.payment.paid - (f.payment.refunded || 0) > 0.5 && !refundOpen ? (
+              <div className="ow-ful-acts">
+                <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRefundOpen({ amount: 0 })}>Record refund to customer</button>
+              </div>
+            ) : null}
+            {refundOpen ? (
+              <RefundForm order={order} returnable={Math.round((f.payment.paid - (f.payment.refunded || 0)) * 100) / 100} suggested={refundOpen.amount}
+                onClose={() => setRefundOpen(null)} onSaved={() => { setRefundOpen(null); onChanged(); }} />
+            ) : null}
             {payOpen ? <PaymentForm order={order} due={f.payment.due} onClose={() => setPayOpen(false)} onSaved={() => { setPayOpen(false); onChanged(); }} /> : null}
           </div>
         </li>
@@ -467,6 +489,63 @@ function ConfirmBox({ item, busy, onCancel, onConfirm }: { item: FulfilmentItem;
         <button type="button" className="taw-btn taw-btn--sm" onClick={onCancel} disabled={busy}>Cancel</button>
         <button type="button" className={`taw-btn taw-btn--sm${reset ? "" : " taw-btn--primary"}`} onClick={onConfirm} disabled={busy}>
           {busy ? "Working…" : reset ? "Yes, mark as not booked" : item.kind === "flight" ? "Issue ticket" : "Confirm hotel"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Money paid back to the customer outside the portal. TripSure's cancellation quote pre-fills the amount.
+function RefundForm({ order, returnable, suggested, onClose, onSaved }: { order: Order; returnable: number; suggested: number; onClose: () => void; onSaved: () => void }) {
+  const first = suggested > 0 ? Math.min(suggested, returnable) : returnable;
+  const [form, setForm] = useState({ amount: String(Math.round(first * 100) / 100), method: "upi", reference: "", refunded_on: new Date().toISOString().slice(0, 10), note: "" });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
+  const needsRef = form.method !== "cash" && form.method !== "agency_credit";
+  const amount = Number(form.amount);
+  const ok = amount > 0 && amount <= returnable + 0.5 && (!needsRef || form.reference.trim());
+
+  function save() {
+    setSaving(true);
+    setErr(null);
+    bookingRecordRefund(order.dbId, {
+      amount, method: form.method, reference: form.reference.trim() || null, refunded_on: form.refunded_on || null, note: form.note.trim() || null,
+    })
+      .then(() => { toast("Refund recorded", "success"); onSaved(); })
+      .catch((e: any) => setErr(errText(e)))
+      .finally(() => setSaving(false));
+  }
+
+  return (
+    <div className="ow-ful-form">
+      <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
+        Record the money you have paid back to the customer (up to {fmtINR(returnable)} still returnable). This only keeps the record; the transfer itself is made outside this screen.
+      </div>
+      {err ? <div className="taw-banner taw-banner--danger">{err}</div> : null}
+      <div className="ow-grid2">
+        <Field label="Amount refunded" htmlFor="ref-amt">
+          <input className="taw-input" inputMode="decimal" value={form.amount} onChange={(e) => set("amount", e.target.value.replace(/[^\d.]/g, ""))} />
+        </Field>
+        <Field label="Method" htmlFor="ref-method">
+          <select className="taw-input" value={form.method} onChange={(e) => set("method", e.target.value)}>
+            {METHODS.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        </Field>
+        <Field label={needsRef ? "Reference (UTR / transaction id)" : "Reference (optional)"} htmlFor="ref-ref">
+          <input className="taw-input" value={form.reference} onChange={(e) => set("reference", e.target.value)} />
+        </Field>
+        <Field label="Refunded on" htmlFor="ref-date">
+          <input className="taw-input" type="date" value={form.refunded_on} max={new Date().toISOString().slice(0, 10)} onChange={(e) => set("refunded_on", e.target.value)} />
+        </Field>
+      </div>
+      <Field label="Note (optional)" htmlFor="ref-note">
+        <input className="taw-input" value={form.note} onChange={(e) => set("note", e.target.value)} />
+      </Field>
+      <div className="ow-ful-acts">
+        <button type="button" className="taw-btn taw-btn--sm" onClick={onClose} disabled={saving}>Not now</button>
+        <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={save} disabled={!ok || saving}>
+          {saving ? "Saving…" : "Record refund"}
         </button>
       </div>
     </div>

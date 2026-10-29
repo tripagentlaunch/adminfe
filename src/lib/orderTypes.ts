@@ -95,7 +95,7 @@ export interface Fulfilment {
     mix_error?: string | null;
     list: any[];
   };
-  payment: { total: number; paid: number; due: number; currency: string; payments: PaymentRow[] };
+  payment: { total: number; paid: number; refunded?: number; due: number; currency: string; payments: PaymentRow[] };
   items: FulfilmentItem[];
 }
 export interface Order {

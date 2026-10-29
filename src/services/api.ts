@@ -1595,16 +1595,38 @@ function inviteCustomerNamedCode(payload) {
 // TripSure hotel search (real preprod data, via the FastAPI /hotels/* routes —
 // see backend/app/routers/hotel_router.py). "V2" names distinguish these from
 // the existing synthetic searchHotels()/hotelProperty() while both are live.
+// One id per hotel search, sent as X-Trace-Id on every /hotels/* call so Tripsure sees a single
+// trace from City Suggestion on (its guide asks for that). The same uuid is sent when the room is
+// added (bookingAddHotelStay's journey_id) and becomes that stay's id, which keeps the trace id
+// for lock, book, cancel and invoice. "adm-" + 32 hex = 36 chars, within Tripsure's 6-36 limit.
+var hotelJourney = null;
+function newHotelJourney() {
+  var c = typeof crypto !== "undefined" ? crypto : null;
+  hotelJourney = c && c.randomUUID
+    ? c.randomUUID()
+    : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (ch) {
+        var r = (Math.random() * 16) | 0;
+        return (ch === "x" ? r : (r & 0x3) | 0x8).toString(16);
+      });
+  return hotelJourney;
+}
+function currentHotelJourney() {
+  return hotelJourney;
+}
+
 function fastapiHotelCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
 
+  var headers: Record<string, string> = {
+    Authorization: "Bearer " + jwt,
+    "Content-Type": "application/json",
+  };
+  if (hotelJourney) headers["X-Trace-Id"] = "adm-" + hotelJourney.replace(/-/g, "");
+
   return fetchAbortable(FASTAPI_BASE + path, {
     method: options.method,
-    headers: {
-      Authorization: "Bearer " + jwt,
-      "Content-Type": "application/json",
-    },
+    headers: headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   }, options.signal).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
@@ -2107,6 +2129,10 @@ function bookingCheckHotel(hotelId) {
 // (irreversible, one attempt), and the tax invoice.
 function bookingHotelCancelQuote(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancellation-quote", { method: "GET" });
+}
+// Money paid back to the customer outside the portal (e.g. after a hotel cancellation).
+function bookingRecordRefund(orderId, payload) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/refunds", { method: "POST", body: payload });
 }
 function bookingCancelHotel(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST" });
@@ -2799,6 +2825,9 @@ export {
   bookingCheckHotel,
   bookingHotelCancelQuote,
   bookingCancelHotel,
+  bookingRecordRefund,
+  newHotelJourney,
+  currentHotelJourney,
   bookingHotelInvoice,
   bookingResetItem,
   bookingPaymentGateway,
