@@ -279,9 +279,11 @@ export default function ProposalComposerPage() {
   // "official website" claim on this, never on an LLM guess.
   const hotelEnrichment = useHotelWebsites(selected?.data);
 
+  // pricingMode travels with the shared proposal so the customer's Pay now charges in the same
+  // mode the total was quoted in (inclusive package vs separate items).
   const proposalData = useMemo(
-    () => buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor, hotelEnrichment),
-    [selected, pricing, currentAdvisor, hotelEnrichment]
+    () => ({ ...buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor, hotelEnrichment), pricingMode: inclusive ? "package" : "items" }),
+    [selected, pricing, currentAdvisor, hotelEnrichment, inclusive]
   );
 
   // proposalDocumentEl (2026-09-08, fix) — a real bug, not a hash-param
@@ -400,7 +402,7 @@ export default function ProposalComposerPage() {
     return () => { live = false; };
   }, [enquiryIdSel]);
   const linkToken = link && link.enquiryId === enquiryIdSel ? link.token : null;
-  const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/proposal/${linkToken}` : null;
+  const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/p/${linkToken}` : null;
 
   function createWebLink() {
     if (!selected || creatingLink) return;
@@ -411,7 +413,7 @@ export default function ProposalComposerPage() {
         setCreatingLink(false);
         published.current = body;
         setLink({ enquiryId: selected.enquiryId, token: res.token });
-        const url = `${window.location.origin}/proposal/${res.token}`;
+        const url = `${window.location.origin}/p/${res.token}`;
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(url).catch(() => {});
         }

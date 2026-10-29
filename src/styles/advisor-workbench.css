@@ -1835,6 +1835,7 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-res-priced b{font-size:15px;color:var(--ink);}
 .taw-res-priced small{color:var(--taupe);font-size:11px;}
 .taw-itin-alt-facts{color:var(--taupe);font-size:11px;margin:0 2px 0 4px;}
+.taw-itin-reprice{display:flex;gap:6px;align-items:flex-start;margin-top:6px;padding:6px 9px;border-radius:8px;background:var(--warn-bg,#fff6e5);color:var(--warn-ink,#8a6400);font-size:12px;line-height:1.4;}
 /* Hotel desk: rooms editor, location type tags, requests (HotelDesk.tsx) */
 .taw-room{display:grid;padding:4px 0 6px;}
 .taw-room+.taw-room{border-top:1px solid var(--line);}

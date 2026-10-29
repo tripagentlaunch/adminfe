@@ -32,7 +32,7 @@ export function MockPaymentView() {
   async function finish(success: boolean) {
     setBusy(success ? "ok" : "fail");
     setErr(null);
-    const back = `/proposal/${encodeURIComponent(token)}`;
+    const back = `/p/${encodeURIComponent(token)}`;
     try {
       const r: any = await proposalFlightPayConfirm(token, {
         order_id: orderId, razorpay_order_id: rz,

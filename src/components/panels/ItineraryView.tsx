@@ -842,6 +842,13 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
+                          {item.type === "flight" && !item.pricing && Number(item.price) > 0 ? (
+                            // Added before live pricing (or from Tara's plan): no live fare, no breakdown in the
+                            // proposal and not payable online until it is priced from Search.
+                            <div className="taw-itin-reprice">
+                              <Icon name="alert" size={12} /> Search price only — find this flight in Search and use Add / Re-price for the live fare, the price breakdown and online payment.
+                            </div>
+                          ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}
                           {item.facts ? <StayFacts facts={item.facts} /> : null}
                           {item.alternatives && item.alternatives.length ? (
