@@ -103,6 +103,8 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
   const [err, setErr] = useState<string | null>(null);
   const [sel, setSel] = useState<SegSel[]>([]);
   const [seg, setSeg] = useState(0);
+  // Fare options TripSure has said are gone (sold out / stale search): not checked again.
+  const [gone, setGone] = useState<string[]>([]);
 
   const listPrice = (Number(offer.base_net) || 0) + (fare?.delta || 0);
 
@@ -132,7 +134,12 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
       setSeg(0);
       setTab(ssr ? firstExtrasTab(ssr, rows[0], d) : "price");
     } catch (e: any) {
-      setErr(errText(e));
+      if (e?.status === 410 || /no longer available/i.test(String(e?.message || ""))) {
+        setGone((g) => [...g, fare.fare_id]);
+        setErr(`${d.airlineName || d.airline || "This flight"} ${d.flightNo || ""} at the ${fare.name} fare is no longer available — the seats at this price sold out or the search is stale. Pick another fare option or flight, or search again for fresh fares.`);
+      } else {
+        setErr(errText(e));
+      }
     } finally {
       setBusy(false);
     }
@@ -200,8 +207,8 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
           </button>
         </>
       ) : (
-        <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={check} disabled={!fare || busy}>
-          {busy ? "Checking with TripSure…" : "Check live price"}
+        <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={check} disabled={!fare || busy || gone.includes(fare.fare_id)}>
+          {busy ? "Checking with TripSure…" : fare && gone.includes(fare.fare_id) ? "Not available" : "Check live price"}
         </button>
       )}
     >

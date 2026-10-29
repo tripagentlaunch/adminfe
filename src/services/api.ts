@@ -2583,6 +2583,12 @@ function proposalPayQuote(token) { return proposalPublicCall(token, "/pay/quote"
 function proposalPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/prepare", { method: "POST", body: payload }); }
 function proposalPayRazorpay(token, orderId) { return proposalPublicCall(token, "/pay/order/" + encodeURIComponent(orderId) + "/razorpay", { method: "POST" }); }
 function proposalPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/confirm", { method: "POST", body: payload }); }
+// Flights of the proposal (backend proposal_flight_pay_service.py): what can be paid and how much,
+// then the same flight / fare / add-ons re-locked live with the travellers, then the payment.
+function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/flights/quote", {}); }
+function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
+function proposalFlightPayStart(token, orderId) { return proposalPublicCall(token, "/pay/flights/order/" + encodeURIComponent(orderId) + "/start", { method: "POST" }); }
+function proposalFlightPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/flights/confirm", { method: "POST", body: payload }); }
 
 function proposalShareGet(token) {
   return fetch(FASTAPI_BASE + "/proposal-share/" + encodeURIComponent(token), {
@@ -2826,6 +2832,10 @@ export {
   proposalPayPrepare,
   proposalPayRazorpay,
   proposalPayConfirm,
+  proposalFlightPayQuote,
+  proposalFlightPayPrepare,
+  proposalFlightPayStart,
+  proposalFlightPayConfirm,
 
   // Public hotel page (/hotel/[hotelKey]) — hotelKey/image threaded onto
   // itinerary items, see hotel_router.py's public_router

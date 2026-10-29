@@ -31,9 +31,15 @@
  *      only ever shows the real visa record, and is omitted entirely when
  *      there is none.
  * ===========================================================================*/
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { getDestinationPhoto, hotelPhoto, inr, proposalPayQuote } from "../../services/api";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalPayQuote } from "../../services/api";
 import { ProposalPayModal } from "./ProposalPayModal";
+import { ProposalFlightPayModal, type FlightPayQuote } from "./ProposalFlightPayModal";
+
+const noSubscribe = () => () => {};
+// "?payment=success&ref=TA-…" / "?payment=failed" when the customer comes back from paying.
+const readPayment = () => new URLSearchParams(window.location.search).get("payment") || "";
+const readPaymentRef = () => new URLSearchParams(window.location.search).get("ref") || "";
 import "../../styles/proposal-preview.css";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
@@ -154,6 +160,7 @@ function FlightGroup({ f, onSwap }: { f: any; onSwap?: (flightId: string, altInd
       <RecommendedFlightRow f={f} />
       <div className="pv-option-price" style={{ margin: "6px 0 10px" }}>
         {inr(f.price)}
+        {f.extrasLine && f.alternatives?.some((a: any) => a.fareOnly) ? <small className="pv-price-note"> incl. the add-ons above</small> : null}
         {f.isOriginalChoice === false ? " · Selected" : ""}
       </div>
       {alts.length ? (
@@ -169,9 +176,11 @@ function FlightGroup({ f, onSwap }: { f: any; onSwap?: (flightId: string, altInd
                   <div className="pv-option-detail">
                     {[a.depTime && a.arrTime ? `${a.depTime} → ${a.arrTime}` : null, a.detail].filter(Boolean).join(" · ")}
                   </div>
+                  {a.facts?.length ? <div className="pv-option-detail">{a.facts.join(" · ")}</div> : null}
                 </div>
                 <div className="pv-option-side">
-                  <div className="pv-option-price">{inr(a.price)}</div>
+                  <div className="pv-option-price">{a.fareOnly ? "from " : ""}{inr(a.price)}</div>
+                  {a.fareOnly ? <div className="pv-price-note">fare only · seat, meal &amp; bag extra</div> : null}
                   {onSwap && f.id ? (
                     <button type="button" className="pv-swap-btn" onClick={() => onSwap(f.id, i)}>
                       Swap
@@ -192,6 +201,7 @@ function RecommendedFlightRow({ f }: { f: any }) {
     <div className="pv-recflight">
       <div className="pv-recflight-head">
         <span className="pv-option-name">{f.title}</span>
+        {f.date ? <span className="pv-recflight-date">{f.date}</span> : null}
       </div>
       <div className="pv-recflight-row">
         <div>
@@ -212,6 +222,8 @@ function RecommendedFlightRow({ f }: { f: any }) {
           {f.arrivalDate && f.arrivalDate !== "Same day" ? <div className="pv-recflight-city">Arrives {f.arrivalDate}</div> : null}
         </div>
       </div>
+      {f.fareLine ? <div className="pv-recflight-extras"><b>Fare</b> {f.fareLine}</div> : null}
+      {f.extrasLine ? <div className="pv-recflight-extras"><b>Add-ons</b> {f.extrasLine}</div> : null}
     </div>
   );
 }
@@ -512,10 +524,19 @@ export function ProposalPreviewPage({
   // Customer "Pay now" (public link only): which stays can be booked online + the pay modal.
   const [payQuote, setPayQuote] = useState<{ payable: boolean; stays: any[]; gateway_configured: boolean } | null>(null);
   const [payingStay, setPayingStay] = useState<any | null>(null);
+  // Flights priced live by the advisor are paid through the flight flow (the hotel flow above is
+  // for hotel-only proposals).
+  const [flightQuote, setFlightQuote] = useState<FlightPayQuote | null>(null);
+  const [payingFlights, setPayingFlights] = useState(false);
+  const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
+  const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
   useEffect(() => {
     if (!payToken) return;
     proposalPayQuote(payToken).then((q: any) => setPayQuote(q)).catch(() => setPayQuote(null));
+    proposalFlightPayQuote(payToken).then((q: any) => setFlightQuote(q)).catch(() => setFlightQuote(null));
   }, [payToken]);
+  // Advisor's own preview: the live-priced flights the customer will be able to pay for.
+  const previewPayable = !payToken && (data.flights || []).some((f: any) => f.fareLine);
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
@@ -575,6 +596,9 @@ export function ProposalPreviewPage({
 
   return (
     <div className="pv-page">
+      {payToken && payingFlights && flightQuote ? (
+        <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)} />
+      ) : null}
       {payToken && payingStay ? (
         <ProposalPayModal
           token={payToken}
@@ -634,6 +658,13 @@ export function ProposalPreviewPage({
           </div>
 
           <div className="pv-body">
+            {payment === "success" ? (
+              <div className="pv-paid-note pv-paid-note--ok" role="status">
+                Payment received{paymentRef ? ` · booking ${paymentRef}` : ""}. Your advisor is issuing your tickets and will send them to you.
+              </div>
+            ) : payment === "failed" ? (
+              <div className="pv-paid-note pv-paid-note--err" role="status">The payment didn&apos;t go through and you haven&apos;t been charged. You can try again with Pay now below.</div>
+            ) : null}
             <div className="pv-tabs">
               <span className="pv-tab-indicator" style={{ transform: `translateX(${indicator.left}px)`, width: indicator.width }} />
               {visibleTabs.map((t) => (
@@ -740,12 +771,30 @@ export function ProposalPreviewPage({
                     <>
                       <h2 className="pv-section-title">What it costs</h2>
                       <div className="pv-costtable">
-                        {data.costLines.map((ln: any, i: number) => (
-                          <div className="pv-costrow" key={i}>
-                            <span>{ln.label}</span>
-                            <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
-                          </div>
-                        ))}
+                        {data.costLines.map((ln: any, i: number) =>
+                          ln.breakdown?.length ? (
+                            // A live-priced flight: its line opens into what the price is made of.
+                            <details className="pv-costrow-wrap" key={i}>
+                              <summary className="pv-costrow pv-costrow--open">
+                                <span>{ln.label}<span className="pv-costrow-caret" aria-hidden="true" /></span>
+                                <span>{inr(ln.sell)}</span>
+                              </summary>
+                              <div className="pv-costbreak">
+                                {ln.breakdown.map((b: any, j: number) => (
+                                  <div className="pv-costbreak-row" key={j}>
+                                    <span>{b.label}</span>
+                                    <span>{b.amount > 0 ? inr(b.amount) : "Included"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </details>
+                          ) : (
+                            <div className="pv-costrow" key={i}>
+                              <span>{ln.label}</span>
+                              <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
+                            </div>
+                          ),
+                        )}
                         <div className="pv-costrow pv-costrow--total">
                           <span>Trip total</span>
                           <span>{inr(data.grandTotal)}</span>
@@ -765,7 +814,17 @@ export function ProposalPreviewPage({
                   ) : null}
 
                   <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-                    {payToken && payQuote?.payable ? (
+                    {payToken && flightQuote?.payable && payment !== "success" ? (
+                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }} onClick={() => setPayingFlights(true)}>
+                        Pay now · {inr(flightQuote.amount)}
+                      </button>
+                    ) : previewPayable ? (
+                      <button type="button" className="pv-cta" style={{ background: "#1f6f5c", opacity: 0.55, cursor: "default" }} disabled
+                        title="Works on the customer's web link: the price is checked live with the airline when they press it">
+                        Pay now
+                      </button>
+                    ) : null}
+                    {payToken && payQuote?.payable && !flightQuote?.payable ? (
                       <button type="button" className="pv-cta" style={{ background: "#1f6f5c" }}
                         onClick={() => setPayingStay(payQuote.stays[0])}>
                         Pay now

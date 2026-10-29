@@ -852,7 +852,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                               {item.alternatives.map((a: any, ai: number) => (
                                 <span key={ai} className="taw-itin-alt">
                                   {item.type === "flight" ? [a.carrier, a.flightNo].filter(Boolean).join(" ") || "Flight" : a.name || "Hotel"}
-                                  {a.price ? <em>{inr(a.price)}</em> : null}
+                                  {item.type === "flight" ? (
+                                    // Cabin, times, bag and refundability; the price is the searched fare
+                                    // alone, so it reads "from" next to a flight priced with add-ons.
+                                    <small className="taw-itin-alt-facts">
+                                      {[a.depTime ? a.depTime + (a.arrTime ? "–" + a.arrTime : "") : null, item.cabin ? String(item.cabin).replace(/_/g, " ") : null,
+                                        a.baggageKg ? a.baggageKg + " kg" : null, a.refundable == null ? null : a.refundable ? "refundable" : "non-ref",
+                                        item.pricing ? "no add-ons" : null].filter(Boolean).join(" · ")}
+                                    </small>
+                                  ) : null}
+                                  {a.price ? <em>{item.type === "flight" && item.pricing ? "from " : ""}{inr(a.price)}</em> : null}
                                   <button
                                     type="button"
                                     aria-label="Remove this swap option"

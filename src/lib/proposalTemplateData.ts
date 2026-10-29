@@ -334,11 +334,19 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     return dt.toISOString().slice(0, 10);
   }
 
+  const cabinWord = (c: any) => {
+    const t = String(c || "").replace(/_/g, " ").toLowerCase();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : null;
+  };
   const flights = days
     .flatMap((day: any) => (day.items || []).filter((it: any) => it.type === "flight")
       .map((it: any) => ({ ...it, time: clockTime(it.time), arrTime: clockTime(it.arrTime), _dayIso: day._iso, _route: day.route })))
     .map((it: any) => {
-      const [depCity, arrCity] = String(it._route || "").split(" → ").map((s: string) => s.trim());
+      // The day's route only when it is one ("DEL → GOI"); a Tara day title ("Arrival and the
+      // ghats at dusk") is not a city — the flight's own airports are.
+      const [depCity, arrCity] = String(it._route || "").includes("→")
+        ? String(it._route).split(" → ").map((s: string) => s.trim())
+        : [it.origin || "", it.dest || ""];
       const arrivalIso = it.time ? addDurationDate(it._dayIso, it.time, it.duration) : null;
       return {
         date: dayIsoLabel(it._dayIso),
@@ -362,7 +370,18 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         alternatives: (it.alternatives || []).map((a: any) => ({
           carrier: a.carrier, flightNo: a.flightNo, depTime: clockTime(a.depTime), arrTime: clockTime(a.arrTime), stops: a.stops ?? 0,
           price: a.price || 0, detail: a.detail || null,
+          // What the customer compares on: cabin, checked bag and refundability. An alternative's
+          // price is its searched fare alone — no seat / meal / bag add-ons.
+          facts: [cabinWord(it.cabin), a.baggageKg ? `${a.baggageKg} kg check-in` : null, a.refundable == null ? null : a.refundable ? "Refundable" : "Non-refundable"].filter(Boolean),
+          fareOnly: !!it.pricing,
         })),
+        // A flight priced live in the Console: its fare option, what the fare includes and the
+        // add-ons picked (one line each), and the fare vs add-ons split of its price.
+        fareLine: it.pricing ? [it.pricing.fareName && it.pricing.fareName !== "Searched fare" ? `${it.pricing.fareName} fare` : null, cabinWord(it.cabin),
+          it.pricing.checkinKg ? `${it.pricing.checkinKg} kg check-in` : null, it.pricing.refundable ? "Refundable" : "Non-refundable"].filter(Boolean).join(" · ") : null,
+        extrasLine: it.pricing && (it.pricing.extras || []).length
+          ? (it.pricing.extras as any[]).map((x: any) => (x.kind === "meal" ? `${x.label} (meal)` : x.label) + ((it.pricing.extras as any[]).some((y: any) => y.segment !== x.segment) ? ` · ${x.segment}` : "")).join(" · ")
+          : it.pricing ? "No add-ons — seat assigned by the airline at check-in" : null,
         cabin: it.cabin,
         segments: it.segments || [],
         title: it.title,
@@ -538,18 +557,50 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     const lines: { label: string; sell: number }[] = [];
     for (const type of order) {
       for (const item of itemQueuesByType[type] || []) {
-        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0 });
+        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, breakdown: flightBreakdown(item, item.price || 0) } as any);
       }
     }
     return lines;
   }
 
+  // A live-priced flight's line, opened up for the customer: base fare, each add-on, and the
+  // rest of the line (taxes, airline / supplier fees and charges) — adding up to the line exactly.
+  function flightBreakdown(item: any, sell: number): { label: string; amount: number }[] | null {
+    const p = item && item.type === "flight" ? item.pricing : null;
+    if (!p || !(sell > 0)) return null;
+    const extras = ((p.extras || []) as any[]).map((x: any) => ({ label: x.label + " · " + x.segment, amount: Number(x.price) || 0 }));
+    const extrasTotal = extras.reduce((n, x) => n + x.amount, 0);
+    const base = Number(p.baseFare);
+    const rows: { label: string; amount: number }[] = [];
+    if (Number.isFinite(base) && base > 0 && base <= sell - extrasTotal) {
+      rows.push({ label: "Base fare" + (p.fareName && p.fareName !== "Searched fare" ? ` (${p.fareName})` : ""), amount: base });
+      rows.push({ label: "Taxes, fees & charges", amount: Math.round((sell - extrasTotal - base) * 100) / 100 });
+    } else {
+      rows.push({ label: "Airfare incl. taxes & fees", amount: Math.round((sell - extrasTotal) * 100) / 100 });
+    }
+    return [...rows, ...extras];
+  }
+
   const enrichedCostLines = pricing?.lines?.length
     ? pricing.lines.map((ln: any) => {
         const lnType = String(ln.type || "").toLowerCase();
-        return { ...ln, label: enrichedLabel((itemQueuesByType[lnType] || []).shift(), ln.label || ln.type) };
+        const item = (itemQueuesByType[lnType] || []).shift();
+        return { ...ln, label: enrichedLabel(item, ln.label || ln.type), breakdown: flightBreakdown(item, Number(ln.sell)), _itemId: item?.id };
       })
     : fallbackLinesFromItinerary();
+  // "Getting there" shows each flight at the same customer price as its "What it costs" line
+  // (not the supplier cost), and its alternatives on the same basis, so the page has one price.
+  if (pricing?.lines?.length) {
+    for (const f of flights as any[]) {
+      const ln: any = enrichedCostLines.find((l: any) => l._itemId && l._itemId === f.id);
+      const sell = Number(ln?.sell);
+      if (!(sell > 0) || !(f.price > 0)) continue;
+      const ratio = sell / f.price;
+      f.price = sell;
+      f.alternatives = (f.alternatives || []).map((a: any) => ({ ...a, price: a.price ? Math.round(a.price * ratio) : a.price }));
+    }
+  }
+  for (const ln of enrichedCostLines as any[]) delete ln._itemId;
   // The quote's total also carries the planning fee, GST and TCS (commerce_quote_service): list
   // them, so the lines the customer reads add up to the total they're shown.
   if (pricing?.lines?.length) {
