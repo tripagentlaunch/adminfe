@@ -178,7 +178,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
   const cabinLabel = (CABINS.find((c) => c.key === form.cabin) || CABINS[0]).label;
 
-  function runSearch() {
+  // `cabin` re-runs the same search in another cabin (the class chips on the results screen).
+  function runSearch(cabin?: string) {
+    if (cabin) setForm((f) => ({ ...f, cabin }));
+    const cabinNow = cabin || form.cabin;
     setErr(null);
     if (form.from.length !== 3 || form.to.length !== 3) {
       setErr("Pick a From and To airport from the suggestions."); return;
@@ -193,7 +196,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     fastapiFlightSearch({
       originCode: form.from, destCode: form.to,
       date: form.date, returnDate: round ? form.returnDate : undefined,
-      pax: form.adults, children: form.children, infants: form.infants, cabin: form.cabin,
+      pax: form.adults, children: form.children, infants: form.infants, cabin: cabinNow,
     })
       .then((r: any) => {
         if (seq !== searchSeq.current) return;
@@ -687,7 +690,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 </button>
               </div>
 
-              <button type="button" className="ow-searchbtn" onClick={runSearch} disabled={searching}>
+              <button type="button" className="ow-searchbtn" onClick={() => runSearch()} disabled={searching}>
                 <Icon name="search" size={15} />
                 {searching ? "Searching…" : "Search"}
               </button>
@@ -759,6 +762,17 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
               <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
+            </div>
+            <div className="nb-cabins" role="radiogroup" aria-label="Cabin class">
+              <span className="nb-cabins-l">Cabin</span>
+              {CABINS.map((c) => (
+                <button key={c.key} type="button" role="radio" aria-checked={form.cabin === c.key}
+                  className={`nb-cabin${form.cabin === c.key ? " on" : ""}`}
+                  disabled={searching || !!lockingId || step !== "results"}
+                  onClick={() => { if (form.cabin !== c.key) runSearch(c.key); }}>
+                  {searching && form.cabin === c.key ? "Searching…" : c.label}
+                </button>
+              ))}
             </div>
             {partialErrors.length ? (
               <div className="taw-banner taw-banner--info">Some suppliers failed — results may be partial.</div>

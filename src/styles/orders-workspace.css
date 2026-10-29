@@ -439,7 +439,11 @@
 .ow-sm{display:grid;gap:10px;}
 .ow-sm-legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:11.5px;color:var(--taupe);}
 .ow-sm-legend span{display:inline-flex;align-items:center;gap:5px;}
-.ow-sm-plane{border:1px solid var(--line);border-radius:36px 36px 12px 12px;padding:8px 14px 10px;background:var(--card);max-width:340px;width:100%;margin:0 auto;}
+.ow-sm-plane{position:relative;border:1px solid var(--line);border-radius:36px 36px 12px 12px;padding:8px 14px 10px;background:var(--card);max-width:340px;width:100%;margin:0 auto;}
+/* Price bubble above the hovered seat */
+.ow-sm-tip{position:absolute;z-index:3;transform:translate(-50%,calc(-100% - 8px));pointer-events:none;white-space:nowrap;background:var(--ink);color:#fff;border-radius:8px;padding:6px 10px;font-size:12.5px;box-shadow:0 6px 16px -6px rgba(23,19,16,.5);}
+.ow-sm-tip small{display:block;font-size:11px;opacity:.8;}
+.ow-sm-tip::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;background:var(--ink);transform:translateX(-50%) rotate(45deg);}
 .ow-sm-nose{text-align:center;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe);padding:6px 0 8px;}
 .ow-sm-scroll{max-height:clamp(220px,42vh,420px);overflow-y:auto;overscroll-behavior:contain;display:grid;gap:4px;padding:4px 0;}
 .ow-sm-row{display:flex;align-items:center;justify-content:center;gap:4px;}
@@ -451,16 +455,20 @@
 .ow-sm-col.blank{height:26px;}
 .ow-sm-gap{text-align:center;font-size:10.5px;color:var(--taupe);padding:2px 0;border-top:1px dotted var(--line);border-bottom:1px dotted var(--line);}
 .ow-sm-seat{position:relative;display:inline-block;width:26px;height:26px;border-radius:7px 7px 4px 4px;border:1.5px solid var(--line);padding:0;cursor:pointer;flex:none;background:var(--card);}
-.ow-sm-seat.bf{border-color:#3d8b5f;background:#e7f4ec;}
-.ow-sm-seat.b0{border-color:#cdb872;background:#f7f0d8;}
-.ow-sm-seat.b1{border-color:#c9a64a;background:#efdca0;}
-.ow-sm-seat.b2{border-color:#b5832a;background:#e3bf6a;}
-.ow-sm-seat.b3{border-color:#8c5a1c;background:#d09a3c;}
-.ow-sm-seat.sel{border-color:var(--ink);background:var(--gold);box-shadow:0 0 0 2px var(--gold-bg);}
+/* One clearly different hue per price band (never shades of one colour): free = green,
+   then blue / amber / rose from the cheapest to the dearest paid band. */
+.ow-sm-seat.f{border-color:#3d8b5f;background:#cfe9d8;}
+.ow-sm-seat.p0{border-color:#3f74a8;background:#cfe0f3;}
+.ow-sm-seat.p1{border-color:#c48a12;background:#f6d98f;}
+.ow-sm-seat.p2{border-color:#b0415f;background:#f2c2d0;}
+.ow-sm-seat.plain{border-color:var(--line-2);background:var(--card);}
+.ow-sm-seat.sel{border-color:var(--ink);background:var(--ink);box-shadow:0 0 0 2px var(--gold);}
+.ow-sm-seat:not(.booked):not(:disabled):hover{transform:translateY(-1px);box-shadow:0 0 0 2px var(--ink);}
+.ow-sm-band{font-weight:600;color:var(--ink);}
 .ow-sm-seat.sel::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;}
 .ow-sm-seat.booked{border-color:transparent;background:rgba(0,0,0,.12);cursor:not-allowed;}
 .ow-sm-seat.booked::after{content:"×";position:absolute;inset:0;display:grid;place-items:center;font-size:13px;color:rgba(0,0,0,.35);}
-.ow-sm-seat.leg:not(.booked)::before{content:"";position:absolute;left:3px;right:3px;top:2px;height:3px;border-radius:2px;background:#3f6f86;}
+.ow-sm-seat.leg:not(.booked)::before{content:"";position:absolute;left:3px;right:3px;top:2px;height:3px;border-radius:2px;background:var(--ink);}
 .ow-sm-seat.exit:not(.booked):not(.sel)::after{content:"E";position:absolute;inset:0;display:grid;place-items:center;font-size:9px;font-weight:700;color:#c9503a;}
 .ow-sm-seat.wca:not(.booked):not(.sel)::after{content:"♿";position:absolute;inset:0;display:grid;place-items:center;font-size:11px;}
 .ow-sm-seat:disabled:not(.booked){opacity:.6;cursor:not-allowed;}
@@ -494,7 +502,7 @@
 /* The panel scrolls as a flex column: never let the header, step bar or footers shrink (the
    step bar scrolls sideways, so it would otherwise collapse and cut its labels). */
 .nb-modal>*{flex-shrink:0;}
-.nb-steps{min-height:36px;}
+.nb-steps{min-height:36px;flex-wrap:wrap;row-gap:8px;overflow:visible!important;}
 .nb-mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
 .nb-mtitle h2{margin:0;font:600 21px/1.2 var(--serif);color:var(--ink);}
 .nb-mtitle span{display:block;margin-top:2px;font-size:12.5px;color:var(--taupe);}
@@ -743,3 +751,11 @@
   .fi-tab.on{border-bottom-color:var(--gold);background:transparent;}
   .fi-fare-feat{grid-template-columns:1fr;}
 }
+
+/* Cabin class chips on the results screen (re-run the same search in that cabin) */
+.nb-cabins{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.nb-cabins-l{font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:2px;}
+.nb-cabin{padding:7px 16px;border-radius:999px;border:1px solid var(--line-2);background:var(--card);font:600 13px var(--sans);color:var(--taupe);cursor:pointer;}
+.nb-cabin:hover:not(:disabled){color:var(--ink);border-color:var(--ink);}
+.nb-cabin.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.nb-cabin:disabled:not(.on){opacity:.5;cursor:not-allowed;}

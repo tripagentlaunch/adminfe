@@ -4,7 +4,7 @@
    each seat {code,row,col,pos,price,booked,legroom,exit,wca,window,aisle}.
    A column position that holds no seat is an aisle; a row number with no seats
    (e.g. no row 13) is shown as a gap, never silently skipped. */
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { inr } from "../../services/api";
 
 export type MapSeat = {
@@ -19,9 +19,14 @@ function bandsOf(seats: MapSeat[]) {
   const groups: number[][] = [];
   if (paid.length <= 3) paid.forEach((p) => groups.push([p]));
   else for (let i = 0; i < 3; i++) groups.push(paid.slice(Math.floor((paid.length * i) / 3), Math.floor((paid.length * (i + 1)) / 3)));
+  // Each band has its own hue (f = free, p0..p2 = cheapest..dearest paid) so two prices never
+  // look alike: shades of one colour were too easy to confuse when picking a seat.
   const bands = [
-    ...(prices.includes(0) ? [{ lo: 0, hi: 0, label: "Free" }] : []),
-    ...groups.filter((g) => g.length).map((g) => ({ lo: g[0], hi: g[g.length - 1], label: g[0] === g[g.length - 1] ? inr(g[0]) : `${inr(g[0])} – ${inr(g[g.length - 1])}` })),
+    ...(prices.includes(0) ? [{ lo: 0, hi: 0, label: "Free", key: "f" }] : []),
+    ...groups.filter((g) => g.length).map((g, i) => ({
+      lo: g[0], hi: g[g.length - 1], key: `p${i}`,
+      label: g[0] === g[g.length - 1] ? inr(g[0]) : `${inr(g[0])} – ${inr(g[g.length - 1])}`,
+    })),
   ];
   return bands;
 }
@@ -44,11 +49,21 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
     const exitRows = new Set(seats.filter((s) => s.exit).map((s) => s.row));
     const positions = Array.from({ length: cols }, (_, i) => i + 1);
     const bands = bandsOf(seats);
-    const bandIdx = (price: number) => bands.findIndex((b) => price >= b.lo && price <= b.hi);
-    return { lastRow, positions, letter, at, rowsWithSeats, exitRows, bands, bandIdx, hasWca: seats.some((s) => s.wca) };
+    const bandKey = (price: number) => (bands.find((b) => price >= b.lo && price <= b.hi) || bands[bands.length - 1])?.key || "p0";
+    return { lastRow, positions, letter, at, rowsWithSeats, exitRows, bands, bandKey, hasWca: seats.some((s) => s.wca) };
   }, [seats, grid]);
 
   const chosen = selected ? seats.find((s) => s.code === selected) || null : null;
+  // Price bubble right above the hovered seat, positioned inside the plane outline.
+  const planeRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ s: MapSeat; x: number; y: number } | null>(null);
+  function showTip(s: MapSeat, el: HTMLElement) {
+    setHover(s);
+    const box = planeRef.current?.getBoundingClientRect();
+    const r = el.getBoundingClientRect();
+    if (box) setTip({ s, x: r.left - box.left + r.width / 2, y: r.top - box.top });
+  }
+  function hideTip() { setHover(null); setTip(null); }
   const shown = hover || chosen;
   const rows = Array.from({ length: m.lastRow }, (_, i) => i + 1);
 
@@ -56,23 +71,29 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
     <div className="ow-sm">
       <div className="ow-sm-legend">
         {m.bands.map((b, i) => (
-          <span key={b.label}><i className={`ow-sm-seat b${b.lo === 0 && b.hi === 0 ? "f" : Math.min(i, 3)}`} /> {b.label}</span>
+          <span key={b.label} className="ow-sm-band"><i className={`ow-sm-seat ${b.key}`} /> {b.label}</span>
         ))}
         <span><i className="ow-sm-seat sel" /> Selected</span>
         <span><i className="ow-sm-seat booked" /> Taken</span>
-        <span><i className="ow-sm-seat b1 leg" /> Extra legroom</span>
-        <span><i className="ow-sm-seat b1 exit" /> Exit row</span>
-        {m.hasWca ? <span><i className="ow-sm-seat b1 wca" /> Wheelchair-accessible</span> : null}
+        <span><i className="ow-sm-seat plain leg" /> Extra legroom</span>
+        <span><i className="ow-sm-seat plain exit" /> Exit row</span>
+        {m.hasWca ? <span><i className="ow-sm-seat plain wca" /> Wheelchair-accessible</span> : null}
       </div>
 
-      <div className="ow-sm-plane" onMouseLeave={() => setHover(null)}>
+      <div className="ow-sm-plane" ref={planeRef} onMouseLeave={hideTip}>
+        {tip ? (
+          <div className="ow-sm-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">
+            <b>{tip.s.code}</b> · {tip.s.booked ? "taken" : tip.s.price > 0 ? inr(tip.s.price) : "Free"}
+            <small>{feat(tip.s)}</small>
+          </div>
+        ) : null}
         <div className="ow-sm-nose">Front of cabin</div>
         <div className="ow-sm-row ow-sm-head" aria-hidden>
           <span className="ow-sm-no" />
           {m.positions.map((p) => <span key={p} className={`ow-sm-col${m.letter(p) ? "" : " aisle"}`}>{m.letter(p)}</span>)}
           <span className="ow-sm-no" />
         </div>
-        <div className="ow-sm-scroll">
+        <div className="ow-sm-scroll" onScroll={hideTip}>
           {rows.map((r) => {
             if (!m.rowsWithSeats.has(r)) {
               return <div key={r} className="ow-sm-gap">Row {r} · no seats</div>;
@@ -84,13 +105,13 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
                   const s = m.at.get(`${r}:${p}`);
                   if (!s) return <span key={p} className={`ow-sm-col${m.letter(p) ? " blank" : " aisle"}`} />;
                   const on = selected === s.code;
-                  const cls = s.booked ? "booked" : on ? "sel" : `b${s.price === 0 ? "f" : Math.min(Math.max(m.bandIdx(s.price), 0), 3)}`;
+                  const cls = s.booked ? "booked" : on ? "sel" : s.price === 0 ? "f" : m.bandKey(s.price);
                   return (
                     <button key={p} type="button" disabled={disabled || s.booked}
                       className={`ow-sm-seat ${cls}${s.legroom ? " leg" : ""}${s.exit ? " exit" : ""}${s.wca ? " wca" : ""}`}
                       aria-label={`Seat ${s.code}${s.booked ? ", taken" : `, ${s.price > 0 ? inr(s.price) : "free"}, ${feat(s)}`}`}
                       aria-pressed={on}
-                      onMouseEnter={() => setHover(s)} onFocus={() => setHover(s)} onBlur={() => setHover(null)}
+                      onMouseEnter={(e) => showTip(s, e.currentTarget)} onFocus={(e) => showTip(s, e.currentTarget)} onBlur={hideTip}
                       onClick={() => onPick(on ? null : s)} />
                   );
                 })}
