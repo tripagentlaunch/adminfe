@@ -13,6 +13,7 @@ import { useState } from "react";
 import { proposalPayPrepare, proposalPayRazorpay, proposalPayConfirm, inr } from "../../services/api";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
+import { secondsLeft } from "./PayTimer";
 
 function loadCheckout(): Promise<boolean> {
   if (typeof window === "undefined") return Promise.resolve(false);
@@ -70,6 +71,7 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
       const prep: any = await proposalPayPrepare(token, { stay_id: stay.id, guest, adults: 1, rooms: 1, accept_changes: true });
       if (prep.price_changed) setPriceNote({ was: prep.old_price, now: prep.new_price });
       const orderId = prep.order_id;
+      const holdLeft = secondsLeft(prep.pay_by);
       // 2. Razorpay for the server-priced due amount
       const [o, ok]: [any, boolean] = await Promise.all([proposalPayRazorpay(token, orderId), loadCheckout()]);
       if (!ok) throw new Error("Couldn't load the payment window — check your connection and try again.");
@@ -77,6 +79,8 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
         const rz = new (window as any).Razorpay({
           key: o.key_id, order_id: o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
           name: "TripAgent", description: o.description || "Hotel booking", prefill: o.prefill, theme: { color: "#1f6f5c" },
+          // closes by itself when the 15-minute hold ends (Razorpay needs at least 60 seconds)
+          ...(holdLeft != null ? { timeout: Math.max(60, holdLeft) } : {}),
           handler: (r: any) => {
             // 3. verify + book the room
             proposalPayConfirm(token, {

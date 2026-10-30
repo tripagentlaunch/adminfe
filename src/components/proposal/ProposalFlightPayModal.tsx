@@ -15,6 +15,7 @@ import { useRouter } from "next/navigation";
 import { proposalFlightPayConfirm, proposalFlightPayPrepare, proposalFlightPayStart, inr } from "../../services/api";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
+import { PayTimer, secondsLeft } from "./PayTimer";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
@@ -57,7 +58,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const router = useRouter();
   const [step, setStep] = useState<"form" | "working" | "changed" | "done">("form");
   const [err, setErr] = useState<string | null>(null);
-  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number } | null>(null);
+  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null } | null>(null);
   const [paidRef, setPaidRef] = useState<string | null>(null);
   const stays = quote.stays || [];
   const kinds: Pax["pax_type"][] = quote.travellers === "lead" ? ["adult"] : [
@@ -102,7 +103,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
     }
   }
 
-  async function pay(p: { order_id: string; amount: number }) {
+  async function pay(p: { order_id: string; amount: number; pay_by?: string | null }) {
     setErr(null);
     setStep("working");
     try {
@@ -121,6 +122,8 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
         const rz = new (window as any).Razorpay({
           key: o.key_id, order_id: o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
           name: o.name || "TripAgent", description: o.description, prefill: o.prefill, notes: o.notes, theme: { color: "#1f6f5c" },
+          // Razorpay closes its own window when the 15-minute hold ends (it needs at least 60 seconds)
+          ...(secondsLeft(p.pay_by) != null ? { timeout: Math.max(60, secondsLeft(p.pay_by) as number) } : {}),
           handler: (r: any) => proposalFlightPayConfirm(token, {
             order_id: p.order_id, razorpay_order_id: r.razorpay_order_id, razorpay_payment_id: r.razorpay_payment_id, razorpay_signature: r.razorpay_signature,
           }).then(resolve, reject),
@@ -175,6 +178,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
 
             {step === "changed" && prep ? (
               <>
+                <PayTimer payBy={prep.pay_by} onExpire={() => { setPrep(null); setStep("form"); setErr("Your 15 minutes ran out and the booking was released. Press Pay to start again with a fresh price."); }} />
                 <div style={banner("warn")}>
                   The airline&apos;s price has changed since your proposal: was <s>{inr(prep.quoted)}</s>, now <b>{inr(prep.amount)}</b>.
                   The same flight, fare and add-ons are held for you at the new price.
