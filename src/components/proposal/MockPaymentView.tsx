@@ -61,6 +61,11 @@ export function MockPaymentView() {
           <span style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", background: "#fff3cd", color: "#7a5b00", padding: "3px 8px", borderRadius: 6 }}>Mock payment · test</span>
         </div>
         {o.steps > 1 ? <div style={{ fontSize: 12, color: "#7a5b00", marginBottom: 4 }}>Payment {o.step} of {o.steps}</div> : null}
+        {o.mock_reason ? (
+          <div style={{ fontSize: 12, background: "#fff6e5", color: "#8a6400", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
+            TripSure didn&apos;t open a real payment, so this mock stands in: {o.mock_reason}
+          </div>
+        ) : null}
         <div style={{ fontSize: 13, color: "#666" }}>{o.description || "Flights"}</div>
         <div style={{ fontSize: 32, fontWeight: 700, margin: "6px 0 16px" }}>{o.amount != null ? inr(o.amount) : o.amount_paise ? inr(o.amount_paise / 100) : "—"}</div>
 

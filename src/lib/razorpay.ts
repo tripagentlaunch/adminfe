@@ -21,11 +21,17 @@ export interface RazorpayOpenOptions {
   prefill?: { name?: string; email?: string; contact?: string };
   onSuccess: (r: RazorpaySuccess) => void;
   onDismiss: () => void;
+  // Optional (the proposal link's payment): Razorpay order notes, closing the window when the hold
+  // ends (seconds, at least 60), the brand colour, and a failed attempt inside the window.
+  notes?: Record<string, unknown>;
+  timeout?: number;
+  theme?: { color?: string };
+  onFailed?: (description: string) => void;
 }
 
 declare global {
   interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => { open: () => void };
+    Razorpay?: new (options: Record<string, unknown>) => { open: () => void; on?: (event: string, cb: (e: any) => void) => void };
   }
 }
 
@@ -61,6 +67,10 @@ export async function openRazorpayCheckout(opts: RazorpayOpenOptions): Promise<v
     prefill: opts.prefill ?? {},
     handler: (r: RazorpaySuccess) => opts.onSuccess(r),
     modal: { ondismiss: () => opts.onDismiss() },
+    ...(opts.notes ? { notes: opts.notes } : {}),
+    ...(opts.timeout ? { timeout: opts.timeout } : {}),
+    ...(opts.theme ? { theme: opts.theme } : {}),
   });
+  if (opts.onFailed && rzp.on) rzp.on("payment.failed", (e: any) => opts.onFailed!(e?.error?.description || "The payment failed."));
   rzp.open();
 }
