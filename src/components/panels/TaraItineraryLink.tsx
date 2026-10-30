@@ -64,6 +64,7 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden, v
   const code = baseCode || (found && found.key === memberKey ? found.code : "");
   const { itinerariesByEnquiry, loadTaraItinerary, autoLoadTaraItinerary, workspaceRestored, parkedItineraries, resumeParkedItinerary } = useWorkbench();
   const parked = !!(selEnqId && parkedItineraries[selEnqId]);
+  const parkedIsTara = !!(selEnqId && parkedItineraries[selEnqId]?.taraPlan);
   // Plans are stored with the code they were fetched for, so switching traveller
   // shows nothing (not the previous traveller's plans) until the new list arrives.
   const [loaded, setLoaded] = useState<{ code: string; plans: PlanSummary[] } | null>(null);
@@ -227,7 +228,7 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden, v
   return (
     <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
       <button type="button" className="taw-btn taw-btn--sm" onClick={() => open()} disabled={opening}>
-        <Icon name="sparkle" size={13} /> {opening ? "Opening…" : parked ? "Return to Tara’s itinerary" : "Open Tara’s itinerary"}
+        <Icon name="sparkle" size={13} /> {opening ? "Opening…" : parked ? (parkedIsTara ? "Return to Tara’s itinerary" : "Return to your itinerary") : "Open Tara’s itinerary"}
       </button>
       {plans.length > 1 && !parked ? (
         <select

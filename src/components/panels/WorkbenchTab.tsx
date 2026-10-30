@@ -539,18 +539,17 @@ export function WorkbenchTab(props: any) {
         }
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          // "← Back" (2026-10-21) — only while Tara's itinerary is the one showing. It sets that
-          // itinerary aside (edits kept) and returns to the Generate / Start-from-scratch chooser;
-          // the inline Tara link then offers "Return to Tara's itinerary". This replaces the
-          // header's old "Tara Itinerary" button, which only repeated "Generate AI Itinerary".
-          taraShowing ? (
+          // "← Start" — whenever an itinerary is open (Tara's or one built from scratch). It sets that
+          // itinerary aside (edits kept) and returns to the start screen: Tara's itineraries / Start
+          // from scratch. The start screen then offers "Return to your itinerary" to reopen it.
+          selEnqId && itineraryData ? (
             <button
               type="button"
               className="taw-btn taw-btn--sm"
               title="Back to the start screen (Tara's itineraries / Start from scratch) — this itinerary is kept and can be reopened"
               onClick={() => parkTaraItinerary(selEnqId as string)}
             >
-              ← Back
+              ← Start
             </button>
           ) : null
         }
