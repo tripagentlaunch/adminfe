@@ -63,7 +63,8 @@ function presetFromUrl(): BookingPreset | null {
 export function OrdersWorkspace() {
   const [tab,        setTab]        = useState<Tab>("all");
   const [range,      setRange]      = useState("90");
-  const [query,      setQuery]      = useState("");
+  // "?q=TA-000056" (Pipeline's "Open order" on a paid trip) opens the list filtered to that order.
+  const [query,      setQuery]      = useState(() => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("q") || "" : ""));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNew,    setShowNew]    = useState(() => !!presetFromUrl());
   const [addTo,      setAddTo]      = useState<RealOrder | null>(null);

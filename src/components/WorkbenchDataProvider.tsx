@@ -119,6 +119,24 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // same shape the backend returns per entry: { itinerary_generated_at,
   // proposal: { sent_at, outcome, decided_at } | null }.
   const [pipelineStatusByEnquiry, setPipelineStatusByEnquiry] = useState<Record<string, any>>({});
+  // Payments can land from another screen or the customer's link: re-read the trip statuses (one
+  // call) when the advisor comes back to this tab, at most once a minute.
+  const pipelineReadAt = useRef(0);
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || Date.now() - pipelineReadAt.current < 60_000) return;
+      pipelineReadAt.current = Date.now();
+      enquiryPipelineStatus()
+        .then((r: any) => {
+          const by: Record<string, any> = {};
+          ((r && r.statuses) || []).forEach((st: any) => { by[st.enquiry_id] = st; });
+          setPipelineStatusByEnquiry(by);
+        })
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   // Itineraries and the proposal queue are saved per enquiry on the server
   // (GET/PUT /enquiries/{id}/workspace, db/150) and restored on load, so a
@@ -170,6 +188,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         statusByEnquiry[s.enquiry_id] = s;
       });
       setPipelineStatusByEnquiry(statusByEnquiry);
+      pipelineReadAt.current = Date.now();
     });
   }
 
