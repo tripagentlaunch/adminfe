@@ -147,6 +147,13 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     setErr(null);
     try {
       const o: any = await hotelPaymentTransaction(item.id);
+      if (o?.mock && o?.razorpay_order_id) {
+        // PAYMENT_MOCK (dev): no Checkout — the server records the payment with a mock UTR.
+        await hotelPaymentVerify(item.id, { razorpay_order_id: o.razorpay_order_id, razorpay_payment_id: "", razorpay_signature: "mock" });
+        toast("Test payment recorded (mock UTR) — you can now confirm the room", "success");
+        onChanged();
+        return;
+      }
       if (!o?.key_id || !o?.razorpay_order_id) throw new Error("TripSure didn't return a payment order.");
       await openRazorpayCheckout({
         keyId: o.key_id,
