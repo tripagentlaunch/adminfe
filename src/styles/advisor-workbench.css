@@ -1866,6 +1866,13 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-psg-more{margin-top:8px;padding:0;border:0;background:none;color:var(--gold-ink,#785c12);font-size:12px;text-decoration:underline;cursor:pointer;}
 .taw-psg-b{container-type:inline-size;}
 @container (max-width:620px){.taw-psg-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.taw-psg-wide{grid-column:span 1;}}
+/* Itinerary Builder: a paid trip is locked (ItineraryView.tsx) */
+.taw-locked{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;padding:12px 14px;margin:0 0 12px;border-radius:12px;border:1px solid rgba(47,107,74,.35);background:#e9f3ed;color:#1f5c3f;}
+.taw-locked.is-open{border-color:rgba(176,132,40,.45);background:var(--warn-bg,#fff8ea);color:var(--warn-ink,#8a6400);}
+.taw-locked-t{display:grid;gap:2px;flex:1 1 260px;min-width:0;}
+.taw-locked-t b{font-size:13.5px;}
+.taw-locked-t small{font-size:12px;line-height:1.45;opacity:.9;}
+.taw-locked-a{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;}
 /* Hotel desk: rooms editor, location type tags, requests (HotelDesk.tsx) */
 .taw-room{display:grid;padding:4px 0 6px;}
 .taw-room+.taw-room{border-top:1px solid var(--line);}

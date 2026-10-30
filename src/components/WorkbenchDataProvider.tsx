@@ -375,13 +375,53 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // DOES get surfaced via toast, unlike the fire-and-forget calls above —
   // this one has a visible caller (Proposal Composer's new outcome
   // control) that should know if the record didn't actually stick.
+  // A trip the customer has paid for is locked (the server stamps itinerary.locked when the
+  // payment is verified): nothing here may change it until an advisor unlocks it on purpose.
+  function isLocked(enquiryId: string): boolean {
+    const l = itinerariesByEnquiry[enquiryId]?.locked;
+    return !!(l && !l.unlocked_at);
+  }
+  function refuseIfLocked(enquiryId: string): boolean {
+    if (!isLocked(enquiryId)) return false;
+    toast("This trip is paid and locked. Start a new trip for new plans, or unlock it from the Itinerary Builder if a change is truly needed.", "warn");
+    return true;
+  }
+  // "Unlock to edit": a deliberate advisor override, recorded on the itinerary. The paid link
+  // stays frozen; the next Web link for this trip is a new one.
+  function unlockItinerary(enquiryId: string) {
+    setItinerariesByEnquiry((m) => (m[enquiryId]?.locked
+      ? { ...m, [enquiryId]: { ...m[enquiryId], locked: { ...m[enquiryId].locked, unlocked_at: new Date().toISOString(), unlocked_by: advisorId || null } } }
+      : m));
+    toast("Unlocked for editing. The customer's paid link stays as it was; sharing again makes a new link.", "info");
+  }
+  // "Start a new trip": a fresh enquiry (and itinerary) for the same traveller; the paid one stays as it is.
+  function startNewTrip(enquiryId: string): Promise<any> {
+    const cur = enquiries.find((e: any) => e.id === enquiryId);
+    const memberId = cur?.member_id || member?.id;
+    if (!memberId) {
+      toast("Couldn't start a new trip — this enquiry has no traveller attached.", "error");
+      return Promise.resolve(null);
+    }
+    return enquiryCreate({ member_id: memberId, channel: "advisor", reuse: false })
+      .then((r: any) => {
+        const e = r.enquiry;
+        setEnquiries((prev) => [e, ...prev]);
+        pickEnquiry(e, member || undefined);
+        toast("New trip started for this traveller.", "success");
+        return e;
+      })
+      .catch((err: any) => { toast("Couldn't start a new trip: " + errText(err), "error"); return null; });
+  }
+
   // A swap in the Proposal Composer changes the itinerary itself (the composer
   // shows the live itinerary), and the sent copy in the queue with it.
   function swapProposalHotel(enquiryId: string, itemId: string, hotelKey: string) {
+    if (refuseIfLocked(enquiryId)) return;
     setItinerariesByEnquiry((m) => (m[enquiryId] ? { ...m, [enquiryId]: swapHotelAlternative(m[enquiryId], itemId, hotelKey) } : m));
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapHotelAlternative(e.data, itemId, hotelKey) } : e)));
   }
   function swapProposalFlight(enquiryId: string, itemId: string, altIndex: number) {
+    if (refuseIfLocked(enquiryId)) return;
     setItinerariesByEnquiry((m) => (m[enquiryId] ? { ...m, [enquiryId]: swapFlightAlternative(m[enquiryId], itemId, altIndex) } : m));
     setProposalQueue((q) => q.map((e) => (e.enquiryId === enquiryId ? { ...e, data: swapFlightAlternative(e.data, itemId, altIndex) } : e)));
   }
@@ -505,6 +545,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // "Open Tara's itinerary" — the converted plan replaces the enquiry's itinerary
   // outright. Same "Building" signal as the scratch path: a real itinerary now exists.
   function loadTaraItinerary(enquiryId: string, itinerary: any) {
+    if (refuseIfLocked(enquiryId)) return;
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: itinerary }));
     setParkedItineraries((p) => {
       if (!p[enquiryId]) return p;
@@ -518,6 +559,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // (decided on the latest state, not the render that started the fetch), so it can never
   // replace an itinerary that was restored or built in the meantime.
   function autoLoadTaraItinerary(enquiryId: string, itinerary: any) {
+    if (isLocked(enquiryId)) return;
     let loaded = false;
     setItinerariesByEnquiry((m) => {
       const cur = m[enquiryId];
@@ -532,6 +574,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // so the Builder shows its usual Generate / Start-from-scratch chooser, and "Return to
   // Tara's itinerary" puts the parked one back exactly as it was.
   function parkTaraItinerary(enquiryId: string) {
+    if (refuseIfLocked(enquiryId)) return;
     const current = itinerariesByEnquiry[enquiryId];
     if (!current) return;
     setParkedItineraries((p) => ({ ...p, [enquiryId]: current }));
@@ -541,6 +584,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     });
   }
   function resumeParkedItinerary(enquiryId: string) {
+    if (refuseIfLocked(enquiryId)) return;
     const parked = parkedItineraries[enquiryId];
     if (!parked) return;
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: parked }));
@@ -551,6 +595,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   }
 
   function updateItineraryData(enquiryId: string, updater: (d: any) => any) {
+    if (refuseIfLocked(enquiryId)) return;
     setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: updater(m[enquiryId]) }));
   }
 
@@ -562,6 +607,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // seeding as initItinerary's "scratch" path, since Search's "Add" can
   // be the very first thing that creates this enquiry's itinerary.
   function addSearchItemToItinerary(enquiryId: string, cartItem: any, enquiry?: any) {
+    if (refuseIfLocked(enquiryId)) return;
     // Read directly off state (not inside the updater below) purely to
     // decide whether THIS call is the one creating the itinerary — same
     // pattern initItinerary uses above. Real "Building" signal (2026-09-10):
@@ -592,6 +638,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // (same route and day / same check-in) as one of the options the customer
   // can switch to in the proposal. Says why when there's nothing to attach to.
   function addSwapOptionToItinerary(enquiryId: string, cartItem: any) {
+    if (refuseIfLocked(enquiryId)) return;
     const r = addSwapOption(itinerariesByEnquiry[enquiryId], cartItem);
     if (r.ok) setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: addSwapOption(m[enquiryId], cartItem).data }));
     toast(r.message, r.ok ? "success" : "warn");
@@ -647,6 +694,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         initItinerary,
         loadTaraItinerary,
         autoLoadTaraItinerary,
+        unlockItinerary,
+        startNewTrip,
         workspaceRestored,
         parkedItineraries,
         parkTaraItinerary,

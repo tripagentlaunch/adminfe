@@ -615,7 +615,7 @@ export function ProposalPreviewPage({
   }
   const priceChange = check.status === "ready" && check.data?.price_changed && !changeSeen ? check.data : null;
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
-  const previewPayable = !payToken && ((data.flights || []).some((f: any) => f.fareLine)
+  const previewPayable = !payToken && !data._locked && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
   const [tab, setTab] = useState<Tab>("Plan");
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
@@ -758,7 +758,19 @@ export function ProposalPreviewPage({
           </div>
 
           <div className="pv-body">
-            {payment === "success" ? (
+            {data._locked ? (
+              // Paid on this link: what the customer sees from now on (the link never changes again).
+              <div className="pv-paid-note pv-paid-note--ok pv-booked" role="status">
+                <b>{data._locked.all_paid ? "Booked & paid" : "Payment received"}</b>
+                {[data._locked.order_number ? `Booking ${data._locked.order_number}` : null,
+                  data._locked.paid_amount ? `${inr(data._locked.paid_amount)} paid` : null,
+                  data._locked.paid_at ? new Date(data._locked.paid_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : null,
+                ].filter(Boolean).join(" · ")}
+                <span>{data._locked.all_paid
+                  ? "This is the trip you paid for — your advisor is confirming the bookings and will send your tickets and vouchers."
+                  : "Part of this trip is paid — your advisor will be in touch about the rest."}</span>
+              </div>
+            ) : payment === "success" ? (
               <div className="pv-paid-note pv-paid-note--ok" role="status">
                 Payment received{paymentRef ? ` · booking ${paymentRef}` : ""}. Your advisor is issuing your tickets and will send them to you.
               </div>
@@ -927,7 +939,7 @@ export function ProposalPreviewPage({
                           <span className="pv-cta-amt">{inr(check.status === "ready" && check.data?.amount != null ? check.data.amount : flightQuote.amount)}</span>
                         ) : null}
                       </button>
-                    ) : payToken && payQuote?.payable && !flightQuote?.payable ? (
+                    ) : payToken && !data._locked && payQuote?.payable && !flightQuote?.payable ? (
                       <button type="button" className="pv-cta pv-cta--pay" onClick={() => setPayingStay(payQuote.stays[0])}>
                         Pay now
                       </button>
@@ -955,7 +967,7 @@ export function ProposalPreviewPage({
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
                         : "Secure payment by Razorpay"}
                     </div>
-                  ) : (payToken && payQuote?.payable && payment !== "success") || previewPayable ? (
+                  ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
                   {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (

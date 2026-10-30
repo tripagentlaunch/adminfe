@@ -282,7 +282,12 @@ export default function ProposalComposerPage() {
   // pricingMode travels with the shared proposal so the customer's Pay now charges in the same
   // mode the total was quoted in (inclusive package vs separate items).
   const proposalData = useMemo(
-    () => ({ ...buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor, hotelEnrichment), pricingMode: inclusive ? "package" : "items" }),
+    () => ({
+      ...buildProposalTemplateData(selected?.data, pricing, selected?.member, currentAdvisor, hotelEnrichment),
+      pricingMode: inclusive ? "package" : "items",
+      // A paid, still-locked trip shows as booked in the preview too.
+      ...(selected?.data?.locked && !selected.data.locked.unlocked_at ? { _locked: selected.data.locked } : {}),
+    }),
     [selected, pricing, currentAdvisor, hotelEnrichment, inclusive]
   );
 
@@ -401,11 +406,19 @@ export default function ProposalComposerPage() {
       .catch(() => { if (live) setLink({ enquiryId: enquiryIdSel, token: null }); });
     return () => { live = false; };
   }, [enquiryIdSel]);
-  const linkToken = link && link.enquiryId === enquiryIdSel ? link.token : null;
+  // A paid, still-locked trip: the customer's paid link is THE link — copied as it is, never re-published.
+  const paidLock = selected?.data?.locked && !selected.data.locked.unlocked_at ? selected.data.locked : null;
+  const linkToken = paidLock?.token || (link && link.enquiryId === enquiryIdSel ? link.token : null);
   const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/p/${linkToken}` : null;
 
   function createWebLink() {
     if (!selected || creatingLink) return;
+    if (paidLock?.token) {
+      const url = `${window.location.origin}/p/${paidLock.token}`;
+      navigator.clipboard?.writeText(url).catch(() => {});
+      toast("This trip is paid — its link is frozen as paid. Copied: " + url, "success");
+      return;
+    }
     setCreatingLink(true);
     const body = JSON.stringify(proposalData);
     enquiryProposalShareCreate(selected.enquiryId, proposalData)
@@ -427,7 +440,7 @@ export default function ProposalComposerPage() {
 
   // Keep the live link in step with the proposal on screen.
   useEffect(() => {
-    if (!linkToken || !enquiryIdSel || pricingLoading || !cart.length) return;
+    if (!linkToken || paidLock || !enquiryIdSel || pricingLoading || !cart.length) return;
     const body = JSON.stringify(proposalData);
     // Also once on opening: edits made in the Console since the last publish reach the link too.
     if (body === published.current) return;
@@ -437,7 +450,7 @@ export default function ProposalComposerPage() {
         .catch(() => { /* the next change, or Web link, publishes again */ });
     }, 2500);
     return () => clearTimeout(t);
-  }, [linkToken, enquiryIdSel, proposalData, pricingLoading, cart.length]);
+  }, [linkToken, paidLock, enquiryIdSel, proposalData, pricingLoading, cart.length]);
 
   return (
     <div className="taw-grid taw-cols-2">
@@ -607,7 +620,7 @@ export default function ProposalComposerPage() {
               ) : null}
               <button className="taw-btn taw-btn--primary" onClick={createWebLink} disabled={creatingLink || !cart.length}>
                 <Icon name="send" size={14} />
-                {creatingLink ? (linkToken ? "Updating link…" : "Creating link…") : linkToken ? "Copy web link" : "Web link"}
+                {paidLock ? "Copy paid link" : creatingLink ? (linkToken ? "Updating link…" : "Creating link…") : linkToken ? "Copy web link" : "Web link"}
               </button>
               <button className="taw-btn taw-btn--primary taw-btn--brown" onClick={downloadPdf} disabled={!cart.length}>
                 <Icon name="download" size={14} />

@@ -118,6 +118,9 @@ export interface WorkbenchContextValue {
   loadTaraItinerary: (enquiryId: string, itinerary: any) => void;
   // Tara's newest plan opened automatically: only into an empty Builder, decided at load time.
   autoLoadTaraItinerary: (enquiryId: string, itinerary: any) => void;
+  // A paid trip is locked (itinerary.locked): unlock it on purpose, or start a new trip for the traveller.
+  unlockItinerary: (enquiryId: string) => void;
+  startNewTrip: (enquiryId: string) => Promise<any>;
   // The saved itineraries have been read back from the server (see useWorkspacePersistence).
   workspaceRestored: boolean;
   // parkedItineraries / parkTaraItinerary / resumeParkedItinerary — "← Back" from Tara's
