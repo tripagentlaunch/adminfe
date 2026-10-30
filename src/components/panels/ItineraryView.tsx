@@ -48,6 +48,7 @@ import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
 import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
+import { PassengersPanel } from "./PassengersPanel";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
@@ -555,6 +556,10 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             : null}
         </div>
       ) : null}
+
+      {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
+          before it takes a flight's payment). Only when a flight has a live price. */}
+      <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly

@@ -545,7 +545,9 @@ export function ProposalPreviewPage({
   // (refresh): Pay now then goes straight to payment, or a changed price is shown first. The
   // short details form only appears when we don't hold the traveller's name, email or mobile.
   const router = useRouter();
-  const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
+  const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "needs_passengers" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
+  // "Payment 1 of 2 · Flight BLR → DEL" while TripSure's payments are taken booking by booking.
+  const [payStep, setPayStep] = useState<{ step: number; steps: number; label: string } | null>(null);
   const [changeSeen, setChangeSeen] = useState(false);
   // Pay now pressed while the check was still running (or opened with ?pay=open): pay as soon as it is ready.
   const [wantPay, setWantPay] = useState(false);
@@ -563,7 +565,9 @@ export function ProposalPreviewPage({
     setChangeSeen(false);
     proposalFlightPayRefresh(payToken)
       .then((r: any) => {
-        const next = { status: (r?.status === "ready" || r?.status === "needs_details" || r?.status === "paid" ? r.status : "error") as any, data: r };
+        // "paying": some bookings paid already (e.g. the flight) — carry on with the rest.
+        const st = r?.status === "paying" ? "ready" : r?.status;
+        const next = { status: (["ready", "needs_details", "needs_passengers", "paid"].includes(st) ? st : "error") as any, data: r };
         setCheck(next);
         if (!wantPayRef.current) return;
         want(false);
@@ -598,7 +602,7 @@ export function ProposalPreviewPage({
     setPaying(true);
     setPayErr(null);
     try {
-      const out = await payHeldOrder(payToken, current.data, (url) => router.push(url));
+      const out = await payHeldOrder(payToken, current.data, (url) => router.push(url), setPayStep);
       if (out.kind === "paid") setCheck({ status: "paid", data: { order_number: out.orderNumber } });
     } catch (e: any) {
       // The hold ended while the page sat open: check again for a fresh price and hold.
@@ -606,6 +610,7 @@ export function ProposalPreviewPage({
       else setPayErr(errText(e));
     } finally {
       setPaying(false);
+      setPayStep(null);
     }
   }
   const priceChange = check.status === "ready" && check.data?.price_changed && !changeSeen ? check.data : null;
@@ -914,11 +919,12 @@ export function ProposalPreviewPage({
                       See the day-by-day plan
                     </button>
                     {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
-                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || paying}
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || check.status === "needs_passengers" || paying}
                         aria-busy={check.status === "checking" || paying}>
-                        {paying ? "Opening payment…" : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
+                        {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
+                          : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
                         {!paying && !(check.status === "checking" && wantPay) ? (
-                          <span className="pv-cta-amt">{inr(check.status === "ready" ? check.data.amount : flightQuote.amount)}</span>
+                          <span className="pv-cta-amt">{inr(check.status === "ready" && check.data?.amount != null ? check.data.amount : flightQuote.amount)}</span>
                         ) : null}
                       </button>
                     ) : payToken && payQuote?.payable && !flightQuote?.payable ? (
@@ -942,13 +948,23 @@ export function ProposalPreviewPage({
                     <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
                       {payErr ? payErr
                         : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""} · secure payment by Razorpay</>
+                        : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
+                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""} · secure payment by Razorpay
+                            {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
                         : "Secure payment by Razorpay"}
                     </div>
                   ) : (payToken && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
+                  ) : null}
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
+                    // Our markup + GST: part of the trip total, on its own line — the payment above is the
+                    // airline's / hotel's price, taken through TripSure for TripAgent.
+                    <div className="pv-actions-note">
+                      Pay now covers the airline and hotel fares. TripAgent service fee &amp; GST {inr(check.data?.fee ?? flightQuote.fee ?? 0)} is
+                      part of your trip total of {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)} and is shown separately.
+                    </div>
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
                     <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>

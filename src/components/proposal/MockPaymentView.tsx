@@ -40,7 +40,9 @@ export function MockPaymentView() {
         razorpay_signature: success ? "mock_ok" : "mock_failed",
       });
       try { sessionStorage.removeItem(MOCK_PAY_KEY); } catch { /* fine */ }
-      router.push(`${back}?payment=success${r?.order_number ? "&ref=" + encodeURIComponent(r.order_number) : ""}`);
+      // More bookings to pay (flight, then hotel): back to the trip, which opens the next payment.
+      if (r?.next) router.push(`${back}?pay=open`);
+      else router.push(`${back}?payment=success${r?.order_number ? "&ref=" + encodeURIComponent(r.order_number) : ""}`);
     } catch (e: any) {
       if (!success && e?.status === 402) { router.push(`${back}?payment=failed`); return; }
       setErr(errText(e));
@@ -58,6 +60,7 @@ export function MockPaymentView() {
           <b style={{ fontSize: 18 }}>{o.name || "TripAgent"}</b>
           <span style={{ fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", background: "#fff3cd", color: "#7a5b00", padding: "3px 8px", borderRadius: 6 }}>Mock payment · test</span>
         </div>
+        {o.steps > 1 ? <div style={{ fontSize: 12, color: "#7a5b00", marginBottom: 4 }}>Payment {o.step} of {o.steps}</div> : null}
         <div style={{ fontSize: 13, color: "#666" }}>{o.description || "Flights"}</div>
         <div style={{ fontSize: 32, fontWeight: 700, margin: "6px 0 16px" }}>{o.amount != null ? inr(o.amount) : o.amount_paise ? inr(o.amount_paise / 100) : "—"}</div>
 
@@ -66,7 +69,11 @@ export function MockPaymentView() {
           <div><b>Amount (paise)</b> {o.amount_paise ?? "—"} {o.currency || "INR"}</div>
           {o.prefill ? <div><b>Customer</b> {[o.prefill.name, o.prefill.email, o.prefill.contact].filter(Boolean).join(" · ")}</div> : null}
           {o.notes ? <div><b>Notes</b> {Object.entries(o.notes).map(([k, v]) => `${k}: ${v}`).join(" · ")}</div> : null}
-          <div style={{ color: "#888" }}>These are the fields Razorpay Checkout is opened with on a live server.</div>
+          <div style={{ color: "#888" }}>
+            On a live server TripSure&apos;s Payment Service creates this Razorpay order on its merchant (POST /api/payment/transactions,
+            booking_type {o.kind || "flight"}) and returns the key; Checkout opens with the name TripAgent and these fields, and
+            TripSure verifies the payment (POST /api/payment/verify).
+          </div>
         </div>
 
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }} role="radiogroup" aria-label="Payment method">

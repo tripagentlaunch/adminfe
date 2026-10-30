@@ -27,6 +27,11 @@ export type FlightPayQuote = {
   stays?: { id: string; name: string; room: string; check_in: string; check_out: string }[];
   /** "all": every flight passenger; "lead": hotels only, just the lead guest. */
   travellers?: "all" | "lead";
+  /** Flights: the advisor has entered every passenger (needed before TripSure takes payment). */
+  passengers_ready?: boolean;
+  /** The proposal's total, and our markup + GST in it (shown on its own line; `amount` is what TripSure charges). */
+  trip_total?: number;
+  fee?: number;
 };
 
 type Pax = {
