@@ -971,11 +971,14 @@ export function ProposalPreviewPage({
                     <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
                   {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
-                    // Our markup + GST: part of the trip total, on its own line — the payment above is the
-                    // airline's / hotel's price, taken through TripSure for TripAgent.
+                    // The three parts that make the trip total: the airline / hotel amount paid now through
+                    // TripSure, our service fee, and the GST on the trip.
                     <div className="pv-actions-note">
-                      Pay now covers the airline and hotel fares. TripAgent service fee &amp; GST {inr(check.data?.fee ?? flightQuote.fee ?? 0)} is
-                      part of your trip total of {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)} and is shown separately.
+                      Pay now {inr(check.data?.amount ?? flightQuote.amount)} covers the airline and hotel fares
+                      {(check.data?.service_fee ?? flightQuote.service_fee) != null ? (
+                        <> · TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} · GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</>
+                      ) : " and TripAgent service fee & GST " + inr(check.data?.fee ?? flightQuote.fee ?? 0)}
+                      {" "}= trip total {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)}.
                     </div>
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (

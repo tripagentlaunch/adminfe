@@ -31,6 +31,9 @@ export type FlightPayQuote = {
   passengers_ready?: boolean;
   /** The proposal's total, and our markup + GST in it (shown on its own line; `amount` is what TripSure charges). */
   trip_total?: number;
+  /** Of the trip total above it: our service fee, and the GST (and TCS) on the trip. Together with `amount` they make `trip_total`. */
+  service_fee?: number;
+  tax?: number;
   fee?: number;
 };
 
