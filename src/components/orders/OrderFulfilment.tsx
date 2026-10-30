@@ -7,8 +7,9 @@ import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
   bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
-  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem,
+  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify,
 } from "../../services/api";
+import { openRazorpayCheckout } from "../../lib/razorpay";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
 import { fmtINR, type Fulfilment, type FulfilmentItem, type Order } from "../../lib/orderTypes";
@@ -130,6 +131,46 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     } finally {
       setBusy(null);
       onChanged();
+    }
+  }
+
+  // TripSure hotel payment: get a Razorpay order on TripSure's merchant, open
+  // Checkout, then verify the callback with TripSure so the payment is recorded.
+  async function payHotel(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const o: any = await hotelPaymentTransaction(item.id);
+      if (!o?.key_id || !o?.razorpay_order_id) throw new Error("TripSure didn't return a payment order.");
+      await openRazorpayCheckout({
+        keyId: o.key_id,
+        orderId: o.razorpay_order_id,
+        amount: o.amount,
+        currency: o.currency || "INR",
+        name: "Hotel payment",
+        description: item.title || "Hotel booking",
+        onSuccess: async (r) => {
+          setBusy(item.id);
+          try {
+            await hotelPaymentVerify(item.id, {
+              razorpay_order_id: r.razorpay_order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+            });
+            toast("Payment received and verified", "success");
+            onChanged();
+          } catch (e) {
+            setErr(errText(e));
+          } finally {
+            setBusy(null);
+          }
+        },
+        onDismiss: () => toast("Payment window closed — nothing recorded yet", "info"),
+      });
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -399,6 +440,11 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy}
                           onClick={() => { setFareChange(null); setConfirming({ item: it }); }}>
                           {it.kind === "flight" ? "Issue ticket" : "Confirm hotel"}
+                        </button>
+                      ) : null}
+                      {it.kind === "hotel" && !done && it.status !== "cancelled" && it.status !== "booking" ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => payHotel(it)}>
+                          {busy === it.id ? "Opening…" : "Pay via TripSure"}
                         </button>
                       ) : null}
                       {it.kind === "hotel" && (it.status === "pending" || it.status === "check_required" || it.can_cancel) ? (

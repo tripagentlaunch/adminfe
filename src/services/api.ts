@@ -2164,6 +2164,16 @@ function bookingRazorpayOrder(orderId) {
 function bookingRazorpayConfirm(orderId, payload) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/razorpay/confirm", { method: "POST", body: payload });
 }
+// TripSure hotel payment: opens a Razorpay order on TripSure's merchant for a
+// locked room. Returns {key_id, razorpay_order_id, amount, currency} to open Checkout.
+function hotelPaymentTransaction(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/transaction", { method: "POST" });
+}
+// Verifies the Razorpay callback with TripSure and records the payment as paid.
+// payload: { razorpay_order_id, razorpay_payment_id, razorpay_signature }.
+function hotelPaymentVerify(hotelId, payload) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/verify", { method: "POST", body: payload });
+}
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
 function bookingIssueTicket(itineraryId, acceptFareChange) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
@@ -2953,6 +2963,8 @@ export {
   flightFareRulesView,
   bookingRazorpayOrder,
   bookingRazorpayConfirm,
+  hotelPaymentTransaction,
+  hotelPaymentVerify,
   enquiryWorkspaceList,
   enquiryWorkspaceGet,
   enquiryWorkspaceSave,
