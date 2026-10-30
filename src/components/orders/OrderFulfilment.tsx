@@ -3,14 +3,13 @@
    shows comes from GET /booking-orders/{id} -> fulfilment (server-computed:
    what is done, what is blocked and why). Ticketing and hotel confirmation are
    irreversible, so each asks for an in-page confirmation first. */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
   bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
-  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
+  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
-import { pollPaymentSettlement, type PollHandle, type PaymentStatus } from "../../lib/pollPaymentSettlement";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
 import { fmtINR, type Fulfilment, type FulfilmentItem, type Order } from "../../lib/orderTypes";
@@ -93,11 +92,6 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     return () => { live = false; };
   }, []);
   const [cancelling, setCancelling] = useState<Cancelling>(null);
-  // The hotel item whose payment we're polling for settlement, plus the active
-  // poll handle so it is cancelled on unmount (or when a new poll starts).
-  const [settling, setSettling] = useState<string | null>(null);
-  const pollRef = useRef<PollHandle | null>(null);
-  useEffect(() => () => pollRef.current?.cancel(), []);
   const [refundOpen, setRefundOpen] = useState<{ amount: number } | null>(null); // opened after a cancel, pre-filled with Tripsure's refund
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
   // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
@@ -163,9 +157,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
               razorpay_payment_id: r.razorpay_payment_id,
               razorpay_signature: r.razorpay_signature,
             });
-            toast("Payment verified — confirming settlement with TripSure…", "success");
+            toast("Payment received and verified", "success");
             onChanged();
-            startSettlementPoll(item);
           } catch (e) {
             setErr(errText(e));
           } finally {
@@ -179,19 +172,6 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     } finally {
       setBusy(null);
     }
-  }
-
-  // After verify, TripSure confirms settlement asynchronously, so we poll
-  // /payment/status with backoff until it is settled (then the room can be
-  // confirmed with the supplier), failed, or the 2-minute cap is reached.
-  function startSettlementPoll(item: FulfilmentItem) {
-    pollRef.current?.cancel();
-    setSettling(item.id);
-    pollRef.current = pollPaymentSettlement(() => hotelPaymentStatus(item.id) as Promise<PaymentStatus>, {
-      onSettled: () => { setSettling(null); toast("Payment settled — you can confirm the room with the hotel", "success"); onChanged(); },
-      onFailed: () => { setSettling(null); setErr("TripSure reports the payment failed — check with TripSure before retrying."); onChanged(); },
-      onTimeout: () => { setSettling(null); toast("Still awaiting TripSure's settlement — use Check status in a moment", "info"); onChanged(); },
-    });
   }
 
   async function simple(id: string, call: () => Promise<any>, done: string) {
@@ -463,8 +443,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         </button>
                       ) : null}
                       {it.kind === "hotel" && !done && it.status !== "cancelled" && it.status !== "booking" ? (
-                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy || settling === it.id} onClick={() => payHotel(it)}>
-                          {settling === it.id ? "Confirming settlement…" : busy === it.id ? "Opening…" : "Pay via TripSure"}
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => payHotel(it)}>
+                          {busy === it.id ? "Opening…" : "Pay via TripSure"}
                         </button>
                       ) : null}
                       {it.kind === "hotel" && (it.status === "pending" || it.status === "check_required" || it.can_cancel) ? (

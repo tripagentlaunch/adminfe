@@ -2174,10 +2174,6 @@ function hotelPaymentTransaction(hotelId) {
 function hotelPaymentVerify(hotelId, payload) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/verify", { method: "POST", body: payload });
 }
-// Polled after verify for async settlement: { payment_status, settled, terminal, due }.
-function hotelPaymentStatus(hotelId) {
-  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/status", { method: "GET" });
-}
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
 function bookingIssueTicket(itineraryId, acceptFareChange) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
@@ -2969,7 +2965,6 @@ export {
   bookingRazorpayConfirm,
   hotelPaymentTransaction,
   hotelPaymentVerify,
-  hotelPaymentStatus,
   enquiryWorkspaceList,
   enquiryWorkspaceGet,
   enquiryWorkspaceSave,
