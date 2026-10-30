@@ -32,7 +32,11 @@
  *      there is none.
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalPayQuote } from "../../services/api";
+import { useRouter } from "next/navigation";
+import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote } from "../../services/api";
+import { errText } from "../../lib/errText";
+import { payHeldOrder } from "../../lib/proposalPayment";
+import { PayTimer } from "./PayTimer";
 import { ProposalPayModal } from "./ProposalPayModal";
 import { ProposalFlightPayModal, type FlightPayQuote } from "./ProposalFlightPayModal";
 
@@ -537,16 +541,74 @@ export function ProposalPreviewPage({
   const autoOpened = useRef(false);
   const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
   const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
+  // As soon as the link is opened, every payable item is re-checked live and held on the server
+  // (refresh): Pay now then goes straight to payment, or a changed price is shown first. The
+  // short details form only appears when we don't hold the traveller's name, email or mobile.
+  const router = useRouter();
+  const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
+  const [changeSeen, setChangeSeen] = useState(false);
+  // Pay now pressed while the check was still running (or opened with ?pay=open): pay as soon as it is ready.
+  const [wantPay, setWantPay] = useState(false);
+  const wantPayRef = useRef(false);
+  const want = (v: boolean) => { wantPayRef.current = v; setWantPay(v); };
+  const [paying, setPaying] = useState(false);
+  const [payErr, setPayErr] = useState<string | null>(null);
+  // The automatic check runs once per page view (the effect below can fire again as the URL
+  // flags settle); "Check again" and an ended hold run it on purpose.
+  const checkStarted = useRef(false);
+  function runCheck() {
+    if (!payToken) return;
+    checkStarted.current = true;
+    setCheck({ status: "checking" });
+    setChangeSeen(false);
+    proposalFlightPayRefresh(payToken)
+      .then((r: any) => {
+        const next = { status: (r?.status === "ready" || r?.status === "needs_details" || r?.status === "paid" ? r.status : "error") as any, data: r };
+        setCheck(next);
+        if (!wantPayRef.current) return;
+        want(false);
+        // A changed price is shown first (the popup); otherwise straight on to payment.
+        if (next.status === "ready" && !r.price_changed) void payNow(next);
+        else if (next.status === "needs_details") setPayingFlights(true);
+      })
+      .catch((e: any) => { want(false); setCheck({ status: "error", message: errText(e) }); });
+  }
   useEffect(() => {
     if (!payToken) return;
+    if (payOpen && !autoOpened.current) { autoOpened.current = true; want(true); }
+    if (checkStarted.current) return;
+    checkStarted.current = true;
     proposalPayQuote(payToken).then((q: any) => setPayQuote(q)).catch(() => setPayQuote(null));
     proposalFlightPayQuote(payToken)
       .then((q: any) => {
         setFlightQuote(q);
-        if (q && q.payable && payOpen && !autoOpened.current) { autoOpened.current = true; setPayingFlights(true); }
+        if (q && q.payable && payment !== "success") {
+          runCheck();
+        }
       })
       .catch(() => setFlightQuote(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payToken, payOpen]);
+
+  async function payNow(current = check) {
+    if (!payToken) return;
+    if (current.status === "checking") { want(true); return; }
+    if (current.status === "needs_details") { setPayingFlights(true); return; }
+    if (current.status !== "ready" || paying) return;
+    setPaying(true);
+    setPayErr(null);
+    try {
+      const out = await payHeldOrder(payToken, current.data, (url) => router.push(url));
+      if (out.kind === "paid") setCheck({ status: "paid", data: { order_number: out.orderNumber } });
+    } catch (e: any) {
+      // The hold ended while the page sat open: check again for a fresh price and hold.
+      if (e && e.status === 410) runCheck();
+      else setPayErr(errText(e));
+    } finally {
+      setPaying(false);
+    }
+  }
+  const priceChange = check.status === "ready" && check.data?.price_changed && !changeSeen ? check.data : null;
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
   const previewPayable = !payToken && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
@@ -609,6 +671,25 @@ export function ProposalPreviewPage({
 
   return (
     <div className="pv-page">
+      {payToken && priceChange ? (
+        <div className="pv-pchg-back" role="dialog" aria-modal="true" aria-label="Price change">
+          <div className="pv-pchg">
+            <h2>The price has changed</h2>
+            <p>Since your proposal was prepared, the airline or hotel has changed the price. We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
+            <div className="pv-pchg-rows">
+              <div><span>In your proposal</span><s>{inr(priceChange.quoted)}</s></div>
+              <div className="now"><span>Now</span><b>{inr(priceChange.amount)}</b></div>
+              <div className="diff"><span>{priceChange.amount > priceChange.quoted ? "Increase" : "Decrease"}</span><span>{inr(Math.abs(priceChange.amount - priceChange.quoted))}</span></div>
+            </div>
+            <div className="pv-pchg-actions">
+              <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setChangeSeen(true)}>Not now</button>
+              <button type="button" className="pv-cta pv-cta--pay" onClick={() => { setChangeSeen(true); void payNow(); }}>
+                Pay <span className="pv-cta-amt">{inr(priceChange.amount)}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {payToken && payingFlights && flightQuote ? (
         <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)} />
       ) : null}
@@ -832,9 +913,13 @@ export function ProposalPreviewPage({
                     <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setTab("Days")}>
                       See the day-by-day plan
                     </button>
-                    {payToken && flightQuote?.payable && payment !== "success" ? (
-                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => setPayingFlights(true)}>
-                        Pay now <span className="pv-cta-amt">{inr(flightQuote.amount)}</span>
+                    {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || paying}
+                        aria-busy={check.status === "checking" || paying}>
+                        {paying ? "Opening payment…" : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
+                        {!paying && !(check.status === "checking" && wantPay) ? (
+                          <span className="pv-cta-amt">{inr(check.status === "ready" ? check.data.amount : flightQuote.amount)}</span>
+                        ) : null}
                       </button>
                     ) : payToken && payQuote?.payable && !flightQuote?.payable ? (
                       <button type="button" className="pv-cta pv-cta--pay" onClick={() => setPayingStay(payQuote.stays[0])}>
@@ -853,8 +938,20 @@ export function ProposalPreviewPage({
                       )
                     ) : null}
                   </div>
-                  {(payToken && (flightQuote?.payable || payQuote?.payable) && payment !== "success") || previewPayable ? (
+                  {payToken && flightQuote?.payable && payment !== "success" ? (
+                    <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
+                      {payErr ? payErr
+                        : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
+                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""} · secure payment by Razorpay</>
+                        : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
+                        : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
+                        : "Secure payment by Razorpay"}
+                    </div>
+                  ) : (payToken && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
+                  ) : null}
+                  {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
+                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
                   ) : null}
                 </>
               ) : null}

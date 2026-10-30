@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 export const secondsLeft = (payBy?: string | null) => (payBy ? Math.max(0, Math.floor((new Date(payBy).getTime() - Date.now()) / 1000)) : null);
 
-export function PayTimer({ payBy, onExpire }: { payBy?: string | null; onExpire: () => void }) {
+export function PayTimer({ payBy, onExpire, what = "room" }: { payBy?: string | null; onExpire: () => void; what?: string }) {
   const [left, setLeft] = useState<number | null>(() => secondsLeft(payBy));
   const fired = useRef(false);
   useEffect(() => {
@@ -21,7 +21,7 @@ export function PayTimer({ payBy, onExpire }: { payBy?: string | null; onExpire:
   const mm = String(Math.floor(left / 60)).padStart(2, "0"), ss = String(left % 60).padStart(2, "0");
   return (
     <div style={{ padding: "10px 12px", borderRadius: 8, marginBottom: 12, fontSize: 13, background: left < 120 ? "#fdecea" : "#eef4ff", color: left < 120 ? "#a3261a" : "#1d3d7a" }}>
-      Your room is held for <b>{mm}:{ss}</b>. Complete payment before the time runs out or the booking is released.
+      Your {what} is held for <b>{mm}:{ss}</b>. Complete payment before the time runs out or the booking is released.
     </div>
   );
 }

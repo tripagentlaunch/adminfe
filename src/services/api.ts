@@ -2610,6 +2610,9 @@ function proposalPayConfirm(token, payload) { return proposalPublicCall(token, "
 // Flights of the proposal (backend proposal_flight_pay_service.py): what can be paid and how much,
 // then the same flight / fare / add-ons re-locked live with the travellers, then the payment.
 function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/flights/quote", {}); }
+// Opened link: re-check and hold every payable item now (no details asked) →
+// { status: "ready", order_id, amount, quoted, price_changed, pay_by } | needs_details | paid.
+function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
 function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
 function proposalFlightPayStart(token, orderId) { return proposalPublicCall(token, "/pay/flights/order/" + encodeURIComponent(orderId) + "/start", { method: "POST" }); }
 function proposalFlightPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/flights/confirm", { method: "POST", body: payload }); }
@@ -2858,6 +2861,7 @@ export {
   proposalPayRazorpay,
   proposalPayConfirm,
   proposalFlightPayQuote,
+  proposalFlightPayRefresh,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
   proposalFlightPayConfirm,

@@ -908,3 +908,19 @@
   .pv-actions .pv-cta { width: 100%; }
   .pv-actions-note { text-align: center; }
 }
+
+/* Live price check status, the hold countdown, and the price-change popup (ProposalPreviewPage). */
+.pv-actions-note.is-err { color: #a3261a; }
+.pv-linkbtn { background: none; border: 0; padding: 0; color: var(--gold-ink); text-decoration: underline; cursor: pointer; font: inherit; }
+.pv-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); margin-right: 6px; animation: pv-pulse 1s ease-in-out infinite; }
+@keyframes pv-pulse { 50% { opacity: 0.25; } }
+.pv-hold { max-width: 460px; margin: 12px 0 0 auto; }
+.pv-pchg-back { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.5); display: grid; place-items: center; padding: 16px; }
+.pv-pchg { background: #fff; color: var(--ink); border-radius: 16px; padding: 28px; width: 100%; max-width: 460px; }
+.pv-pchg h2 { margin: 0 0 8px; font-family: "Proposal Serif", serif; font-weight: 400; font-size: 26px; }
+.pv-pchg p { margin: 0 0 18px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.pv-pchg-rows > div { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.pv-pchg-rows .now b { font-size: 20px; }
+.pv-pchg-rows .diff { color: var(--muted); font-size: 13px; border-bottom: 0; }
+.pv-pchg-actions { display: flex; gap: 10px; margin-top: 20px; }
+.pv-pchg-actions .pv-cta { flex: 1; margin: 0; width: auto; gap: 8px; }

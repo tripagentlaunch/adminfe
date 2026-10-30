@@ -12,10 +12,11 @@
  * ===========================================================================*/
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { proposalFlightPayConfirm, proposalFlightPayPrepare, proposalFlightPayStart, inr } from "../../services/api";
+import { proposalFlightPayPrepare, inr } from "../../services/api";
+import { payHeldOrder } from "../../lib/proposalPayment";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
-import { PayTimer, secondsLeft } from "./PayTimer";
+import { PayTimer } from "./PayTimer";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
@@ -33,17 +34,6 @@ type Pax = {
   date_of_birth: string; nationality: string; passport_number: string; passport_expiry: string;
 };
 
-function loadCheckout(): Promise<boolean> {
-  if (typeof window === "undefined") return Promise.resolve(false);
-  if ((window as any).Razorpay) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const s = document.createElement("script");
-    s.src = "https://checkout.razorpay.com/v1/checkout.js";
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
-  });
-}
 
 const TITLES: Record<Pax["pax_type"], string[]> = { adult: ["Mr", "Mrs", "Ms", "Miss", "Dr"], child: ["Mstr", "Miss"], infant: ["Mstr", "Miss"] };
 const fmtDate = (iso: string) => {
@@ -51,8 +41,7 @@ const fmtDate = (iso: string) => {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 };
 
-/** Where the mock payment page finds this payment (it has no other way to know it). */
-export const MOCK_PAY_KEY = "ta-mock-payment";
+export { MOCK_PAY_KEY } from "../../lib/proposalPayment";
 
 export function ProposalFlightPayModal({ token, quote, onClose }: { token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void }) {
   const router = useRouter();
@@ -107,32 +96,9 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
     setErr(null);
     setStep("working");
     try {
-      const o: any = await proposalFlightPayStart(token, p.order_id);
-      if (o.mode === "mock") {
-        // Test server without Razorpay: the mock payment page plays Razorpay's part.
-        try {
-          sessionStorage.setItem(MOCK_PAY_KEY, JSON.stringify({ token, order_id: p.order_id, ...o }));
-        } catch { /* storage blocked: the page still has the ids in its URL */ }
-        router.push(`/pay/mock?token=${encodeURIComponent(token)}&order=${encodeURIComponent(p.order_id)}&rz=${encodeURIComponent(o.razorpay_order_id)}`);
-        return;
-      }
-      const ok = await loadCheckout();
-      if (!ok) throw new Error("Couldn't load the payment window — check your connection and try again.");
-      const done: any = await new Promise((resolve, reject) => {
-        const rz = new (window as any).Razorpay({
-          key: o.key_id, order_id: o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
-          name: o.name || "TripAgent", description: o.description, prefill: o.prefill, notes: o.notes, theme: { color: "#1f6f5c" },
-          // Razorpay closes its own window when the 15-minute hold ends (it needs at least 60 seconds)
-          ...(secondsLeft(p.pay_by) != null ? { timeout: Math.max(60, secondsLeft(p.pay_by) as number) } : {}),
-          handler: (r: any) => proposalFlightPayConfirm(token, {
-            order_id: p.order_id, razorpay_order_id: r.razorpay_order_id, razorpay_payment_id: r.razorpay_payment_id, razorpay_signature: r.razorpay_signature,
-          }).then(resolve, reject),
-          modal: { ondismiss: () => reject(new Error("Payment window closed — you haven't been charged. You can try again.")) },
-        });
-        rz.on("payment.failed", (e: any) => reject(new Error(e?.error?.description || "The payment failed.")));
-        rz.open();
-      });
-      setPaidRef(done?.order_number || null);
+      const out = await payHeldOrder(token, p, (url) => router.push(url));
+      if (out.kind === "redirected") return;
+      setPaidRef(out.orderNumber);
       setStep("done");
     } catch (e) {
       setErr(errText(e));
