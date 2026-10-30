@@ -1873,6 +1873,15 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-locked-t b{font-size:13.5px;}
 .taw-locked-t small{font-size:12px;line-height:1.45;opacity:.9;}
 .taw-locked-a{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto;}
+.taw-hist{position:relative;}
+.taw-hist-btn{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;border-radius:8px;border:1px solid currentColor;background:transparent;color:inherit;font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;cursor:pointer;}
+.taw-hist-list{position:absolute;right:0;top:36px;z-index:20;width:min(460px,80vw);max-height:320px;overflow:auto;background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px -12px rgba(23,19,16,.35);padding:6px;}
+.taw-hist-row{display:flex;align-items:center;gap:8px;padding:7px 6px;border-bottom:1px solid var(--line);font-size:12px;}
+.taw-hist-row:last-child{border-bottom:0;}
+.taw-hist-tag{flex:0 0 auto;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:var(--gold-bg);color:var(--gold-ink,#785c12);}
+.taw-hist-tag.paid{background:#e9f3ed;color:#1f5c3f;}
+.taw-hist-meta{flex:1;min-width:0;color:var(--taupe);}
+.taw-hist-empty{padding:10px 8px;font-size:12px;color:var(--taupe);}
 /* Hotel desk: rooms editor, location type tags, requests (HotelDesk.tsx) */
 .taw-room{display:grid;padding:4px 0 6px;}
 .taw-room+.taw-room{border-top:1px solid var(--line);}

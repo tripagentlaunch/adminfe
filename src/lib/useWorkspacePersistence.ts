@@ -124,6 +124,11 @@ export function useWorkspacePersistence({
         if (e && e.status === 409 && current) {
           adopt(current);
           toast("This enquiry was just saved by someone else — showing their latest version.", "warn");
+        } else if (e && e.status === 423 && current) {
+          // A paid trip the server won't let change (locked, or its history couldn't be kept):
+          // back to the saved copy, with the reason.
+          adopt(current);
+          toast((e.body && e.body.detail && e.body.detail.message) || "This trip is paid and locked.", "warn");
         } else if (e && e.status === 503) {
           disabled.current = true;
           save(id); // falls through to the browser store

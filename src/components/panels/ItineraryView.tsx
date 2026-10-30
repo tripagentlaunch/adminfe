@@ -49,6 +49,7 @@ import { cx } from "../../lib/cx";
 import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { PassengersPanel } from "./PassengersPanel";
+import { PaidTripHistory } from "./PaidTripHistory";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
@@ -190,7 +191,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip } = useWorkbench();
+  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -569,7 +570,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                 data.locked.paid_at ? new Date(data.locked.paid_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null,
               ].filter(Boolean).join(" · ")}
               {data.locked.unlocked_at
-                ? ". Changes here don't touch the customer's paid link; sharing again makes a new link."
+                ? ". Changes here don't touch the customer's paid link; sharing again makes a new link. Every change keeps the previous copy in History."
                 : ". The customer's link keeps exactly what they paid for. New plans go in a new trip."}
             </small>
           </div>
@@ -577,6 +578,9 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => startNewTrip(enquiryId)}>
               <Icon name="plus" size={13} /> Start a new trip
             </button>
+            <PaidTripHistory enquiryId={enquiryId} advisors={advisors || []} canRestore={!!data.locked.unlocked_at}
+              // The paid stamp stays as it is now; only the trip itself goes back.
+              onRestore={(it: any) => setData((d: any) => ({ ...it, locked: d.locked }))} />
             {!data.locked.unlocked_at ? (
               <button type="button" className="taw-btn taw-btn--sm"
                 onClick={() => { if (window.confirm("This trip is paid. Unlock it for editing only if a change is truly needed — the customer's paid link won't change, and the order keeps what was paid. Unlock?")) unlockItinerary(enquiryId); }}>

@@ -2545,6 +2545,14 @@ function enquiryWorkspaceList() {
   return fastapiEnquiryCall("/enquiries/workspaces", { method: "GET", timeoutMs: 20000 });
 }
 
+// A paid trip's kept copies (as paid, unlocks, each change after payment), newest first, and one in full.
+function enquiryWorkspaceHistory(enquiryId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/workspace/history", { method: "GET", timeoutMs: 20000 });
+}
+function enquiryWorkspaceVersion(enquiryId, versionId) {
+  return fastapiEnquiryCall("/enquiries/" + encodeURIComponent(enquiryId) + "/workspace/history/" + encodeURIComponent(versionId), { method: "GET", timeoutMs: 20000 });
+}
+
 // enquiryWorkspaceGet(enquiryId) — GET /enquiries/{id}/workspace: the saved
 // Itinerary Builder + Proposal Composer state ({itinerary, proposal, version};
 // itinerary null and version 0 when nothing is saved yet).
@@ -2975,6 +2983,8 @@ export {
   hotelPaymentVerify,
   hotelPaymentStatus,
   enquiryWorkspaceList,
+  enquiryWorkspaceHistory,
+  enquiryWorkspaceVersion,
   enquiryWorkspaceGet,
   enquiryWorkspaceSave,
 
