@@ -2594,11 +2594,32 @@ function enquiryProposalShareCreate(enquiryId, snapshot) {
 // an unknown token or { status: 410, body: { detail: { status: "expired"
 // | "revoked" } } } for a dead one — the public page reads e.body.detail.
 // --- Customer "Pay now" on a shared proposal (public: the token is the only credential) ---
+// The traveller's pass for re-pricing and paying on this link (their access code, checked by
+// POST /pay/verify): kept per link in this browser and sent as X-Payer-Pass.
+var PAYER_KEY = "ta.payer.";
+var payerPasses = {}; // this page view's copy, for when storage is blocked
+function payerPass(token) {
+  var mem = payerPasses[token];
+  if (mem && mem.expires_at * 1000 > Date.now()) return mem.pass;
+  try {
+    var raw = window.localStorage.getItem(PAYER_KEY + token);
+    var v = raw ? JSON.parse(raw) : null;
+    return v && v.expires_at * 1000 > Date.now() ? v.pass : null;
+  } catch (e) { return null; }
+}
+function forgetPayerPass(token) {
+  delete payerPasses[token];
+  try { window.localStorage.removeItem(PAYER_KEY + token); } catch (e) { /* storage blocked */ }
+}
 function proposalPublicCall(token, path, init) {
   init = init || {};
+  var headers = { "Content-Type": "application/json" };
+  var pass = payerPass(token);
+  if (pass) headers["X-Payer-Pass"] = pass;
+  if (init.bearer) headers["Authorization"] = init.bearer;
   return fetch(FASTAPI_BASE + "/proposal-share/" + encodeURIComponent(token) + path, {
     method: init.method || "GET",
-    headers: { "Content-Type": "application/json" },
+    headers: headers,
     body: init.body ? JSON.stringify(init.body) : undefined,
   }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
@@ -2617,6 +2638,16 @@ function proposalPayRazorpay(token, orderId) { return proposalPublicCall(token, 
 function proposalPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/confirm", { method: "POST", body: payload }); }
 // Flights of the proposal (backend proposal_flight_pay_service.py): what can be paid and how much,
 // then the same flight / fare / add-ons re-locked live with the travellers, then the payment.
+// The access code the traveller signs in to TripAgent with — or their chatbot session token
+// (bearer), when they came from the chatbot already signed in. Stores the pass it returns.
+function proposalPayVerify(token, code, bearer) {
+  return proposalPublicCall(token, "/pay/verify", { method: "POST", body: { code: code || null }, bearer: bearer ? "Bearer " + bearer : null })
+    .then(function (r) {
+      payerPasses[token] = { pass: r.pass, expires_at: r.expires_at };
+      try { window.localStorage.setItem(PAYER_KEY + token, JSON.stringify({ pass: r.pass, expires_at: r.expires_at })); } catch (e) { /* storage blocked */ }
+      return r;
+    });
+}
 function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/flights/quote", {}); }
 // Opened link: re-check and hold every payable item now (no details asked) →
 // { status: "ready", order_id, amount, quoted, price_changed, pay_by } | needs_details | paid.
@@ -2869,6 +2900,8 @@ export {
   proposalPayRazorpay,
   proposalPayConfirm,
   proposalFlightPayQuote,
+  proposalPayVerify,
+  forgetPayerPass,
   proposalFlightPayRefresh,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
