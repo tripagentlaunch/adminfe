@@ -549,9 +549,15 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
     hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
-        // TripSure listed this room but its live price-check came back empty — the rate has
-        // gone (sold out, or the search session is stale). Point the advisor at Refresh prices.
-        if (!rate) throw new Error("This rate is no longer available from TripSure. Use “Refresh prices” above to get current rates, then try again.");
+        // TripSure listed this room but its live price-check came back empty. It says why in
+        // partnerErrorMsg ("The selected room(s) are sold out."); relay that, and only fall back
+        // to the stale-session advice when it gives no reason.
+        if (!rate) {
+          const why = String((r && r.partnerErrorMsg) || "").trim();
+          throw new Error(why
+            ? `TripSure says: ${why.replace(/\.$/, "")}. Pick another room, or use “Refresh prices” above for current availability.`
+            : "This rate is no longer available from TripSure. Use “Refresh prices” above to get current rates, then try again.");
+        }
         const total = Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0;
         setChecks((c: any) => ({
           ...c,
