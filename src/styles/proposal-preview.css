@@ -903,20 +903,10 @@
 .pv-cta--pay:disabled { opacity: 0.5; cursor: default; }
 .pv-cta-amt { color: var(--gold); font-variant-numeric: tabular-nums; }
 .pv-actions-note { margin-top: 10px; text-align: right; font-size: 12px; color: var(--muted); }
-/* The traveller's access code, in Pay now's place until it is checked. */
-.pv-verify { display: flex; flex-direction: column; gap: 6px; }
-.pv-verify-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
-.pv-verify-row { display: flex; gap: 8px; }
-.pv-verify-input { height: 48px; width: 170px; padding: 0 14px; border: 1px solid var(--ink); background: transparent; color: var(--ink);
-  font: 500 15px/1 "Proposal Sans", sans-serif; letter-spacing: 0.12em; }
-.pv-verify-input:focus { outline: 2px solid var(--gold); outline-offset: 1px; }
-.pv-verify-input[aria-invalid="true"] { border-color: #a3261a; }
 @media (max-width: 640px) {
   .pv-actions { flex-direction: column-reverse; align-items: stretch; }
   .pv-actions .pv-cta { width: 100%; }
   .pv-actions-note { text-align: center; }
-  .pv-verify-row { flex-direction: column; }
-  .pv-verify-input { width: 100%; }
 }
 
 /* Live price check status, the hold countdown, and the price-change popup (ProposalPreviewPage). */

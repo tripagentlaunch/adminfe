@@ -33,7 +33,7 @@
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
-import { forgetPayerPass, getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote, proposalPayVerify } from "../../services/api";
+import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { payHeldOrder } from "../../lib/proposalPayment";
 import { PayTimer } from "./PayTimer";
@@ -545,13 +545,7 @@ export function ProposalPreviewPage({
   // (refresh): Pay now then goes straight to payment, or a changed price is shown first. The
   // short details form only appears when we don't hold the traveller's name, email or mobile.
   const router = useRouter();
-  // "verify": re-pricing and paying are for the traveller the trip was made for — they enter the
-  // access code they sign in to TripAgent with (or arrive from the chatbot already signed in).
-  const [check, setCheck] = useState<{ status: "idle" | "verify" | "checking" | "ready" | "needs_details" | "needs_passengers" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
-  const [code, setCode] = useState("");
-  const [codeErr, setCodeErr] = useState<string | null>(null);
-  const [verifying, setVerifying] = useState(false);
-  const codeInput = useRef<HTMLInputElement | null>(null);
+  const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "needs_passengers" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
   // "Payment 1 of 2 · Flight BLR → DEL" while TripSure's payments are taken booking by booking.
   const [payStep, setPayStep] = useState<{ step: number; steps: number; label: string } | null>(null);
   const [changeSeen, setChangeSeen] = useState(false);
@@ -581,29 +575,7 @@ export function ProposalPreviewPage({
         if (next.status === "ready" && !r.price_changed) void payNow(next);
         else if (next.status === "needs_details") setPayingFlights(true);
       })
-      .catch((e: any) => {
-        if (e && e.status === 401 && e.body?.detail?.error === "verify") {
-          // No pass yet (or it ran out): ask for the code; Pay now carries on once it's in.
-          forgetPayerPass(payToken);
-          setCheck({ status: "verify" });
-          return;
-        }
-        want(false);
-        setCheck({ status: "error", message: errText(e) });
-      });
-  }
-  function verifyThen(run: () => Promise<any>) {
-    setVerifying(true);
-    setCodeErr(null);
-    run()
-      .then(() => { want(true); runCheck(); })
-      .catch((e: any) => { setCodeErr(errText(e)); setCheck({ status: "verify" }); })
-      .finally(() => setVerifying(false));
-  }
-  function submitCode(e: any) {
-    e.preventDefault();
-    if (!payToken || !code.trim() || verifying) return;
-    verifyThen(() => proposalPayVerify(payToken, code.trim(), null));
+      .catch((e: any) => { want(false); setCheck({ status: "error", message: errText(e) }); });
   }
   useEffect(() => {
     if (!payToken) return;
@@ -615,16 +587,7 @@ export function ProposalPreviewPage({
       .then((q: any) => {
         setFlightQuote(q);
         if (q && q.payable && payment !== "success") {
-          // Opened from the chatbot (#cs=<session>): the traveller is signed in already, so their
-          // session stands in for the code. The fragment never reaches a server log; it is
-          // dropped from the address bar straight away.
-          const cs = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.slice(1)).get("cs") : null;
-          if (cs) {
-            window.history.replaceState(null, "", window.location.pathname + window.location.search);
-            proposalPayVerify(payToken, null, cs).then(() => runCheck()).catch(() => runCheck());
-          } else {
-            runCheck();
-          }
+          runCheck();
         }
       })
       .catch(() => setFlightQuote(null));
@@ -634,7 +597,6 @@ export function ProposalPreviewPage({
   async function payNow(current = check) {
     if (!payToken) return;
     if (current.status === "checking") { want(true); return; }
-    if (current.status === "verify") { codeInput.current?.focus(); return; }
     if (current.status === "needs_details") { setPayingFlights(true); return; }
     if (current.status !== "ready" || paying) return;
     setPaying(true);
@@ -968,19 +930,7 @@ export function ProposalPreviewPage({
                     <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setTab("Days")}>
                       See the day-by-day plan
                     </button>
-                    {payToken && flightQuote?.payable && payment !== "success" && check.status === "verify" ? (
-                      <form className="pv-verify" onSubmit={submitCode}>
-                        <label className="pv-verify-label" htmlFor="pv-code">Your TripAgent access code</label>
-                        <div className="pv-verify-row">
-                          <input id="pv-code" ref={codeInput} className="pv-verify-input" value={code} autoComplete="one-time-code"
-                            onChange={(e) => { setCode(e.target.value.toUpperCase()); setCodeErr(null); }}
-                            placeholder="e.g. AB1234CD" maxLength={20} spellCheck={false} aria-invalid={!!codeErr} />
-                          <button type="submit" className="pv-cta pv-cta--pay" disabled={!code.trim() || verifying} aria-busy={verifying}>
-                            {verifying ? "Checking…" : "Continue to payment"}
-                          </button>
-                        </div>
-                      </form>
-                    ) : payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
+                    {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
                       <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || check.status === "needs_passengers" || paying}
                         aria-busy={check.status === "checking" || paying}>
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
@@ -1007,13 +957,11 @@ export function ProposalPreviewPage({
                     ) : null}
                   </div>
                   {payToken && flightQuote?.payable && payment !== "success" ? (
-                    <div className={"pv-actions-note" + (check.status === "error" || payErr || (check.status === "verify" && codeErr) ? " is-err" : "")} role="status">
+                    <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
                       {payErr ? payErr
-                        : check.status === "verify" ? (codeErr || "Enter the access code you sign in to TripAgent with. We'll check today's live price with the airline and hotel, then take you to payment.")
                         : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
                         : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""}
-                            {check.data?.fare_hold === "at_payment" ? " · the airline holds this fare when you pay" : ""} · secure payment by Razorpay
+                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""} · secure payment by Razorpay
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
@@ -1031,7 +979,7 @@ export function ProposalPreviewPage({
                     </div>
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
-                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} held={check.data.fare_hold !== "at_payment"} /></div>
+                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
                   ) : null}
                 </>
               ) : null}
