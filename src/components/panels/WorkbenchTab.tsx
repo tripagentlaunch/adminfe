@@ -448,6 +448,13 @@ export function WorkbenchTab(props: any) {
   // The "start this itinerary" content — the Drafting… spinner while
   // generating, else the Generate AI / Start from scratch chooser. Rendered
   // by the Itinerary Builder card below.
+  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
+  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
+  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
+  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
+  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
+  const taraMember =
+    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
   const itineraryStartNode = generating ? (
           // Real loading state (2026-09-06) — "Generate AI Itinerary" now
           // waits on a real Claude call (POST /enquiries/{id}/generate-
@@ -476,25 +483,12 @@ export function WorkbenchTab(props: any) {
           <div className="taw-itin-choose">
             <Icon name="sparkle" size={28} />
             <div className="title">Start this itinerary</div>
-            <div className="message">Generate a draft from what the enquiry asked for, or build it from scratch — either way, everything stays fully editable.</div>
-            <button className="taw-btn taw-btn--primary taw-btn--block" onClick={() => startItinerary("ai")}>
-              <Icon name="sparkle" size={16} />
-              Generate AI Itinerary
-            </button>
-            <button className="taw-btn taw-btn--block" onClick={() => startItinerary("scratch")}>
-              <Icon name="plus" size={16} />
-              Start from scratch
-            </button>
+            <div className="message">Pick one of Tara&apos;s itineraries for this traveller, or start from scratch and add flights and hotels from Search — either way, everything stays fully editable.</div>
+            <TaraItineraryLink variant="cards" member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry}
+              onScratch={() => startItinerary("scratch")} />
           </div>
   );
 
-  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
-  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
-  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
-  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
-  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
-  const taraMember =
-    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
   // Tara's itinerary is the one on screen (the converted plan carries `taraPlan`).
   const taraShowing = !!(selEnqId && itineraryData && itineraryData.taraPlan);
 
@@ -553,7 +547,7 @@ export function WorkbenchTab(props: any) {
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              title="Back to Generate AI Itinerary / Start from scratch — Tara's itinerary is kept and can be reopened"
+              title="Back to the start screen (Tara's itineraries / Start from scratch) — this itinerary is kept and can be reopened"
               onClick={() => parkTaraItinerary(selEnqId as string)}
             >
               ← Back
@@ -561,7 +555,9 @@ export function WorkbenchTab(props: any) {
           ) : null
         }
       >
-        <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} />
+        {/* With an itinerary open: switch between Tara's plans / open one. Before that, the start
+            screen below lists them as cards instead. */}
+        {itineraryData ? <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} /> : null}
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (

@@ -50,6 +50,7 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { PassengersPanel } from "./PassengersPanel";
 import { PaidTripHistory } from "./PaidTripHistory";
+import { requestLivePrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
@@ -342,11 +343,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // computed fresh for any day without one.
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   function dayOpenFor(day: any) {
-    // !dayInBound(day, data) (2026-09-04) — a day outside the itinerary's
+    // !dayInBound(day, summary) (2026-09-04) — a day outside the itinerary's
     // committed range needs a decision, same as any other attention-tier
     // condition; it shouldn't need a manual click just to see WHY it's
     // flagged and what to do about it.
-    return day.id in openDays ? openDays[day.id] : dayHasAttention(day) || !dayInBound(day, data);
+    return day.id in openDays ? openDays[day.id] : dayHasAttention(day) || !dayInBound(day, summary);
   }
   // Tier decides the STARTING state (attention starts open, done starts
   // closed) but every row is a plain toggle from here on (2026-09-03,
@@ -419,7 +420,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // (IncludeDayControl's `suggested`) needs the trip's real total day
   // count, not however many happen to match the current Flights/Hotels
   // tab filter.
-  const totalInBoundCount = data.days.filter((d: any) => dayInBound(d, data)).length;
+  const totalInBoundCount = data.days.filter((d: any) => dayInBound(d, summary)).length;
 
   // Financial rollup (2026-09-03, item #7) — confirmed/held summed to
   // exactly the old "grand" total, but that total silently excluded
@@ -702,7 +703,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         return visibleDays.map((day: any) => {
         const open = dayOpenFor(day);
         const attention = dayHasAttention(day);
-        const inBound = dayInBound(day, data);
+        const inBound = dayInBound(day, summary);
         // Calendar day number from the trip's first day (17 Nov = Day 1, 21 Nov = Day 5).
         const calNumber = dayNumberOf(day._iso, summary.startIso);
         const dayNumber = inBound ? (calNumber != null ? (inBoundCounter = calNumber) : ++inBoundCounter) : null;
@@ -718,7 +719,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           }
         }
         if (calNumber != null) prevIso = day._iso;
-        const suggestedNumber = inBound ? dayNumber! : day._iso < (data.startIso || day._iso) ? 1 : totalInBoundCount + 1;
+        const suggestedNumber = inBound ? dayNumber! : day._iso < (summary.startIso || day._iso) ? 1 : totalInBoundCount + 1;
         function toggle() {
           setOpenDays((s) => ({ ...s, [day.id]: !open }));
         }
@@ -881,11 +882,26 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
-                          {item.type === "flight" && !item.pricing && Number(item.price) > 0 ? (
-                            // Added before live pricing (or from Tara's plan): no live fare, no breakdown in the
-                            // proposal and not payable online until it is priced from Search.
+                          {item.type === "flight" && !item.pricing && item.status !== "confirmed" ? (
+                            // Not live-priced (Tara's draft, or added before live pricing): no live fare, no
+                            // breakdown in the proposal and not payable online until priced from Search.
                             <div className="taw-itin-reprice">
-                              <Icon name="alert" size={12} /> Search price only — find this flight in Search and use Add / Re-price for the live fare, the price breakdown and online payment.
+                              <Icon name="alert" size={12} />
+                              <span>
+                                {item.origin && item.dest && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))
+                                  ? "Not live-priced yet — get TripSure's live fare for this flight (route, day and flight numbers filled in for you)."
+                                  : "Not live-priced yet — this draft doesn't say its airports or date clearly; search the route in Search and Add the flight."}
+                              </span>
+                              {item.origin && item.dest && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || "")) ? (
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--accent"
+                                  onClick={() => requestLivePrice({
+                                    origin: item.origin, dest: item.dest, date: day._iso, cabin: item.cabin || null,
+                                    flightNos: (item.segments || []).map((sg: any) => sg.flightNo).filter(Boolean),
+                                    pax: item.paxMix || null,
+                                  })}>
+                                  Get live price
+                                </button>
+                              ) : null}
                             </div>
                           ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}

@@ -17,6 +17,7 @@ import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { paxText, type PaxMix } from "../../lib/flightRequests";
 import { FlightQuoteDrawer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { LIVE_PRICE_EVENT, flightNum, takeLivePriceRequest, type LivePriceRequest } from "../../lib/livePriceRequest";
 import { Dropdown, Empty, Field, Spinner, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType } from "../../lib/mockFlightSearch";
 import { boundFromDateRange } from "../../lib/itineraryFromCart";
@@ -261,7 +262,13 @@ export function FlightDesk(props: any) {
     tripType: ((props.tripDates && props.tripDates.startIso ? props.tripDates.endIso : boundFromDateRange(ask && ask.dateRange)?.endIso) ? "round" : "oneway") as "oneway" | "round",
     cabin: normalizeCabin(member && member.preferences && member.preferences.cabin) || "economy",
   };
-  const [form, setForm] = useState<typeof initialForm>(() => (saved?.form ? { ...initialForm, ...saved.form } : initialForm));
+  // A "Get live price" request that arrived before this desk was open is taken at first render.
+  const [firstPriceRequest] = useState<LivePriceRequest | null>(() => takeLivePriceRequest());
+  const [form, setForm] = useState<typeof initialForm>(() => {
+    const base = saved?.form ? { ...initialForm, ...saved.form } : initialForm;
+    const r = firstPriceRequest;
+    return r ? { ...base, originCode: r.origin, destCode: r.dest, date: r.date, returnDate: "", tripType: "oneway" as const, cabin: normalizeCabin(r.cabin) || base.cabin } : base;
+  });
   // Traveller mix (from the enquiry's persons when known). Kept in a ref too so
   // "Change travellers -> Search again" runs with the new mix straight away.
   const [pax, setPaxState] = useState<PaxMix>(() => saved?.pax || paxFromPersons(ask && ask.persons));
@@ -349,6 +356,26 @@ export function FlightDesk(props: any) {
     touched.current[k] = true;
     setForm((f) => ({ ...f, [k]: v }));
   }
+  // "Get live price" from the Itinerary Builder: search exactly that route / day / cabin, one way,
+  // then open the pricing drawer on the same flight (FlightResults' autoPick).
+  const autoRunRef = useRef(!!firstPriceRequest);
+  const [autoPick, setAutoPick] = useState<string[] | null>(() => (firstPriceRequest?.flightNos?.length ? firstPriceRequest.flightNos : null));
+  function applyPriceRequest(r: LivePriceRequest | null) {
+    if (!r || !r.origin || !r.dest || !r.date) return;
+    touched.current.date = touched.current.returnDate = touched.current.tripType = true;
+    if (r.pax && r.pax.adults) setPax(r.pax);
+    setIncludeNearbyDates(false);
+    setForm((f) => ({ ...f, originCode: r.origin, destCode: r.dest, date: r.date, returnDate: "", tripType: "oneway",
+      cabin: normalizeCabin(r.cabin) || f.cabin }));
+    setAutoPick(r.flightNos && r.flightNos.length ? r.flightNos : null);
+    autoRunRef.current = true;
+  }
+  useEffect(() => {
+    const on = () => applyPriceRequest(takeLivePriceRequest());
+    window.addEventListener(LIVE_PRICE_EVENT, on);
+    return () => window.removeEventListener(LIVE_PRICE_EVENT, on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const tripStart = props.tripDates && props.tripDates.startIso;
   const tripEnd = props.tripDates && props.tripDates.endIso;
   useEffect(() => {
@@ -691,6 +718,13 @@ export function FlightDesk(props: any) {
   // screen until the new search answers), so one field can be changed without
   // starting over. Every field keeps what was searched.
   const [modifyOpen, setModifyOpen] = useState(false);
+  // "Get live price": once the form holds the requested route / day, search it.
+  useEffect(() => {
+    if (!autoRunRef.current) return;
+    autoRunRef.current = false;
+    run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
   function backToSearch() {
     setErr(null);
     setModifyOpen((v) => !v);
@@ -1003,7 +1037,8 @@ export function FlightDesk(props: any) {
         </div>
       ) : null}
       {!loading && res ? (
-        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax} />
+        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax}
+          autoPick={autoPick} onAutoPickDone={() => setAutoPick(null)} />
       ) : null}
     </div>
   );
@@ -1016,7 +1051,7 @@ export function FlightDesk(props: any) {
 // "Add" opens the pricing drawer (orders/FlightQuoteDrawer.tsx): fare option, then
 // TripSure's live price for it, then the airline's seats / meals / baggage with their
 // prices. Only a live-checked price goes into the itinerary.
-function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
+function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, onAutoPickDone }: any) {
   // The offer being priced, and the drawer section it opened on.
   const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares" } | null>(null);
   // Flights added from this list, with the live price they went in at (shown on their card).
@@ -1030,6 +1065,14 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
     const d = o.detail || {};
     return Number(o.base_net != null ? o.base_net : o.baseNet) || d.baseNet || 0;
   };
+  // "Get live price": the result with the same flight numbers opens in the pricing drawer by itself.
+  const autoOffer = autoPick && autoPick.length
+    ? offers.find((o: any) => {
+        const nums = ((o.detail && o.detail.segments) || []).map((sg: any) => flightNum(sg.flightNo));
+        return nums.length === autoPick.length && nums.every((n: string, i: number) => n === flightNum(autoPick[i]));
+      }) || null
+    : null;
+  const active = quote || (autoOffer ? { offer: autoOffer, tab: "fares" as const } : null);
   // A live-priced flight into the itinerary, with two swap options picked automatically:
   // the closest fares on the same route and day (search prices; removable later in the
   // Itinerary Builder).
@@ -1054,6 +1097,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
     onAdd(flightCartItem(o, alternatives, { pax, pricing }));
     setAdded((m) => ({ ...m, [o.id]: pricing }));
     setQuote(null);
+    if (onAutoPickDone) onAutoPickDone();
   }
   // Carriers present in this result set, for the carrier filter.
   const carriers: any[] = [];
@@ -1076,7 +1120,6 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
   let shown = offers.filter((o: any) => {
     const d = o.detail || {};
     if (view.stops !== "any" && classifyStopType(d) !== view.stops) return false;
-    if (view.refundable && !d.refundable) return false;
     if (view.carrier !== "all" && d.airline !== view.carrier) return false;
     if (view.depWindow !== "any") {
       const hh = Number(String(d.depTime || "").split(":")[0]);
@@ -1136,17 +1179,8 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
             <Dropdown value={view.carrier} options={carrierOptions} onChange={(v: any) => setV("carrier", v)} ariaLabel="Filter by carrier" triggerClassName="taw-filter-dd" />
           ) : null}
           <Dropdown value={view.stops} options={STOPS_OPTIONS} onChange={(v: any) => setV("stops", v)} ariaLabel="Filter by stops" triggerClassName="taw-filter-dd" />
-          {/* Refundable as a chip (2026-09-02) — selected state swaps its
-              icon to an X so it visibly reads as "click to remove this
-              filter", not just a color change. */}
-          <button
-            className={cx("taw-chip", "taw-chip--toggle", view.refundable && "is-active")}
-            onClick={() => setV("refundable", !view.refundable)}
-            aria-pressed={view.refundable ? "true" : "false"}
-          >
-            <Icon name={view.refundable ? "x" : "shield"} size={12} />
-            Refundable
-          </button>
+          {/* No Refundable chip (2026-10-30, the user's call): each card already says Refundable /
+              Non-ref, and the fare options in the pricing drawer show it per fare. */}
         </div>
       ) : null}
       <SleekScroll className="taw-results-scroll">
@@ -1248,14 +1282,20 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax }: any) {
         )}
       </div>
       </SleekScroll>
-      {quote ? (
+      {autoPick && autoPick.length && !autoOffer && offers.length ? (
+        <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          {autoPick.join(" + ")} isn&apos;t in TripSure&apos;s results for this day — it may be sold out or not sold through TripSure. Pick another flight below.
+          {" "}<button type="button" className="taw-linkbtn" onClick={onAutoPickDone}>Dismiss</button>
+        </div>
+      ) : null}
+      {active ? (
         <FlightQuoteDrawer
-          key={quote.offer.id}
-          offer={quote.offer}
-          startTab={quote.tab}
+          key={active.offer.id}
+          offer={active.offer}
+          startTab={active.tab}
           paxNote={"for " + paxText(pax)}
-          onAdd={(p) => addPriced(quote.offer, p)}
-          onClose={() => setQuote(null)}
+          onAdd={(p) => addPriced(active.offer, p)}
+          onClose={() => { setQuote(null); if (onAutoPickDone) onAutoPickDone(); }}
         />
       ) : null}
     </div>

@@ -57,7 +57,8 @@
  * the two pixel values — align-self itself can't be transitioned
  * directly, CSS has no interpolation for it.
  * ===========================================================================*/
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { LIVE_PRICE_EVENT } from "../../lib/livePriceRequest";
 import { recallDesk, rememberDesk } from "../../lib/deskMemory";
 import { cx } from "../../lib/cx";
 import { Card, Dropdown, Icon } from "../ui";
@@ -80,6 +81,13 @@ export function SearchDesksPanel(props: any) {
     setDeskState(d);
     rememberDesk(deskKey, { desk: d }, { desk: d });
   }
+  // "Get live price" in the Itinerary Builder: show the Flights desk (it takes the request on mount).
+  useEffect(() => {
+    const on = () => setDesk("flights");
+    window.addEventListener(LIVE_PRICE_EVENT, on);
+    return () => window.removeEventListener(LIVE_PRICE_EVENT, on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [expanded, setExpanded] = useState(false);
   const cardRef = useRef<any>(null);
   const firstRender = useRef(true);

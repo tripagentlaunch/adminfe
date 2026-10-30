@@ -41,12 +41,13 @@ const fmtUpdated = (ms?: number) =>
 // is checked again every minute, so a plan Tara builds while the panel is open
 // appears too. A traveller whose record carries no code is found by phone/email.
 const PLANS_EVERY_MS = 60000;
+const AUTO_OPEN_NEWEST: boolean = false;
 
 // Edited copies of Tara's plans set aside by switching to another plan, per enquiry
 // and plan, so switching back restores the advisor's edits (this tab's session).
 const switchedAway = new Map<string, any>();
 
-export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }: any) {
+export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden, variant, onScratch }: any) {
   const baseCode = memberCode(member);
   const memberKey = String((member && (member.id || member.member_id)) || "");
   const [found, setFound] = useState<{ key: string; code: string } | null>(null);
@@ -91,7 +92,9 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
   useEffect(() => {
     // Not before the saved itineraries are back from the server: until then "empty" may just
     // mean "not loaded yet", and opening Tara's plan would replace the advisor's work.
-    if (!checked || !latest || parked || !workspaceRestored) return;
+    // Off since 2026-10-30 (the user's call): the advisor picks from Tara's itineraries shown in
+    // the Builder's start screen (variant "cards") instead of the newest opening by itself.
+    if (AUTO_OPEN_NEWEST !== true || !checked || !latest || parked || !workspaceRestored) return;
     const existing = selEnqId ? itinerariesByEnquiry[selEnqId] : null;
     if (existing && Array.isArray(existing.days) && existing.days.length) return;
     const tryKey = `${code}:${latest.planId}:${latest.updatedAt || ""}`;
@@ -160,9 +163,9 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
   }
   const chosen = plans.find((p) => p.planId === pick) || plans[0];
 
-  const open = async () => {
+  const open = async (planId?: string, resumeParked?: boolean) => {
     if (opening) return;
-    if (parked && selEnqId) {
+    if ((resumeParked ?? !planId) && parked && selEnqId) {
       const current = itinerariesByEnquiry[selEnqId];
       const inUse = !!(current && Array.isArray(current.days) && current.days.length);
       if (inUse && !window.confirm("Replace the itinerary in the Builder with the Tara itinerary you set aside?")) return;
@@ -172,7 +175,7 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
     // Fetch at click time — Tara may have revised the plan since the list loaded.
     setOpening(true);
     try {
-      const d: any = await getTaraPlan(code, chosen.planId);
+      const d: any = await getTaraPlan(code, planId || chosen.planId);
       if (!d || !d.itinerary) {
         toast("Tara's plan is no longer available.", "error");
         return;
@@ -190,9 +193,40 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden }:
     }
   };
 
+  // The Builder's start screen: Tara's itineraries as cards to pick from, beside Start from scratch.
+  if (variant === "cards") {
+    return (
+      <div className="taw-tara-cards">
+        {parked || plans.length ? <div className="taw-tara-cards-h">Tara&apos;s itineraries for this traveller</div> : null}
+        {parked ? (
+          <button type="button" className="taw-tara-card is-parked" onClick={() => open(undefined, true)} disabled={opening}>
+            <Icon name="edit" size={16} />
+            <span><b>Your edited copy of Tara&apos;s itinerary</b><small>Set aside with ← Back — continue where you left off</small></span>
+          </button>
+        ) : null}
+        {plans.map((p, i) => (
+          <button key={p.planId} type="button" className="taw-tara-card" onClick={() => open(p.planId, false)} disabled={opening}>
+            <Icon name="sparkle" size={16} />
+            <span>
+              <b>{p.title || "Tara's itinerary"}</b>
+              <small>{[i === 0 ? "Latest" : null, p.updatedAt ? `updated ${fmtUpdated(p.updatedAt)}` : null, "built in the traveller's chat"].filter(Boolean).join(" · ")}</small>
+            </span>
+            {p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>Tara&apos;s page</a> : null}
+          </button>
+        ))}
+        {checked && !plans.length && !parked ? <div className="taw-tara-cards-empty">Tara hasn&apos;t built an itinerary for this traveller yet.</div> : null}
+        {!checked && code ? <div className="taw-tara-cards-empty">Looking for Tara&apos;s itineraries…</div> : null}
+        <button type="button" className="taw-btn taw-btn--block" onClick={onScratch} disabled={opening}>
+          <Icon name="plus" size={16} /> Start from scratch
+        </button>
+        {opening ? <div className="taw-tara-cards-empty">Opening…</div> : null}
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-      <button type="button" className="taw-btn taw-btn--sm" onClick={open} disabled={opening}>
+      <button type="button" className="taw-btn taw-btn--sm" onClick={() => open()} disabled={opening}>
         <Icon name="sparkle" size={13} /> {opening ? "Opening…" : parked ? "Return to Tara’s itinerary" : "Open Tara’s itinerary"}
       </button>
       {plans.length > 1 && !parked ? (

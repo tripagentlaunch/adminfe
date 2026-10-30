@@ -31,6 +31,8 @@ function uid() {
 export function blankItinerary(): any {
   return {
     destination: "New itinerary",
+    // Built from Search / scratch: dates come from what's added (withTripSummary).
+    source: "scratch",
     dateRange: "",
     // startIso/endIso (2026-09-04) — the itinerary's own committed date
     // bound, separate from whatever days happen to exist yet. null until
@@ -471,8 +473,14 @@ export function withTripSummary(data: any): any {
   // added after the flight moves the destination to the stay's city); a value
   // set by the AI draft or the advisor is never touched.
   const auto: Record<string, boolean> = { ...(data._autoSummary || {}) };
-  const open = (k: string, empty: boolean) => auto[k] || empty;
   const days: any[] = data.days || [];
+  // A trip built from Search (not Tara's / the AI's plan): its dates are what's in it — Day 1 is the
+  // first booking, a one-way flight is just its date — never dates seeded from the enquiry's ask.
+  const searchBuilt = data.source === "scratch" || (!data.taraPlan && !days.some((d: any) => d.description));
+  if (searchBuilt && days.some((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d._iso || "")))) {
+    auto.startIso = auto.endIso = auto.dateRange = auto.nights = true;
+  }
+  const open = (k: string, empty: boolean) => auto[k] || empty;
   const items = days.flatMap((d: any) => (d.items || []).map((it: any) => ({ ...it, _iso: d._iso })));
   const hotels = items.filter((it: any) => it.type === "hotel");
   const flights = items.filter((it: any) => it.type === "flight");
@@ -485,8 +493,11 @@ export function withTripSummary(data: any): any {
   const end = open("endIso", !data.endIso) ? [...dates, ...hotelEnds].sort().pop() || null : data.endIso;
   if (open("startIso", !data.startIso) && start) setAuto("startIso", start);
   if (open("endIso", !data.endIso) && end && end !== start) setAuto("endIso", end);
+  else if (auto.endIso && start && (!end || end === start)) setAuto("endIso", null); // a single day: no end
+
   if (open("dateRange", !data.dateRange) && start) setAuto("dateRange", end && end !== start ? fmtDateRangeIso(start, end) : fmtDayDate(start));
   if (open("nights", !data.nights) && start && end) setAuto("nights", Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000)));
+  else if (auto.nights && start && !end) setAuto("nights", 0);
   if (open("destination", !data.destination || data.destination === "New itinerary")) {
     // The stay's real city; `sub` is only a fallback (after a swap it starts with "5-star").
     const subCity = hotels.length ? String(hotels[0].sub || "").split(" · ")[0] : "";
