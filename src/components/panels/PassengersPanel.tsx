@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { Icon } from "../ui";
 import { paxText, type PaxMix } from "../../lib/flightRequests";
+import { NATIONALITIES } from "../orders/TravellersForm";
 
 export type Passenger = {
   pax_type: "adult" | "child" | "infant"; title: string; first_name: string; last_name: string; gender: "male" | "female" | "";
@@ -65,61 +66,95 @@ export function PassengersPanel({ data, member, onChange }: { data: any; member:
   }));
   const filled = rows.filter((r) => r.first_name && r.last_name && r.gender).length;
 
+  // What a passenger still needs, in words ("gender, date of birth").
+  const missing = (r: Passenger, i: number) => [
+    !r.first_name.trim() || !r.last_name.trim() ? "name" : "",
+    !r.gender ? "gender" : "",
+    (r.pax_type !== "adult" || intl) && !r.date_of_birth ? "date of birth" : "",
+    intl && !r.passport_number.trim() ? "passport number" : "",
+    intl && !r.passport_expiry ? "passport expiry" : "",
+    i === 0 && !(r.email || "").includes("@") ? "email" : "",
+    i === 0 && !/^\d{10}$/.test(String(r.phone || "").replace(/\D/g, "").slice(-10)) ? "mobile" : "",
+  ].filter(Boolean);
+
   return (
-    <div className={"taw-pax" + (done ? " is-done" : "")}>
-      <button type="button" className="taw-pax-h" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <Icon name="people" size={16} />
-        <b>Passengers</b>
-        <span className="taw-pax-sub">{paxText(mix)}{intl ? " · international" : ""}</span>
-        <span className={"taw-pax-state" + (done ? " ok" : "")}>
-          {done ? "✓ Ready for payment" : `${filled} of ${rows.length} filled — needed before the customer can pay`}
+    <div className={"taw-psg" + (done ? " is-done" : "")}>
+      <button type="button" className="taw-psg-h" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="taw-psg-ic"><Icon name="people" size={16} /></span>
+        <span className="taw-psg-title">
+          <b>Passengers</b>
+          <small>{paxText(mix)}{intl ? " · international trip" : ""}</small>
         </span>
-        <Icon name="chevron" size={14} style={{ transform: open ? "rotate(180deg)" : "none", transition: ".15s" }} />
+        <span className={"taw-psg-state" + (done ? " ok" : "")}>
+          {done ? "✓ Ready for payment" : `${filled} of ${rows.length} complete · needed before the customer can pay`}
+        </span>
+        <span className="taw-psg-toggle">{open ? "Close" : done ? "View" : "Fill in"}<Icon name="chevron" size={13} style={{ transform: open ? "rotate(180deg)" : "none", transition: ".15s" }} /></span>
       </button>
       {open ? (
-        <div className="taw-pax-b">
-          <p className="taw-pax-note">
-            Names exactly as on {intl ? "the passport" : "a government ID"}. TripSure needs every passenger before it takes the flight payment, so the
-            customer&apos;s Pay now on the proposal link opens only once these are complete.
+        <div className="taw-psg-b">
+          <p className="taw-psg-note">
+            Enter each passenger exactly as on {intl ? "their passport" : "a government ID"}. TripSure needs all of them before it takes the flight
+            payment, so the customer&apos;s <b>Pay now</b> opens only once every card here is complete.
           </p>
-          {rows.map((r, i) => (
-            <fieldset key={i} className="taw-pax-row">
-              <legend>
-                {r.pax_type === "adult" ? `Adult ${kinds.slice(0, i + 1).filter((k) => k === "adult").length}` : r.pax_type === "child" ? "Child (2–11)" : "Infant (under 2)"}
-                {i === 0 ? " · lead (contact for the booking)" : ""}
-              </legend>
-              <div className="taw-pax-grid">
-                <select className="taw-input" aria-label="Title" value={r.title} onChange={(e) => set(i, { title: e.target.value })}>
-                  {TITLES[r.pax_type].map((t) => <option key={t}>{t}</option>)}
-                </select>
-                <input className="taw-input" aria-label="First name" placeholder="First name" value={r.first_name} onChange={(e) => set(i, { first_name: e.target.value })} />
-                <input className="taw-input" aria-label="Last name" placeholder="Last name" value={r.last_name} onChange={(e) => set(i, { last_name: e.target.value })} />
-                <select className="taw-input" aria-label="Gender" value={r.gender} onChange={(e) => set(i, { gender: e.target.value as Passenger["gender"] })}>
-                  <option value="">Gender</option><option value="male">Male</option><option value="female">Female</option>
-                </select>
-                <label className="taw-pax-l">Date of birth{r.pax_type === "adult" && !intl ? " (optional)" : ""}
-                  <input className="taw-input" type="date" value={r.date_of_birth} onChange={(e) => set(i, { date_of_birth: e.target.value })} />
-                </label>
-                {intl ? (
-                  <>
-                    <input className="taw-input" aria-label="Passport number" placeholder="Passport number" value={r.passport_number}
-                      onChange={(e) => set(i, { passport_number: e.target.value.toUpperCase() })} />
-                    <label className="taw-pax-l">Passport expiry
-                      <input className="taw-input" type="date" value={r.passport_expiry} onChange={(e) => set(i, { passport_expiry: e.target.value })} />
-                    </label>
-                    <input className="taw-input" aria-label="Nationality" placeholder="Nationality (IN)" maxLength={2} value={r.nationality}
-                      onChange={(e) => set(i, { nationality: e.target.value.toUpperCase() })} />
-                  </>
-                ) : null}
-                {i === 0 ? (
-                  <>
-                    <input className="taw-input" aria-label="Email" type="email" placeholder="Email (tickets go here)" value={r.email || ""} onChange={(e) => set(i, { email: e.target.value })} />
-                    <input className="taw-input" aria-label="Mobile" inputMode="numeric" placeholder="Mobile (10 digits)" value={r.phone || ""} onChange={(e) => set(i, { phone: e.target.value })} />
-                  </>
-                ) : null}
-              </div>
-            </fieldset>
-          ))}
+          {rows.map((r, i) => {
+            const miss = missing(r, i);
+            const kindLabel = r.pax_type === "adult" ? `Adult ${kinds.slice(0, i + 1).filter((k) => k === "adult").length}` : r.pax_type === "child" ? "Child (2–11 yrs)" : "Infant (under 2)";
+            return (
+              <section key={i} className={"taw-psg-card" + (miss.length ? "" : " ok")} aria-label={kindLabel}>
+                <header>
+                  <b>{kindLabel}</b>
+                  {i === 0 ? <span className="taw-psg-lead">Lead · booking contact</span> : null}
+                  <span className={"taw-psg-miss" + (miss.length ? "" : " ok")}>{miss.length ? `Needs: ${miss.join(", ")}` : "✓ Complete"}</span>
+                </header>
+                <div className="taw-psg-grid">
+                  <label className="taw-psg-f"><span>Title</span>
+                    <select className="taw-input" value={r.title} onChange={(e) => set(i, { title: e.target.value })}>
+                      {TITLES[r.pax_type].map((t) => <option key={t}>{t}</option>)}
+                    </select>
+                  </label>
+                  <label className="taw-psg-f"><span>First name</span>
+                    <input className="taw-input" value={r.first_name} placeholder="As on the ID" onChange={(e) => set(i, { first_name: e.target.value })} />
+                  </label>
+                  <label className="taw-psg-f"><span>Last name</span>
+                    <input className="taw-input" value={r.last_name} placeholder="As on the ID" onChange={(e) => set(i, { last_name: e.target.value })} />
+                  </label>
+                  <label className="taw-psg-f"><span>Gender</span>
+                    <select className="taw-input" value={r.gender} onChange={(e) => set(i, { gender: e.target.value as Passenger["gender"] })}>
+                      <option value="">Select</option><option value="male">Male</option><option value="female">Female</option>
+                    </select>
+                  </label>
+                  <label className="taw-psg-f"><span>Date of birth{r.pax_type === "adult" && !intl ? <em> · optional</em> : null}</span>
+                    <input className="taw-input" type="date" value={r.date_of_birth} onChange={(e) => set(i, { date_of_birth: e.target.value })} />
+                  </label>
+                  {intl ? (
+                    <>
+                      <label className="taw-psg-f"><span>Nationality</span>
+                        <select className="taw-input" value={r.nationality || "IN"} onChange={(e) => set(i, { nationality: e.target.value })}>
+                          {NATIONALITIES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+                        </select>
+                      </label>
+                      <label className="taw-psg-f"><span>Passport number</span>
+                        <input className="taw-input" value={r.passport_number} placeholder="e.g. Z1234567" onChange={(e) => set(i, { passport_number: e.target.value.toUpperCase() })} />
+                      </label>
+                      <label className="taw-psg-f"><span>Passport expiry</span>
+                        <input className="taw-input" type="date" value={r.passport_expiry} onChange={(e) => set(i, { passport_expiry: e.target.value })} />
+                      </label>
+                    </>
+                  ) : null}
+                  {i === 0 ? (
+                    <>
+                      <label className="taw-psg-f taw-psg-wide"><span>Email · tickets are sent here</span>
+                        <input className="taw-input" type="email" value={r.email || ""} placeholder="name@example.com" onChange={(e) => set(i, { email: e.target.value })} />
+                      </label>
+                      <label className="taw-psg-f taw-psg-wide"><span>Mobile</span>
+                        <input className="taw-input" inputMode="numeric" value={r.phone || ""} placeholder="10 digits" onChange={(e) => set(i, { phone: e.target.value })} />
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+              </section>
+            );
+          })}
         </div>
       ) : null}
     </div>

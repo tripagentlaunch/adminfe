@@ -1,8 +1,8 @@
 "use client";
 /* Pricing a searched flight for the customer's itinerary (Console → Search → Add), the
    same way New booking prices it before taking payment:
-     Fare options (Saver / Flex …)  →  Check live price  →  Baggage / Meals / Seats  →  Add to itinerary
-   "Check live price" is TripSure's Create Itinerary on its own (POST /flights/itinerary,
+     Fare options (Saver / Flex …)  →  Next (live price)  →  Baggage / Meals / Seats  →  Add to itinerary
+   "Next" is TripSure's Create Itinerary on its own (POST /flights/itinerary,
    nothing recorded on our side): the airline's actual fare right now, and the itinerary
    id the add-on prices (SSR) are read for. So what goes into the itinerary is the fare
    the ticket would cost plus the exact seat / meal / bag picked, not the search-list
@@ -198,7 +198,7 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
       price={lock ? inr(lock.fare + extrasTotal) : inr(listPrice)}
       priceNote={lock
         ? (extrasTotal > 0 ? `${inr(lock.fare)} live fare + ${inr(extrasTotal)} add-ons (${counts.text}) · ${paxNote}` : `Live fare from TripSure ${paxNote} · add-ons optional`)
-        : `Search price ${paxNote} — check the live price to add it`}
+        : `Search price ${paxNote} · Next confirms it with the airline`}
       actions={lock ? (
         <>
           <button type="button" className="taw-btn" onClick={() => { setLock(null); setSel([]); setTab("fares"); }} disabled={busy}>Change fare</button>
@@ -208,7 +208,7 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
         </>
       ) : (
         <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={check} disabled={!fare || busy || gone.includes(fare.fare_id)}>
-          {busy ? "Checking with TripSure…" : fare && gone.includes(fare.fare_id) ? "Not available" : "Check live price"}
+          {busy ? "Confirming price…" : fare && gone.includes(fare.fare_id) ? "Not available" : "Next"}
         </button>
       )}
     >
@@ -238,8 +238,8 @@ export function FlightQuoteDrawer({ offer, paxNote, asked, onAdd, onClose, start
           <FareOptionsList offer={offer} selected={fare?.fare_id || null} onSelect={chooseFare} />
           <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 10 }}>
             {lock
-              ? "Picking another fare option needs a new live price check."
-              : "Check live price asks TripSure for this fare's price right now — the same price the booking will charge — and then shows the airline's seats, meals and baggage with their prices."}
+              ? "Picking another fare option confirms its price again with Next."
+              : "Pick a fare, then Next: it confirms this fare's price with the airline right now — the price the booking will charge — and opens the airline's seats, meals and baggage."}
           </div>
         </>
       ) : (

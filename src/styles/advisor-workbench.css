@@ -1836,19 +1836,35 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-res-priced small{color:var(--taupe);font-size:11px;}
 .taw-itin-alt-facts{color:var(--taupe);font-size:11px;margin:0 2px 0 4px;}
 .taw-itin-reprice{display:flex;gap:6px;align-items:flex-start;margin-top:6px;padding:6px 9px;border-radius:8px;background:var(--warn-bg,#fff6e5);color:var(--warn-ink,#8a6400);font-size:12px;line-height:1.4;}
-/* Itinerary Builder: flight passengers for TripSure payment (PassengersPanel.tsx) */
-.taw-pax{border:1px solid var(--warn-ink,#b08428);border-radius:12px;margin:0 0 12px;background:var(--warn-bg,#fff8ea);}
-.taw-pax.is-done{border-color:var(--line);background:var(--card);}
-.taw-pax-h{width:100%;display:flex;align-items:center;gap:8px;padding:10px 12px;border:0;background:transparent;cursor:pointer;text-align:left;color:var(--ink);font:inherit;flex-wrap:wrap;}
-.taw-pax-sub{color:var(--taupe);font-size:12px;}
-.taw-pax-state{margin-left:auto;font-size:12px;color:var(--warn-ink,#8a6400);}
-.taw-pax-state.ok{color:var(--success,#2f6b4a);}
-.taw-pax-b{padding:0 12px 12px;display:grid;gap:10px;}
-.taw-pax-note{margin:0;font-size:12px;color:var(--taupe);line-height:1.45;}
-.taw-pax-row{border:1px solid var(--line);border-radius:10px;padding:8px 10px 10px;margin:0;background:var(--card);}
-.taw-pax-row legend{font-size:11px;color:var(--taupe);padding:0 4px;}
-.taw-pax-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;align-items:end;}
-.taw-pax-l{display:grid;gap:3px;font-size:11px;color:var(--taupe);}
+/* Itinerary Builder: flight passengers for TripSure payment (PassengersPanel.tsx). Own taw-psg-*
+   names: taw-pax / taw-pax-row already belong to the flight search's traveller picker. */
+.taw-psg{border:1px solid rgba(176,132,40,.45);border-radius:12px;margin:0 0 12px;background:var(--warn-bg,#fff8ea);}
+.taw-psg.is-done{border-color:var(--line);background:var(--card);}
+.taw-psg-h{width:100%;display:flex;align-items:center;gap:10px;padding:12px 14px;border:0;background:transparent;cursor:pointer;text-align:left;color:var(--ink);font:inherit;flex-wrap:wrap;}
+.taw-psg-ic{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--line);flex:0 0 30px;}
+.taw-psg-title{display:grid;gap:1px;}
+.taw-psg-title b{font-size:14px;}
+.taw-psg-title small{color:var(--taupe);font-size:12px;}
+.taw-psg-state{margin-left:auto;font-size:12.5px;color:var(--warn-ink,#8a6400);}
+.taw-psg-state.ok{color:var(--success,#2f6b4a);font-weight:600;}
+.taw-psg-toggle{display:inline-flex;align-items:center;gap:4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink,#785c12);font-weight:600;}
+.taw-psg-b{padding:0 14px 14px;display:grid;gap:12px;}
+.taw-psg-note{margin:0;font-size:12.5px;color:var(--taupe);line-height:1.5;}
+.taw-psg-card{border:1px solid var(--line);border-left:3px solid var(--warn-ink,#b08428);border-radius:10px;background:var(--card);padding:12px 14px 14px;}
+.taw-psg-card.ok{border-left-color:var(--success,#2f6b4a);}
+.taw-psg-card header{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.taw-psg-card header b{font-size:13.5px;}
+.taw-psg-lead{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--gold-bg);color:var(--gold-ink,#785c12);}
+.taw-psg-miss{margin-left:auto;font-size:12px;color:var(--warn-ink,#8a6400);}
+.taw-psg-miss.ok{color:var(--success,#2f6b4a);}
+.taw-psg-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px;}
+.taw-psg-f{display:grid;gap:4px;min-width:0;}
+.taw-psg-f>span{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--taupe);}
+.taw-psg-f>span em{font-style:normal;font-weight:400;text-transform:none;letter-spacing:0;}
+.taw-psg-f .taw-input{width:100%;min-width:0;box-sizing:border-box;}
+.taw-psg-wide{grid-column:span 2;}
+.taw-psg-b{container-type:inline-size;}
+@container (max-width:620px){.taw-psg-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.taw-psg-wide{grid-column:span 1;}}
 /* Hotel desk: rooms editor, location type tags, requests (HotelDesk.tsx) */
 .taw-room{display:grid;padding:4px 0 6px;}
 .taw-room+.taw-room{border-top:1px solid var(--line);}
