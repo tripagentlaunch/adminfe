@@ -24,7 +24,10 @@ export async function payHeldOrder(token: string, held: { order_id: string; pay_
   for (let guard = 0; guard < 6; guard++) {
     const o: any = await proposalFlightPayStart(token, held.order_id);
     onStep?.({ step: o.step || 1, steps: o.steps || 1, label: o.label || "" });
-    if (o.mode === "mock") {
+    // Mock server + a Razorpay TEST key id on it (no secret, no order): the real Razorpay popup opens
+    // for a demo and its result is reported as a mock payment. Without that key id: the /pay/mock page.
+    const demo = o.mode === "mock" && !!o.demo_key_id;
+    if (o.mode === "mock" && !demo) {
       try {
         sessionStorage.setItem(MOCK_PAY_KEY, JSON.stringify({ token, order_id: held.order_id, ...o }));
       } catch { /* storage blocked: the page still has the ids in its URL */ }
@@ -36,13 +39,14 @@ export async function payHeldOrder(token: string, held: { order_id: string; pay_
     // opened with the shared Checkout script; TripAgent's name on it.
     const done: any = await new Promise((resolve, reject) => {
       openRazorpayCheckout({
-        keyId: o.key_id, orderId: o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
+        keyId: demo ? o.demo_key_id : o.key_id, orderId: demo ? undefined : o.razorpay_order_id, amount: o.amount_paise, currency: o.currency,
         name: o.name || "TripAgent",
         description: (o.steps > 1 ? `Payment ${o.step} of ${o.steps} · ` : "") + (o.description || ""),
         prefill: o.prefill, notes: o.notes, theme: { color: "#3a352e" },
         ...(left != null ? { timeout: Math.max(60, left) } : {}),
         onSuccess: (r) => proposalFlightPayConfirm(token, {
-          order_id: held.order_id, razorpay_order_id: r.razorpay_order_id, razorpay_payment_id: r.razorpay_payment_id, razorpay_signature: r.razorpay_signature,
+          order_id: held.order_id, razorpay_order_id: demo ? o.razorpay_order_id : r.razorpay_order_id, razorpay_payment_id: r.razorpay_payment_id,
+          razorpay_signature: demo ? "mock_ok" : r.razorpay_signature,
         }).then(resolve, reject),
         onDismiss: () => reject(new Error(o.step > 1
           ? `Payment ${o.step} of ${o.steps} was closed — the earlier payment went through; press Pay now to finish the rest.`

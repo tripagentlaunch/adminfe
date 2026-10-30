@@ -13,7 +13,7 @@ export interface RazorpaySuccess {
 
 export interface RazorpayOpenOptions {
   keyId: string;
-  orderId: string;
+  orderId?: string; // omitted only for the demo popup (a test key with no order)
   amount: number; // paise
   currency: string;
   name: string;
@@ -59,7 +59,7 @@ export async function openRazorpayCheckout(opts: RazorpayOpenOptions): Promise<v
   if (!window.Razorpay) throw new Error('Razorpay unavailable');
   const rzp = new window.Razorpay({
     key: opts.keyId,
-    order_id: opts.orderId,
+    ...(opts.orderId ? { order_id: opts.orderId } : {}),
     amount: opts.amount,
     currency: opts.currency,
     name: opts.name,
