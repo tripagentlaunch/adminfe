@@ -9,9 +9,12 @@ import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
 import { HotelSearchBar } from "./HotelSearchBar";
 import {
-  bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
+  bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
+import { hotelCartItem } from "../../lib/advisorHelpers";
+import { hotelAlternatives, pricedAlternatives } from "../../lib/hotelAlternatives";
+import { BED_OPTIONS, NO_HOTEL_REQUESTS, type HotelRequests } from "../../lib/hotelOccupancy";
 import { todayISO } from "../../lib/advisorHelpers";
 import {
   DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, sortHotels, viewKey, type HotelView,
@@ -167,29 +170,40 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdded, onError }: {
-  customer: Customer;
+export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, onBack, onAdded, onError, mode = "booking", initial, autoSearch, onAddToItinerary }: {
+  /** Who the booking is for (booking mode; the itinerary mode has no customer). */
+  customer?: Customer;
   /** Attach as a new itinerary on this order. */
   orderId?: string | null;
   /** Attach to this itinerary (e.g. the flight just locked). Wins over orderId. */
   itineraryId?: string | null;
   onBack: () => void;
-  onAdded: (orderId: string) => void;
+  onAdded?: (orderId: string) => void;
   onError: (msg: string | null) => void;
+  /** "booking": the room is recorded on an order and locked with Tripsure (New Booking). "itinerary": the picked room is handed
+   *  to onAddToItinerary instead - nothing is recorded or locked (the Console's Add-a-hotel popup, for the itinerary / proposal). */
+  mode?: "booking" | "itinerary";
+  /** A search to start from (the Console desk's form). */
+  initial?: { city: string; location: any | null; checkIn: string; checkOut: string; rooms: RoomGuests[] };
+  /** Run `initial` as a search as soon as this opens. */
+  autoSearch?: boolean;
+  onAddToItinerary?: (item: any) => void;
 }) {
+  const itinerary = mode === "itinerary";
+  const customer: Customer = customerProp || { member_id: null, name: "", email: "" };
   const [sub, setSub] = useState<Sub>("search");
-  const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16) });
+  const [form, setForm] = useState({ city: initial ? initial.city : "", checkIn: initial ? initial.checkIn : todayISO(14), checkOut: initial ? initial.checkOut : todayISO(16) });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
   // Who sleeps in which room. Tripsure prices and locks occupancy PER ROOM, so each room carries its own
   // adults and children (with ages); the totals below are derived from it, never the other way round.
-  const [roomsCfg, setRoomsCfg] = useState<RoomGuests[]>(defaultRooms);
+  const [roomsCfg, setRoomsCfg] = useState<RoomGuests[]>(() => (initial ? initial.rooms.map((r) => ({ adults: r.adults, childAges: r.childAges.slice() })) : defaultRooms()));
   const tot = totals(roomsCfg);
   const nRooms = roomsCfg.length;
 
   // Dates of the search that minted `session` (docKey/token). The form can be edited
   // after "Change search" without re-searching, so recording a stay must use these.
   const [searched, setSearched] = useState<{ checkIn: string; checkOut: string } | null>(null);
-  const [location, setLocation] = useState<any>(null);
+  const [location, setLocation] = useState<any>(initial ? initial.location : null);
   const [intl, setIntl] = useState(false); // the searched place is outside India (from the suggestion's country, not assumed)
   const [busy, setBusy] = useState(false);
 
@@ -239,6 +253,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // The "Review your stay" step after Reserve (like Tripsure's Review & pay) and its popups.
   const [priceAlert, setPriceAlert] = useState<{ title: string; was: number; now: number } | null>(null);
   const [reviewing, setReviewing] = useState<{ opt: any; chk: any } | null>(null);
+  const [req, setReq] = useState<HotelRequests>(NO_HOTEL_REQUESTS); // the guest's room requests (itinerary mode), saved with the room
   const [rvPop, setRvPop] = useState<null | "rules" | "policy" | "room">(null);
   const pickReq = useRef(0); // id of the latest hotel pick; older responses are ignored
 
@@ -406,6 +421,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         return {
           state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total, changeInPrice: r.changeInPrice === true,
           price: splitPrice(rate.rateBreakdown, Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0),
+          roomTypeCode: rate.roomType && rate.roomType.roomTypeCode, roomTypeId: rate.roomType && rate.roomType.roomTypeId,
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
@@ -506,13 +522,58 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       .finally(() => setAdding(false));
   }
 
+  // Itinerary mode: the picked room goes to the itinerary builder (and the proposal) instead of an order - same item
+  // the Console's Hotels desk always built: the verified price, the stay's facts, three priced swap options, the
+  // guest's requests and the Tripsure handles kept for a later booking. Nothing is recorded or locked here.
+  function addToItinerary(opt: any, chk: any) {
+    const sess = sessOf(hotel);
+    if (!sess || !hotel || !onAddToItinerary) return;
+    onError(null);
+    setAdding(true);
+    const offer = offers.find((o: any) => String(o.id) === String(hotel.hotelKey))
+      || mapTripSureHotel(hotel, { international: intl, nights, rooms: nRooms, docKey: sess.docKey, token: sess.token });
+    const handles = { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token };
+    Promise.all([
+      Promise.resolve(hotelFacts({ ...handles, bookingCode: opt.code })).catch(() => null), // a failure just adds the hotel without them
+      pricedAlternatives(hotelAlternatives(shown, offer)),
+    ])
+      .then(([facts, alts]) => {
+        const d = offer.detail || {};
+        const verified = {
+          ...offer,
+          base_net: chk.total,
+          detail: { ...d, nights: Math.max(1, nights), rooms: nRooms, roomType: opt.title, board: opt.board || d.board,
+                    refundable: chk.refundable != null ? chk.refundable : opt.refundable, nightlyFrom: chk.total / Math.max(1, nights * nRooms) },
+        };
+        onAddToItinerary({
+          ...hotelCartItem(verified, alts),
+          checkIn: (searched || form).checkIn,
+          facts,
+          occupancy: roomsCfg,
+          requests: { ...req, note: req.note.trim() },
+          distance: null,
+          tripsure: { ...handles, bookingCode: opt.code, roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
+        });
+      })
+      .catch((e: any) => onError(errText(e)))
+      .finally(() => setAdding(false));
+  }
+
+  // A search handed in from the Console desk starts by itself (a timer, so the state it reads is the opening one).
+  useEffect(() => {
+    if (!autoSearch) return;
+    const t = setTimeout(() => runSearch(), 0);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Skip: the advisor chose to keep the room on the order unlocked, so it shows in Orders now.
   function keepWithoutLock() {
     if (!added) return;
     onError(null);
     setAdding(true);
     Promise.resolve(draftRef.current ? bookingKeepHotelStay(added.hotelId) : null)
-      .then(() => { draftRef.current = null; onAdded(added.orderId); })
+      .then(() => { draftRef.current = null; if (onAdded) onAdded(added.orderId); })
       .catch((e: any) => onError(errText(e)))
       .finally(() => setAdding(false));
   }
@@ -781,7 +842,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         </div>
         <div className="ow-modal-foot">
           <span />
-          <button type="button" className="taw-btn taw-btn--primary" onClick={() => onAdded(lockInfo.order_id)}>Done</button>
+          <button type="button" className="taw-btn taw-btn--primary" onClick={() => { if (onAdded) onAdded(lockInfo.order_id); }}>Done</button>
         </div>
       </>
     );
@@ -933,13 +994,39 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             This room sleeps {opt.sleeps || live.sleeps}, but {tight.map((i) => `Room ${i + 1} has ${roomParty(roomsCfg[i])} guests`).join("; ")}. Check the extra-guest rules with the hotel before continuing.
           </div>
         ) : null}
+        {itinerary ? (
+          <div className="taw-addpanel">
+            <div className="taw-addpanel-row">
+              <b>Guest requests</b>
+              <small className="taw-addpanel-hint">saved with the room you add; the hotel is told at booking</small>
+            </div>
+            <div className="taw-addpanel-grid">
+              <label>Bed
+                <select className="taw-input" value={req.bed} onChange={(e) => setReq({ ...req, bed: e.target.value })}>
+                  {BED_OPTIONS.map((b) => <option key={b.key} value={b.key}>{b.label}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="taw-reqchecks">
+              {([
+                ["earlyCheckIn", "Early check-in"], ["lateCheckOut", "Late check-out"], ["highFloor", "High floor"], ["connecting", "Connecting rooms"],
+              ] as const).map(([k, label]) => (
+                <label key={k} className="taw-checkrow">
+                  <input type="checkbox" checked={req[k]} onChange={(e) => setReq({ ...req, [k]: e.target.checked })} /> {label}
+                </label>
+              ))}
+            </div>
+            <input className="taw-input" placeholder="Note for the hotel (optional) — e.g. anniversary, airport pickup" maxLength={200}
+              value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} />
+          </div>
+        ) : null}
         <PriceBreakdown price={live.price} nights={nights} rooms={nRooms} />
         <div className="ow-rp-foot">
           <span><b>{inr(live.total)}</b> <small>{guestsTxt} · Incl. taxes &amp; fees</small></span>
           <span style={{ display: "inline-flex", gap: 8 }}>
             <button type="button" className="taw-btn" onClick={() => { setReviewing(null); setRvPop(null); }} disabled={adding}>Back</button>
-            <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={adding} onClick={() => confirmAdd(opt, live)}>
-              {adding ? "Adding…" : changed ? "Accept & continue" : "Continue"}
+            <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={adding} onClick={() => (itinerary ? addToItinerary(opt, live) : confirmAdd(opt, live))}>
+              {adding ? "Adding…" : itinerary ? (changed ? "Accept & add to itinerary" : "Add to itinerary") : changed ? "Accept & continue" : "Continue"}
             </button>
           </span>
         </div>

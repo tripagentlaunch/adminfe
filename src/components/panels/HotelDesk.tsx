@@ -11,12 +11,14 @@ import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { HotelSearchBar } from "../orders/HotelSearchBar";
+import { HotelItineraryPopup, type HotelPopupSearch } from "../orders/HotelItineraryPopup";
 import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { distanceText, straightKm, type DistOrigin, type Drive } from "../../lib/hotelDistance";
+import { FROM_PRICES, fromKey, hotelAlternatives, priceOf } from "../../lib/hotelAlternatives";
 import {
   BED_OPTIONS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
   type HotelRequests, type RoomOcc,
@@ -58,14 +60,8 @@ const HOTEL_RESULTS_CACHE = new Map<string, { at: number; res: any }>();
 // that mounts again for the same search re-attaches and keeps receiving pages.
 type MoreJob = { res: any; info: { loaded: number; expected?: number; failed?: boolean } | null; stop: () => void; subs: Set<() => void> };
 const MORE_JOBS = new Map<string, MoreJob>();
-// TripSure's listing carries no price (priceSummary is empty), so the hotels on
-// screen are priced from their cheapest live room (POST /hotels/rates, 5 per
-// call), keyed by hotel + search token so it is asked once per search.
-// null = TripSure has no bookable room for it.
-const FROM_PRICES = new Map<string, { price: number; board: string | null; refundable: any } | null>();
 const FROM_FAILED = new Map<string, number>(); // the rates call failed (when): "Rates on selection", retried after a minute
 const RETRY_FAILED_MS = 60_000;
-const fromKey = (t: any) => t.hotelId + "|" + t.token;
 function keepHotelResults(key: string, res: any) {
   if (HOTEL_RESULTS_CACHE.size > 20) HOTEL_RESULTS_CACHE.clear();
   HOTEL_RESULTS_CACHE.set(key, { at: Date.now(), res: { ...res, more: null } });
@@ -109,46 +105,6 @@ function cityLocationSuggestions(query: string) {
   // Instant from the built-in directory for 1 letter; live TripSure results win when they
   // answer within 2.5s, else the directory fills in (see lib/citySuggest.ts, same as flights).
   return citySuggest(query, rankLocationSuggestions);
-}
-
-// Three swap options for a hotel, picked automatically: same star rating, closest
-// price (or nearest by straight line when unpriced). Removable in the builder.
-// `_handles` lets addRoom price them live (POST /hotels/rates) — listings are
-// often unpriced, which used to save them at ₹0.
-// Shape = what swapHotelAlternative / the proposal read.
-// Prices come from the listing or, when it has none, the live "from" price on
-// screen (FROM_PRICES); hotels TripSure has no rooms for are skipped. Five
-// candidates go out so that three still remain if some can't be priced.
-const ALT_CANDIDATES = 5;
-function priceOf(x: any): number {
-  const t = x._tripsure;
-  const known = t && t.hotelId ? FROM_PRICES.get(fromKey(t)) : undefined;
-  return offerNet(x) || (known ? known.price : 0);
-}
-function hotelAlternatives(shown: any[], o: any): any[] {
-  const d0 = o.detail || {};
-  const net0 = priceOf(o);
-  const dist = (x: any) => {
-    const d = x.detail || {};
-    if (net0 > 0 && priceOf(x) > 0) return Math.abs(priceOf(x) - net0);
-    if (d0.lat != null && d.lat != null) return straightKm(Number(d0.lat), Number(d0.lng), Number(d.lat), Number(d.lng)) * 1000;
-    return Infinity;
-  };
-  return shown
-    .filter((x: any) => x.id !== o.id && ((x.detail || {}).stars || 0) === (d0.stars || 0)
-      && !(x._tripsure && x._tripsure.hotelId && FROM_PRICES.get(fromKey(x._tripsure)) === null))
-    .sort((a: any, b: any) => dist(a) - dist(b))
-    .slice(0, ALT_CANDIDATES)
-    .map((x: any) => {
-      const d = x.detail || {};
-      const t = x._tripsure || {};
-      return {
-        _handles: t.hotelId && t.docKey && t.token ? { hotelId: String(t.hotelId), docKey: t.docKey, token: t.token } : null,
-        hotelKey: String(x.id), name: d.hotelName || "Hotel", image: d.image || null, price: priceOf(x),
-        stars: d.stars ?? null, address: d.address || null, board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
-        detail: [d.stars ? d.stars + "-star" : null, d.address].filter(Boolean).join(" · "),
-      };
-    });
 }
 
 // The distance line saved with a hotel added to the itinerary.
@@ -859,6 +815,8 @@ export function HotelDesk(props: any) {
   const includeLowerRef = useRef(includeLower);
   useEffect(() => { includeLowerRef.current = includeLower; }, [includeLower]);
   const [modifyOpen, setModifyOpen] = useState(false);
+  // Search opens the Add-a-hotel popup (the New Booking hotel flow) over the page; its last step adds to the itinerary.
+  const [popup, setPopup] = useState<HotelPopupSearch | null>(null);
   // The full location object the advisor picked from the City typeahead
   // (id/name/type/coordinates/state/country) — set on AutosuggestInput's
   // onSelect, cleared whenever they type again. When present, runReal()
@@ -1255,7 +1213,9 @@ export function HotelDesk(props: any) {
   // on `showResults`), brought here and to VisaDesk so all three Search
   // desks behave the same way instead of Hotels/Visas dumping results
   // underneath a form that's still sitting there taking up room.
-  const showResults = loading || res != null;
+  // The hotels are now listed in the Add-a-hotel popup, not inline: Search never fills `res`, so the inline results
+  // (resultsView below) are no longer shown, even for a search restored from an older session.
+  const showResults = false;
   // "Edit search" opens the form above the results (they stay until the new
   // search answers), keeping every field as searched.
   function backToSearch() {
@@ -1276,6 +1236,11 @@ export function HotelDesk(props: any) {
     if (props.onExpandChange) props.onExpandChange(showResults);
   }, [showResults]);
 
+  function openPopup() {
+    setErr(null);
+    setPopup({ city: form.city.trim(), location: selectedLocation, checkIn: form.checkIn, checkOut: form.checkOut, rooms: occ.map((r) => ({ adults: r.adults, childAges: r.childAges.slice() })) });
+  }
+
   const formView = (
     <>
       {err ? (
@@ -1291,7 +1256,7 @@ export function HotelDesk(props: any) {
         checkIn={form.checkIn} checkOut={form.checkOut}
         onDates={(i, o) => { touched.current.checkIn = true; touched.current.checkOut = true; setForm((f) => ({ ...f, checkIn: i, checkOut: o })); }}
         rooms={occ} onRooms={setOcc}
-        busy={loading} onSearch={() => run()} onProblem={setErr}
+        busy={false} onSearch={openPopup} onProblem={setErr}
         fetchSuggestions={cityLocationSuggestions} showDefaultsOnFocus
       />
       <label className="taw-checkrow" style={{ margin: "12px 0 4px" }}>
@@ -1351,7 +1316,22 @@ export function HotelDesk(props: any) {
     </div>
   );
 
-  return <div className="taw-fade-in taw-fdesk">{showResults ? resultsView : formView}</div>;
+  return (
+    <div className="taw-fade-in taw-fdesk">
+      {formView}
+      {popup ? (
+        <HotelItineraryPopup
+          search={popup}
+          onClose={() => setPopup(null)}
+          onAdd={(item) => {
+            props.onAdd(item);
+            toast((item.hotelName || "Hotel") + (item.roomType ? " — " + item.roomType : "") + " added at " + inr(item.baseNet), "success");
+            setPopup(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
