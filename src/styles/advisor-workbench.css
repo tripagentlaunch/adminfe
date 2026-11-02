@@ -1849,9 +1849,15 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-psg-state.ok{color:var(--success,#2f6b4a);font-weight:600;}
 .taw-psg-toggle{display:inline-flex;align-items:center;gap:4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink,#785c12);font-weight:600;}
 /* The panel sits in the builder's fixed top part (only the days list scrolls), so a big group
-   (9 travellers) ran past the card's bottom and was cut off. The open list scrolls on its own. */
-.taw-psg{flex-shrink:0;}
-.taw-psg-b{padding:0 14px 14px;display:grid;gap:12px;max-height:min(62vh,680px);overflow-y:auto;overscroll-behavior:contain;}
+   (9 travellers) ran past the card's bottom and was cut off. Open, it joins the card's
+   min-height:0 flex chain: it takes the height that is left and its list scrolls inside it,
+   down to the last traveller. The days list gives way first (it keeps a strip of 120px). */
+.taw-psg{flex:0 0 auto;}
+.taw-psg.is-open{flex:0 1 auto;min-height:0;display:flex;flex-direction:column;}
+.taw-psg.is-open .taw-psg-h{flex-shrink:0;}
+.taw-psg-b{padding:0 14px 14px;display:grid;gap:12px;}
+.taw-psg.is-open .taw-psg-b{min-height:0;overflow-y:auto;overscroll-behavior:contain;}
+.taw-itin:has(.taw-psg.is-open) .taw-itin-days-scroll{flex-shrink:1000;min-height:120px;}
 .taw-psg-note{margin:0;font-size:12.5px;color:var(--taupe);line-height:1.5;}
 .taw-psg-card{border:1px solid var(--line);border-left:3px solid var(--warn-ink,#b08428);border-radius:10px;background:var(--card);padding:12px 14px 14px;}
 .taw-psg-card.ok{border-left-color:var(--success,#2f6b4a);}

@@ -108,7 +108,7 @@ export function PassengersPanel({ data, member, onChange }: { data: any; member:
   ].filter(Boolean);
 
   return (
-    <div className={"taw-psg" + (done ? " is-done" : "")}>
+    <div className={"taw-psg" + (done ? " is-done" : "") + (open ? " is-open" : "")}>
       <button type="button" className="taw-psg-h" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="taw-psg-ic"><Icon name="people" size={16} /></span>
         <span className="taw-psg-title">
@@ -131,7 +131,7 @@ export function PassengersPanel({ data, member, onChange }: { data: any; member:
             const miss = missing(r, i);
             const need = passengerRules(r, i === 0, rules);
             const showNat = intl || natOpen[i] || (r.nationality || "IN").toUpperCase() !== "IN";
-            const kindLabel = r.pax_type === "adult" ? `Adult ${kinds.slice(0, i + 1).filter((k) => k === "adult").length}` : r.pax_type === "child" ? "Child (2–11 yrs)" : "Infant (under 2)";
+            const kindLabel = r.pax_type === "adult" ? `Adult ${kinds.slice(0, i + 1).filter((k) => k === "adult").length}` : r.pax_type === "child" ? `Child ${kinds.slice(0, i + 1).filter((k) => k === "child").length} (2–11 yrs)` : `Infant ${kinds.slice(0, i + 1).filter((k) => k === "infant").length} (under 2)`;
             return (
               <section key={i} className={"taw-psg-card" + (miss.length ? "" : " ok")} aria-label={kindLabel}>
                 <header>
