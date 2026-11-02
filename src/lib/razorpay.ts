@@ -64,6 +64,9 @@ export async function openRazorpayCheckout(opts: RazorpayOpenOptions): Promise<v
     currency: opts.currency,
     name: opts.name,
     description: opts.description,
+    // TripAgent's logo on Checkout: without it Razorpay shows the logo set on the account's
+    // dashboard branding. Served from this site (public/tripagent-logo.png, 400×400).
+    image: `${window.location.origin}/tripagent-logo.png`,
     prefill: opts.prefill ?? {},
     handler: (r: RazorpaySuccess) => opts.onSuccess(r),
     modal: { ondismiss: () => opts.onDismiss() },
