@@ -35,7 +35,9 @@ const TITLES: Record<PaxType, { t: string; g: "male" | "female" }[]> = {
   child: [{ t: "Mstr", g: "male" }, { t: "Miss", g: "female" }],
   infant: [{ t: "Mstr", g: "male" }, { t: "Miss", g: "female" }],
 };
+// Airlines: adult 12+, child 2-11. A hotel-only order follows the hotel's rule instead: adult 18+, child 2-17.
 const TYPE_LABEL: Record<PaxType, string> = { adult: "Adult (12+)", child: "Child (2-11)", infant: "Infant (under 2)" };
+const HOTEL_TYPE_LABEL: Record<PaxType, string> = { adult: "Adult (18+)", child: "Child (2-17)", infant: "Infant (under 2)" };
 
 function blank(pax_type: PaxType, is_lead = false): Row {
   const first = TITLES[pax_type][0];
@@ -130,6 +132,8 @@ function passportNote(expiry: string, travelEnd?: string | null): { tone: "bad" 
 export function TravellersForm({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
   const f = order.fulfilment!;
   const intl = f.international;
+  const hotelOnly = f.items.some((x) => x.kind === "hotel") && !f.items.some((x) => x.kind === "flight");
+  const typeLabel = hotelOnly ? HOTEL_TYPE_LABEL : TYPE_LABEL;
   const fixedMix = !!f.travellers.needed;
   const [rows, setRows] = useState<Row[]>(() => initialRows(order));
   const [gst, setGst] = useState({ open: !!f.customer.gst_number, number: f.customer.gst_number || "", company: f.customer.gst_company_name || "" });
@@ -204,7 +208,7 @@ export function TravellersForm({ order, onClose, onSaved }: { order: Order; onCl
           {rows.map((r, i) => (
             <div className="ow-tf-pax" key={r.id || `new-${i}`}>
               <div className="ow-tf-pax-head">
-                <b>Traveller {i + 1} · {TYPE_LABEL[r.pax_type]}</b>
+                <b>Traveller {i + 1} · {typeLabel[r.pax_type]}</b>
                 <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   {r.pax_type === "adult" ? (
                     <label className="ow-tf-lead">

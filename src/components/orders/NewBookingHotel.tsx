@@ -9,7 +9,7 @@ import { AutosuggestInput } from "../AutosuggestInput";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
-  bookingAddHotelStay, bookingLockHotelItinerary, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
+  bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
@@ -141,6 +141,7 @@ function roomOptions(det: any): any[] {
         amenities: roomAmenityList(sr0),
         bed: String(sr0.bedType || "").trim(),
         view: String(sr0.roomViewName || "").trim(),
+        size: String(sr0.roomSize || "").trim(),
         total: Number(o.totalRate) || 0,
         price: splitPrice(rb, Number(o.totalRate) || 0),
         // this room's own photos (Tripsure: standardRooms[0].roomImages, strings or image objects)
@@ -216,6 +217,14 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [moreDesc, setMoreDesc] = useState(false);
   const [moreKnow, setMoreKnow] = useState(false);
   const [moreCancel, setMoreCancel] = useState(false);
+  // The stay just added is a draft (not in Orders yet) until it is locked or skipped; if the advisor
+  // leaves in between, the draft is thrown away so nothing half-made is left behind.
+  const draftRef = useRef<string | null>(null);
+  useEffect(() => () => {
+    const id = draftRef.current;
+    draftRef.current = null;
+    if (id) Promise.resolve(bookingDiscardHotelStay(id)).catch(() => {});
+  }, []);
   const [picking, setPicking] = useState(false); // the "Select a room" panel
   const [selCode, setSelCode] = useState<string | null>(null);
   const [roomImg, setRoomImg] = useState(0);
@@ -461,6 +470,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       journey_id: currentHotelJourney(),
     })
       .then((r: any) => {
+        draftRef.current = r.is_draft ? String(r.hotel_id) : null;
         setAdded({
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(fresh || checks[opt.code] || {}).panRequired,
           addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
@@ -471,6 +481,17 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         setReviewing(null); setRvPop(null);
         setSub("guest");
       })
+      .catch((e: any) => onError(errText(e)))
+      .finally(() => setAdding(false));
+  }
+
+  // Skip: the advisor chose to keep the room on the order unlocked, so it shows in Orders now.
+  function keepWithoutLock() {
+    if (!added) return;
+    onError(null);
+    setAdding(true);
+    Promise.resolve(draftRef.current ? bookingKeepHotelStay(added.hotelId) : null)
+      .then(() => { draftRef.current = null; onAdded(added.orderId); })
       .catch((e: any) => onError(errText(e)))
       .finally(() => setAdding(false));
   }
@@ -492,7 +513,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       },
       accept_changes: acceptChanges,
     })
-      .then((r: any) => { setLockInfo(r); setSub("locked"); })
+      .then((r: any) => { draftRef.current = null; setLockInfo(r); setSub("locked"); })
       .catch((e: any) => {
         const msg = errText(e);
         if (e && e.status === 409 && /^Changed since this room was added/i.test(msg)) setLockChanges(msg);
@@ -588,8 +609,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         {panel === "guests" ? (
           <div className="ow-gpanel">
             {stepper("Rooms", "rooms", 1, 9)}
-            {stepper("Adults (total)", "adults", 1, 36)}
-            {stepper("Children (total)", "children", 0, 18)}
+            {stepper("Adults 18+ (total)", "adults", 1, 36)}
+            {stepper("Children 0-17 (total)", "children", 0, 18)}
             {form.children > 0 ? (
               <div className="ow-gstep" style={{ flexWrap: "wrap", gap: 8 }}>
                 <span style={{ width: "100%" }}>Age of each child on the day of travel</span>
@@ -808,7 +829,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         ) : null}
         <PriceBreakdown price={added.price} nights={nights} rooms={form.rooms} />
         <div className="ow-modal-foot">
-          <button type="button" className="taw-btn" onClick={() => onAdded(added.orderId)} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
+          <button type="button" className="taw-btn" onClick={keepWithoutLock} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
             Skip (lock later by searching again)
           </button>
           <button type="button" className="taw-btn taw-btn--primary" onClick={() => lockRoom()} disabled={adding || !ready}>
@@ -994,6 +1015,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           const amenities: string[] = opt.amenities.length ? opt.amenities : (live.amenities || []);
           const bed = opt.bed || live.bed;
           const sleeps = opt.sleeps || live.sleeps;
+          const incl: string[] = String(opt.inclusions || "").split(",").map((x) => x.trim()).filter((x, i, arr) => x && arr.indexOf(x) === i);
           return (
             <div className="ow-drawer-back" onClick={() => setRvPop(null)}>
               <aside className="ow-drawer" role="dialog" aria-label="Room details" onClick={(e) => e.stopPropagation()}>
@@ -1005,13 +1027,42 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                     {bed ? <span>🛏 {bed}</span> : null}
                     {sleeps ? <span>👤 Sleeps {sleeps}</span> : null}
                     {opt.view ? <span>{opt.view}</span> : null}
+                    {opt.size ? <span>📐 {opt.size}</span> : null}
                   </div>
                 ) : null}
-                {opt.board ? <p className="ow-sub" style={{ whiteSpace: "normal" }}>{opt.board}{opt.inclusions ? ` · Includes: ${opt.inclusions}` : ""}</p> : null}
-                <h4 className="ow-rd-h">Amenities</h4>
-                {amenities.length
-                  ? <ul className="ow-rd-list">{amenities.map((a: string) => <li key={a}>{a}</li>)}</ul>
-                  : <p className="ow-sub">The hotel hasn&apos;t listed amenities for this room.</p>}
+                {opt.board ? <p className="ow-sub" style={{ whiteSpace: "normal" }}>{opt.board}</p> : null}
+                {incl.length ? (
+                  <>
+                    <h4 className="ow-rd-h">Included with this rate</h4>
+                    <ul className="ow-rd-list">{incl.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                  </>
+                ) : null}
+                {amenities.length ? (
+                  <>
+                    <h4 className="ow-rd-h">Room amenities</h4>
+                    <ul className="ow-rd-list">{amenities.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                  </>
+                ) : null}
+                {/* Tripsure often sends no room-level amenities; the property's own are then the best we have */}
+                {!amenities.length && amenGroups.length ? (
+                  <>
+                    <h4 className="ow-rd-h">Hotel amenities</h4>
+                    <p className="ow-sub" style={{ whiteSpace: "normal" }}>The supplier hasn&apos;t listed in-room amenities for this room. These are the hotel&apos;s amenities.</p>
+                    {amenGroups.map((g) => (
+                      <div key={g.category} style={{ marginBottom: 8 }}>
+                        <b style={{ fontSize: 12.5 }}>{g.category}</b>
+                        <ul className="ow-rd-list">{g.items.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+                {!amenities.length && !amenGroups.length && amenList.length ? (
+                  <>
+                    <h4 className="ow-rd-h">Hotel amenities</h4>
+                    <ul className="ow-rd-list">{amenList.map((a: string) => <li key={a}>{a}</li>)}</ul>
+                  </>
+                ) : null}
+                {!amenities.length && !amenList.length && !incl.length ? <p className="ow-sub">The hotel hasn&apos;t listed amenities for this room.</p> : null}
               </aside>
             </div>
           );

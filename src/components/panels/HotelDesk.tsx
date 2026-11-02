@@ -240,7 +240,7 @@ function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: Room
             ) : null}
           </div>
           <div className="taw-pax-row">
-            <span>Adults <small>12+ years</small></span>
+            <span>Adults <small>18+ years</small></span>
             <span className="taw-stepper">
               <button type="button" aria-label="Fewer adults" disabled={r.adults <= 1} onClick={() => setRoom(i, { ...r, adults: r.adults - 1 })}><Icon name="minus" size={12} /></button>
               <b>{r.adults}</b>
@@ -248,7 +248,7 @@ function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: Room
             </span>
           </div>
           <div className="taw-pax-row">
-            <span>Children <small>under 12</small></span>
+            <span>Children <small>under 18</small></span>
             <span className="taw-stepper">
               <button type="button" aria-label="Fewer children" disabled={!r.childAges.length} onClick={() => setRoom(i, { ...r, childAges: r.childAges.slice(0, -1) })}><Icon name="minus" size={12} /></button>
               <b>{r.childAges.length}</b>
@@ -261,7 +261,7 @@ function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: Room
                 <label key={k}>
                   Child {k + 1} age
                   <select className="taw-input" value={age} onChange={(e) => setRoom(i, { ...r, childAges: r.childAges.map((a, m) => (m === k ? Number(e.target.value) : a)) })}>
-                    {Array.from({ length: 12 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : a}</option>)}
+                    {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : a}</option>)}
                   </select>
                 </label>
               ))}

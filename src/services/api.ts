@@ -2112,6 +2112,16 @@ function bookingAddHotelStay(payload) {
   return fastapiBookingCall("/booking-orders/hotel-stay", { method: "POST", body: payload });
 }
 
+// A new hotel stay is a draft (hidden from Orders) until it is locked or kept.
+// bookingKeepHotelStay(hotelId) — POST /booking-orders/hotel-stay/{id}/keep   (Skip: show it in Orders)
+// bookingDiscardHotelStay(hotelId) — DELETE /booking-orders/hotel-stay/{id}   (abandoned draft)
+function bookingKeepHotelStay(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotel-stay/" + encodeURIComponent(hotelId) + "/keep", { method: "POST" });
+}
+function bookingDiscardHotelStay(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotel-stay/" + encodeURIComponent(hotelId), { method: "DELETE" });
+}
+
 // bookingLockHotelItinerary(payload) — POST /booking-orders/hotel-itinerary
 // Stage A: Tripsure create-itinerary (guest + PAN) for a recorded hotel stay;
 // stores partnerReferenceId + locked price. No booking, no payment. payload:
@@ -2955,6 +2965,8 @@ export {
   bookingDiscardFlightItinerary,
   bookingAddHotelStay,
   bookingLockHotelItinerary,
+  bookingKeepHotelStay,
+  bookingDiscardHotelStay,
   bookingListOrders,
   bookingGetOrder,
   bookingFulfilment,
