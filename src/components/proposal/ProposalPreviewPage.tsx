@@ -1018,6 +1018,10 @@ export function ProposalPreviewPage({
                       {(check.data?.service_fee ?? flightQuote.service_fee) != null ? (
                         <> · TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} · GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</>
                       ) : " and TripAgent service fee & GST " + inr(check.data?.fee ?? flightQuote.fee ?? 0)}
+                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? (
+                        // Items on the proposal that aren't paid online (your advisor confirms them).
+                        <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)}</>
+                      ) : null}
                       {" "}= trip total {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)}.
                     </div>
                   ) : null}

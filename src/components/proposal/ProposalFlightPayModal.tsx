@@ -35,6 +35,8 @@ export type FlightPayQuote = {
   /** Of the trip total above it: our service fee, and the GST (and TCS) on the trip. Together with `amount` they make `trip_total`. */
   service_fee?: number;
   tax?: number;
+  /** Part of the trip total not paid online (items the advisor still confirms). */
+  other?: number;
   fee?: number;
 };
 

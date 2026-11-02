@@ -383,10 +383,11 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
           price: a.price || 0, detail: a.detail || null, altIndex, key: flightKeyOf(a),
           // What the customer compares on: cabin, checked bag and refundability.
           facts: [cabinWord(it.cabin), a.baggageKg ? `${a.baggageKg} kg check-in` : null, a.refundable == null ? null : a.refundable ? "Refundable" : "Non-refundable"].filter(Boolean),
-          // Priced live: its price includes its own add-ons (named); otherwise a search fare alone.
-          livePriced: !!a.pricing,
-          addonsNote: a.pricing ? (addonCount(a.pricing.extras) ? "incl. " + addonCount(a.pricing.extras) : "no add-ons") : null,
-          fareOnly: !!it.pricing && !a.pricing,
+          // Priced live with its add-ons ("+ Swap option"): its price includes them (named). A
+          // default option is its fare for the same travellers alone.
+          livePriced: !!a.pricing && !a.pricing.fareOnly,
+          addonsNote: a.pricing && !a.pricing.fareOnly ? (addonCount(a.pricing.extras) ? "incl. " + addonCount(a.pricing.extras) : "no add-ons") : null,
+          fareOnly: !!it.pricing && (!a.pricing || !!a.pricing.fareOnly),
         })),
         // A flight priced live in the Console: its fare option, what the fare includes and the
         // add-ons picked (one line each), and the fare vs add-ons split of its price.

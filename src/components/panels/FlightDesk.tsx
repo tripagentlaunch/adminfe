@@ -1074,11 +1074,36 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
       }) || null
     : null;
   const active = quote || (autoOffer ? { offer: autoOffer, tab: "fares" as const } : null);
-  // A live-priced flight into the itinerary. Its swap options are added with "+ Swap option", each
-  // priced live with its own add-ons; search-price options picked automatically would show the
-  // customer a price ("from ₹…, fare only") that isn't what that flight costs with seats and meals.
+  // A live-priced flight into the itinerary, with two swap options by default: the closest other
+  // flights on the same route and day, at their fare for the same travellers (no add-ons — "fare
+  // only"), bookable as they are. "+ Swap option" adds one priced live with its seats, meals and
+  // bags when the customer is weighing options.
   function addPriced(o: any, pricing: FlightLivePrice) {
-    const alternatives: any[] = [];
+    const myNet = offNet(o);
+    const day = (x: any) => x._searchDate || (x.detail || {}).date;
+    const alternatives = shown
+      .filter((x: any) => x.id !== o.id && day(x) === day(o) && (x.detail || {}).flightNo !== (o.detail || {}).flightNo)
+      .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
+      .slice(0, 2)
+      .map((alt: any) => {
+        const ad = alt.detail || {};
+        const fare = offNet(alt);
+        return {
+          carrier: ad.airlineName || ad.airline || "Flight",
+          flightNo: ad.flightNo || "",
+          origin: ad.originCode, dest: ad.destCode,
+          depTime: ad.depTime || null, arrTime: ad.arrTime || null, arrDayOffset: 0,
+          stops: ad.stops ?? 0, price: fare, baggageKg: ad.baggageKg ?? null, refundable: ad.refundable ?? null,
+          segments: ad.segments || [],
+          detail: [ad.duration, ad.stops ? ad.stops + " stop" + (ad.stops === 1 ? "" : "s") : "Non-stop"].filter(Boolean).join(" · "),
+          // Fare only: what Pay now books if the customer picks it (re-checked live then), no add-ons.
+          pricing: {
+            source: "tripsure_live", fareOnly: true, checkedAt: new Date().toISOString(), listPrice: fare, fare, total: fare,
+            extras: [], extrasTotal: 0, fareName: "Searched fare", refundable: !!ad.refundable, checkinKg: ad.baggageKg ?? null,
+            priceChanged: false, fareId: null, baseFare: null, taxes: null, otherCharges: null, needs: [],
+          },
+        };
+      });
     onAdd(flightCartItem(o, alternatives, { pax, pricing }));
     setAdded((m) => ({ ...m, [o.id]: pricing }));
     setQuote(null);
@@ -1120,6 +1145,21 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     }
     return true;
   });
+  // One card per flight. TripSure returns the same flight once per supplier it sells it through
+  // (different price, baggage and fare families), which listed it twice. The card shows the
+  // cheapest; the others stay one click away on it ("Also from another supplier").
+  {
+    const groups = new Map<string, any[]>();
+    shown.forEach((o: any) => {
+      const d = o.detail || {};
+      const k = [o._searchDate || d.date || "", ((d.segments || []) as any[]).map((sg: any) => sg.flightNo + "@" + sg.depTime).join("+") || d.flightNo + "@" + d.depTime].join("|");
+      groups.set(k, (groups.get(k) || []).concat([o]));
+    });
+    shown = Array.from(groups.values()).map((g) => {
+      const byPrice = g.slice().sort((a: any, b: any) => offNet(a) - offNet(b));
+      return byPrice.length > 1 ? { ...byPrice[0], _also: byPrice.slice(1) } : byPrice[0];
+    });
+  }
   // FLT-012 — sort. 'best' = price normalised + duration penalty.
   const minNet = Math.min.apply(null, offers.map(offNet).concat([Infinity]));
   const minDur = Math.min.apply(
@@ -1212,6 +1252,14 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                       <Icon name="chevron" size={12} />
                       {"Timeline · " + (fareCount(o) > 1 ? fareCount(o) + " fare options" : "fare options") + " · seats"}
                     </button>
+                    {(o._also || []).map((x: any) => (
+                      <button key={x.id} type="button" className="taw-linkbtn taw-res-also" onClick={() => setQuote({ offer: x, tab: "fares" })}
+                        title="The same flight from another supplier TripSure sells it through: its own price, baggage and fare options">
+                        Also from another supplier: {inr(offNet(x))}
+                        {fareCount(x) > 1 ? ` · ${fareCount(x)} fare options` : ""}
+                        {(x.detail || {}).baggageKg ? ` · ${(x.detail || {}).baggageKg} kg` : ""}
+                      </button>
+                    ))}
                   </div>
                   <div className="taw-res-side">
                     <div className="taw-res-net ta-num">

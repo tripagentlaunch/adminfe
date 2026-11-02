@@ -270,15 +270,29 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }, [offers]);
   const maxPrice = fMax == null ? priceBounds.max : Math.min(fMax, priceBounds.max);
   const filtersOn = fStops.length > 0 || fDep.length > 0 || fAir.length > 0 || maxPrice < priceBounds.max;
-  const visible = useMemo(() => {
+  // One card per flight: TripSure returns the same flight once per supplier it sells it through
+  // (its own price, baggage, fare options). The card is the cheapest; the others are listed on it.
+  const { visible, alsoOf } = useMemo(() => {
     const sorter = SORTS.find((x) => x.key === sortKey)!.pick;
-    return (offers || [])
+    const kept = (offers || [])
       .filter((o) =>
         (!fStops.length || fStops.includes(stopBucket(o))) &&
         (!fDep.length || DEP_BUCKETS.some((b) => fDep.includes(b.key) && b.test(depHour(o)))) &&
         (!fAir.length || fAir.includes(airlineOf(o))) &&
-        o.base_net <= maxPrice)
-      .sort(sorter);
+        o.base_net <= maxPrice);
+    const groups = new Map<string, any[]>();
+    kept.forEach((o) => {
+      const d = o.detail || {};
+      const k = [o.leg || "ONWARD", d.date || "", ((d.segments || []) as any[]).map((sg: any) => sg.flightNo + "@" + sg.depTime).join("+") || d.flightNo + "@" + d.depTime].join("|");
+      groups.set(k, (groups.get(k) || []).concat([o]));
+    });
+    const also = new Map<string, any[]>();
+    const firsts = Array.from(groups.values()).map((g) => {
+      const byPrice = g.slice().sort((a, b) => a.base_net - b.base_net);
+      if (byPrice.length > 1) also.set(byPrice[0].id, byPrice.slice(1));
+      return byPrice[0];
+    });
+    return { visible: firsts.sort(sorter), alsoOf: also };
   }, [offers, sortKey, fStops, fDep, fAir, maxPrice]);
   const airlines = useMemo(() => {
     const m = new Map<string, { n: number; min: number }>();
@@ -1032,6 +1046,12 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             {d.refundable === true ? <span className="ow-tag ok">Refundable</span> : d.refundable === false ? <span className="ow-tag">Non-refundable</span> : null}
                             {d.baggageKg ? <span className="ow-tag">{d.baggageKg} kg bag</span> : null}
                           </div>
+                          {(alsoOf.get(o.id) || []).map((x: any) => (
+                            <button key={x.id} type="button" className="taw-linkbtn taw-res-also" onClick={() => selectOffer(x)} disabled={!!lockingId}
+                              title="The same flight from another supplier TripSure sells it through: its own price, baggage and fare options">
+                              Also from another supplier: {inr(x.base_net)}{x.detail?.baggageKg ? ` · ${x.detail.baggageKg} kg bag` : ""}
+                            </button>
+                          ))}
                         </div>
                       );
                     })}
