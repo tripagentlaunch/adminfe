@@ -84,8 +84,10 @@ function readLock(r: any) {
   };
 }
 
-export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, onClose, startTab = "fares" }: {
+export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, onClose, startTab = "fares", addLabel = "Add to itinerary" }: {
   offer: any;
+  /** The final button's words: "Add as swap option" when pricing an option for an existing flight. */
+  addLabel?: string;
   /** The passenger mix the fare is priced for: one set of add-ons per adult and child. */
   pax: { adults: number; children: number; infants: number };
   /** "for 2 adults" */
@@ -206,7 +208,7 @@ export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, o
         <>
           <button type="button" className="taw-btn" onClick={() => { setLock(null); setSel([]); setTab("fares"); }} disabled={busy}>Change fare</button>
           <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={add} disabled={busy}>
-            <Icon name="plus" size={14} /> Add to itinerary · {inr(lock.fare + extrasTotal)}
+            <Icon name="plus" size={14} /> {addLabel} · {inr(lock.fare + extrasTotal)}
           </button>
         </>
       ) : (

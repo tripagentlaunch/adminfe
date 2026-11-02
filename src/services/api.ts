@@ -2632,6 +2632,9 @@ function proposalPayConfirm(token, payload) { return proposalPublicCall(token, "
 function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/flights/quote", {}); }
 // Opened link: re-check and hold every payable item now (no details asked) →
 // { status: "ready", order_id, amount, quoted, price_changed, pay_by } | needs_details | paid.
+// The customer swapped a flight to another of its options on the link: recorded, any unpaid hold
+// let go, and the quote for the trip as now chosen returned (the next refresh prices it live).
+function proposalFlightPayChoose(token, flightId, key) { return proposalPublicCall(token, "/pay/flights/choose", { method: "POST", body: { flight_id: flightId, key: key } }); }
 function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
 function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
 function proposalFlightPayStart(token, orderId) { return proposalPublicCall(token, "/pay/flights/order/" + encodeURIComponent(orderId) + "/start", { method: "POST" }); }
@@ -2882,6 +2885,7 @@ export {
   proposalPayConfirm,
   proposalFlightPayQuote,
   proposalFlightPayRefresh,
+  proposalFlightPayChoose,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
   proposalFlightPayConfirm,

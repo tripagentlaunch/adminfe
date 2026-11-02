@@ -937,3 +937,6 @@
 .pv-booked { display: grid; gap: 3px; }
 .pv-booked b { font-size: 15px; }
 .pv-booked span { font-size: 13px; opacity: 0.85; }
+
+/* Public link: a swap the server refused (e.g. payment already started). */
+.pv-swap-err { position: sticky; top: 0; z-index: 5; margin: 0; padding: 10px 16px; background: #fbeaea; color: #8a2b2b; font-size: 14px; text-align: center; }

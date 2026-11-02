@@ -838,6 +838,8 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           depTime: it.time ?? null, arrTime: it.arrTime ?? null, arrDayOffset: it.arrDayOffset ?? 0,
           stops: it.stops ?? 0, price: it.price, baggageKg: it.baggageKg ?? null, refundable: it.refundable ?? null,
           segments: itemSegmentsToLegs(it.segments),
+          // The live price (fare + this flight's own seats / meals / bags) goes down with its flight.
+          ...(it.pricing ? { pricing: it.pricing } : {}),
         };
         const rest = alts.map((a, i) => (i === altIndex ? demoted : a)).map((a) => {
           const gap = a.price - alt.price;
@@ -863,6 +865,11 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           segments: legsToItemSegments(alt.segments),
           origin: alt.origin || it.origin || null,
           dest: alt.dest || it.dest || null,
+          // Add-ons are the airline's own (seat map, meal codes): the chosen flight brings its
+          // live price and add-ons, or none — never the previous flight's.
+          pricing: alt.pricing || null,
+          chips: alt.pricing ? livePriceChips(alt.pricing) : [alt.refundable ? "Refundable" : "Non-refundable"],
+          meta: alt.pricing ? livePriceMeta(alt.pricing, it.paxMix) : "Search price — not checked live; price it from Search before sending",
           alternatives: rest,
         };
       }),
@@ -968,6 +975,17 @@ function itemSegmentsToLegs(rows: any[] | undefined): any[] {
 // (flight: same route and day; hotel: same check-in day) instead of adding a new
 // item. Shapes match what swapFlightAlternative / swapHotelAlternative read.
 export const MAX_SWAP_OPTIONS = 4;
+const paxKey = (m: any) => [m.adults ? m.adults + " adult" + (m.adults > 1 ? "s" : "") : "", m.children ? m.children + " child" + (m.children > 1 ? "ren" : "") : "", m.infants ? m.infants + " infant" + (m.infants > 1 ? "s" : "") : ""].filter(Boolean).join(", ");
+
+/** A flight's identity across the itinerary, the proposal link and Pay now: its flight numbers
+ *  ("6E 6034" or "IX 2945+IX 1036"), the same numbers the server matches TripSure offers on. */
+export function flightKeyOf(f: any): string {
+  const nums = (f?.segments || [])
+    .map((s: any) => String(s?.flightNo || "").trim().split(/\s+/))
+    .filter((b: string[]) => b.length === 2)
+    .map((b: string[]) => b[0].toUpperCase() + " " + (b[1].replace(/^0+/, "") || "0"));
+  return nums.length ? nums.join("+") : [f?.carrier, f?.flightNo, f?.depTime || f?.time].filter(Boolean).join("|");
+}
 
 function itemRoute(it: any): { origin: string | null; dest: string | null } {
   if (it.origin && it.dest) return { origin: it.origin, dest: it.dest };
@@ -994,13 +1012,15 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
     return { data, ok: false, message: "No " + (isFlight ? "flight " + what : "hotel") + " on " + (iso ? fmtDayDate(iso) : "that day") + " in the itinerary yet — add the main one first, then its swap options." };
   }
   const alts: any[] = target.alternatives || [];
-  const alt = isFlight
+  const alt: any = isFlight
     ? {
         carrier: cartItem.airlineName || cartItem.airline || "Flight", flightNo: cartItem.flightNo || "",
         origin: d.originCode, dest: d.destCode, depTime: d.depTime || null, arrTime: d.arrTime || null, arrDayOffset: 0,
         stops: d.stops ?? 0, price: cartItem.baseNet, baggageKg: d.baggageKg ?? null, refundable: cartItem.refundable ?? null,
         segments: d.segments || [],
         detail: [d.duration, stopsLabel(d.stops ?? 0)].filter(Boolean).join(" · "),
+        // Priced live in the price drawer: fare + its own add-ons per traveller (baseNet is that total).
+        ...(cartItem.pricing ? { pricing: cartItem.pricing } : {}),
       }
     : {
         hotelKey: cartItem.hotelKey, name: cartItem._title || cartItem.hotelName || "Hotel", image: d.image || null,
@@ -1008,6 +1028,10 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
         board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
         detail: [d.stars ? d.stars + "-star" : null, cartItem.roomTitle, d.board].filter(Boolean).join(" · "),
       };
+  // A live-priced option must be for the same travellers as the flight it can replace.
+  if (isFlight && cartItem.paxMix && target.paxMix && paxKey(cartItem.paxMix) !== paxKey(target.paxMix)) {
+    return { data, ok: false, message: "This option was priced for " + paxKey(cartItem.paxMix) + ", the itinerary's flight for " + paxKey(target.paxMix) + " — search with the same travellers." };
+  }
   const same = (a: any) => (isFlight ? a.flightNo === alt.flightNo && a.depTime === alt.depTime : a.hotelKey && a.hotelKey === (alt as any).hotelKey);
   if (same(target) || (isFlight ? target.flightNo === alt.flightNo && target.time === alt.depTime : target.hotelKey === (alt as any).hotelKey)) {
     return { data, ok: false, message: "That's already the main choice." };

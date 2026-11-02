@@ -167,7 +167,7 @@ function FlightGroup({ f, onSwap }: { f: any; onSwap?: (flightId: string, altInd
       <RecommendedFlightRow f={f} />
       <div className="pv-option-price" style={{ margin: "6px 0 10px" }}>
         {inr(f.price)}
-        {f.extrasLine && f.alternatives?.some((a: any) => a.fareOnly) ? <small className="pv-price-note"> incl. the add-ons above</small> : null}
+        {f.extrasLine && f.alternatives?.some((a: any) => a.fareOnly || a.livePriced) ? <small className="pv-price-note"> incl. the add-ons above</small> : null}
         {f.isOriginalChoice === false ? " · Selected" : ""}
       </div>
       {alts.length ? (
@@ -188,8 +188,9 @@ function FlightGroup({ f, onSwap }: { f: any; onSwap?: (flightId: string, altInd
                 <div className="pv-option-side">
                   <div className="pv-option-price">{a.fareOnly ? "from " : ""}{inr(a.price)}</div>
                   {a.fareOnly ? <div className="pv-price-note">fare only · seat, meal &amp; bag extra</div> : null}
-                  {onSwap && f.id ? (
-                    <button type="button" className="pv-swap-btn" onClick={() => onSwap(f.id, i)}>
+                  {a.livePriced ? <div className="pv-price-note">{a.addonsNote} · live airline price</div> : null}
+                  {onSwap && f.id && !f.noSwap ? (
+                    <button type="button" className="pv-swap-btn" onClick={() => onSwap(f.id, a.altIndex ?? i)}>
                       Swap
                     </button>
                   ) : null}
@@ -545,6 +546,7 @@ export function ProposalPreviewPage({
   data,
   onSwapHotel,
   onSwapFlight,
+  choiceVersion = 0,
   onDownload,
   payToken,
   payPreviewUrl,
@@ -552,6 +554,8 @@ export function ProposalPreviewPage({
   data: any;
   onSwapHotel?: (stayId: string, hotelKey: string) => void;
   onSwapFlight?: (flightId: string, altIndex: number) => void;
+  /** Public link: bumped when the customer has swapped a flight (saved) — the trip is checked again live. */
+  choiceVersion?: number;
   onDownload?: () => void;
   /** Set only on the public customer web link — enables the "Pay now" button. */
   payToken?: string | null;
@@ -621,6 +625,14 @@ export function ProposalPreviewPage({
       .catch(() => setFlightQuote(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payToken, payOpen]);
+
+  // After a swap on the link: the new quote, then the live check and hold for the trip as chosen.
+  useEffect(() => {
+    if (!payToken || !choiceVersion) return;
+    proposalFlightPayQuote(payToken).then((q: any) => setFlightQuote(q)).catch(() => setFlightQuote(null));
+    runCheck();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choiceVersion]);
 
   async function payNow(current = check) {
     if (!payToken) return;

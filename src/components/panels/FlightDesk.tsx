@@ -1053,7 +1053,8 @@ export function FlightDesk(props: any) {
 // prices. Only a live-checked price goes into the itinerary.
 function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, onAutoPickDone }: any) {
   // The offer being priced, and the drawer section it opened on.
-  const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares" } | null>(null);
+  // swap: priced for "+ Swap option" (an option for the itinerary's flight), not added as a flight.
+  const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares"; swap?: boolean } | null>(null);
   // Flights added from this list, with the live price they went in at (shown on their card).
   const [added, setAdded] = useState<Record<string, FlightLivePrice>>({});
   // How many fare options (Saver / Flex …) the search lists for a flight; no extra call.
@@ -1073,27 +1074,11 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
       }) || null
     : null;
   const active = quote || (autoOffer ? { offer: autoOffer, tab: "fares" as const } : null);
-  // A live-priced flight into the itinerary, with two swap options picked automatically:
-  // the closest fares on the same route and day (search prices; removable later in the
-  // Itinerary Builder).
+  // A live-priced flight into the itinerary. Its swap options are added with "+ Swap option", each
+  // priced live with its own add-ons; search-price options picked automatically would show the
+  // customer a price ("from ₹…, fare only") that isn't what that flight costs with seats and meals.
   function addPriced(o: any, pricing: FlightLivePrice) {
-    const myNet = offNet(o);
-    const others = shown
-      .filter((x: any) => x.id !== o.id && (x._searchDate || (x.detail || {}).date) === (o._searchDate || (o.detail || {}).date))
-      .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
-      .slice(0, 2);
-    const alternatives = others.map((alt: any) => {
-      const ad = alt.detail || {};
-      return {
-        carrier: ad.airlineName || ad.airline || "Flight",
-        flightNo: ad.flightNo || "",
-        origin: ad.originCode, dest: ad.destCode,
-        depTime: ad.depTime || null, arrTime: ad.arrTime || null, arrDayOffset: 0,
-        stops: ad.stops ?? 0, price: offNet(alt), baggageKg: ad.baggageKg ?? null, refundable: ad.refundable ?? null,
-        segments: ad.segments || [],
-        detail: [ad.duration, ad.stops ? ad.stops + " stop" + (ad.stops === 1 ? "" : "s") : "Non-stop"].filter(Boolean).join(" · "),
-      };
-    });
+    const alternatives: any[] = [];
     onAdd(flightCartItem(o, alternatives, { pax, pricing }));
     setAdded((m) => ({ ...m, [o.id]: pricing }));
     setQuote(null);
@@ -1256,8 +1241,8 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                       <button
                         type="button"
                         className="taw-linkbtn"
-                        title="Add as a swap option to the itinerary's flight on this route and day"
-                        onClick={() => onAddSwap({ ...flightCartItem(o, []), _searchDate: o._searchDate })}
+                        title="Price it live (fare + seats, meals and bags for each traveller), then add it as a swap option to the itinerary's flight on this route and day"
+                        onClick={() => setQuote({ offer: o, tab: "fares", swap: true })}
                       >
                         + Swap option
                       </button>
@@ -1295,7 +1280,14 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
           startTab={active.tab}
           pax={pax}
           paxNote={"for " + paxText(pax)}
-          onAdd={(p) => addPriced(active.offer, p)}
+          addLabel={quote?.swap ? "Add as swap option" : undefined}
+          onAdd={(p) => {
+            if (!quote?.swap) { addPriced(active.offer, p); return; }
+            // A swap option carries its own live price and add-ons, so swapping to it (here or on the
+            // customer's link) changes the price to what this airline actually charges.
+            onAddSwap({ ...flightCartItem(active.offer, [], { pax, pricing: p }), _searchDate: active.offer._searchDate });
+            setQuote(null);
+          }}
           onClose={() => { setQuote(null); if (onAutoPickDone) onAutoPickDone(); }}
         />
       ) : null}

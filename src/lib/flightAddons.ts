@@ -39,6 +39,14 @@ export function addonTable(extras: Extra[] | null | undefined): AddonTable {
   });
 }
 
+/** "9 seats · 5 meals · 2 extra bags" — what an option's live price includes, for a one-line note. */
+export function addonCount(extras: Extra[] | null | undefined): string {
+  const list = (extras || []).filter((x) => !isNothing(x));
+  const n = (k: Kind) => list.filter((x) => kindOf(x) === k).length;
+  const part = (c: number, one: string, many: string) => (c ? `${c} ${c === 1 ? one : many}` : "");
+  return [part(n("seat"), "seat", "seats"), part(n("meal"), "meal", "meals"), part(n("baggage"), "extra bag", "extra bags")].filter(Boolean).join(" · ");
+}
+
 /** One line per item and segment: "Corporate Meal Plan × 5 · BLR → DEL", with the summed price.
  *  Seats are one line per segment ("Seats 6A, 6B, 6C"), since each seat is a different code. */
 export function addonLines(extras: Extra[] | null | undefined, withSegment = true): { label: string; amount: number }[] {

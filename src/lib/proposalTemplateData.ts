@@ -20,7 +20,8 @@ import { partyText } from "./flightParty";
 import { computeCostRange } from "./tripCostRange";
 import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
-import { addonLines, addonTable } from "./flightAddons";
+import { addonCount, addonLines, addonTable } from "./flightAddons";
+import { flightKeyOf } from "./itineraryFromCart";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -369,13 +370,23 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         stops: it.stops ?? null,
         price: it.price || 0,
         isOriginalChoice: !it.originalFlightNo || it.originalFlightNo === it.flightNo,
-        alternatives: (it.alternatives || []).map((a: any) => ({
+        // key: the flight's numbers ("IX 2945+IX 1036") — how the customer's link names the option
+        // they chose, and how Pay now finds it again.
+        key: flightKeyOf({ ...it, depTime: it.time }),
+        // A live-priced flight lists only options priced live too (fare + that airline's own seats,
+        // meals, bags for every traveller), so swapping never shows a price that isn't real.
+        // altIndex: the option's place in the itinerary (Swap acts on it).
+        alternatives: (it.alternatives || []).map((a: any, altIndex: number) => ({ a, altIndex }))
+          .filter(({ a }: any) => !it.pricing || a.pricing)
+          .map(({ a, altIndex }: any) => ({
           carrier: a.carrier, flightNo: a.flightNo, depTime: clockTime(a.depTime), arrTime: clockTime(a.arrTime), stops: a.stops ?? 0,
-          price: a.price || 0, detail: a.detail || null,
-          // What the customer compares on: cabin, checked bag and refundability. An alternative's
-          // price is its searched fare alone — no seat / meal / bag add-ons.
+          price: a.price || 0, detail: a.detail || null, altIndex, key: flightKeyOf(a),
+          // What the customer compares on: cabin, checked bag and refundability.
           facts: [cabinWord(it.cabin), a.baggageKg ? `${a.baggageKg} kg check-in` : null, a.refundable == null ? null : a.refundable ? "Refundable" : "Non-refundable"].filter(Boolean),
-          fareOnly: !!it.pricing,
+          // Priced live: its price includes its own add-ons (named); otherwise a search fare alone.
+          livePriced: !!a.pricing,
+          addonsNote: a.pricing ? (addonCount(a.pricing.extras) ? "incl. " + addonCount(a.pricing.extras) : "no add-ons") : null,
+          fareOnly: !!it.pricing && !a.pricing,
         })),
         // A flight priced live in the Console: its fare option, what the fare includes and the
         // add-ons picked (one line each), and the fare vs add-ons split of its price.

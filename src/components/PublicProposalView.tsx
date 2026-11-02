@@ -17,7 +17,8 @@
  * customer can't change the advisor's pick.
  * ===========================================================================*/
 import { useEffect, useState } from "react";
-import { proposalShareGet } from "../services/api";
+import { proposalFlightPayChoose, proposalShareGet } from "../services/api";
+import { applyFlightChoices } from "../lib/proposalFlightOptions";
 import { errText } from "../lib/advisorHelpers";
 import { Icon, Spinner } from "./ui";
 import { ProposalPreviewPage } from "./proposal/ProposalPreviewPage";
@@ -27,11 +28,17 @@ type ViewState = { status: "loading" } | { status: "error"; kind: "not_found" | 
 
 export function PublicProposalView({ token }: { token: string }) {
   const [view, setView] = useState<ViewState>({ status: "loading" });
+  // The customer's flight choices (flight id -> the option's flight numbers), saved on the link.
+  const [choices, setChoices] = useState<Record<string, string>>({});
+  // Bumped once a swap is saved: the page checks and holds the trip as now chosen, live.
+  const [choiceVersion, setChoiceVersion] = useState(0);
+  const [swapErr, setSwapErr] = useState<string | null>(null);
 
   useEffect(() => {
     proposalShareGet(token)
       .then((res: any) => {
         setView({ status: "active", snapshot: res.snapshot });
+        setChoices((res.snapshot && res.snapshot._choices) || {});
       })
       .catch((e: any) => {
         const detail = e && e.body && e.body.detail;
@@ -87,6 +94,28 @@ export function PublicProposalView({ token }: { token: string }) {
     );
   }
 
-  const data = view.snapshot;
-  return <ProposalPreviewPage data={data} payToken={token} onDownload={() => downloadPdf(data)} />;
+  const opts = view.snapshot._flightOptions || {};
+  const chosen = applyFlightChoices(view.snapshot, choices);
+  // A flight without options built for the link has nothing the customer can swap to.
+  const data = { ...chosen, flights: (chosen.flights || []).map((f: any) => (opts[f.id] ? f : { ...f, noSwap: true })) };
+  // Swap on the link: only for flights the advisor priced options for, and not once paid.
+  function swapFlight(flightId: string, altIndex: number) {
+    const shown = (data.flights || []).find((f: any) => f.id === flightId);
+    const alt = (shown?.alternatives || []).find((a: any) => a.altIndex === altIndex);
+    if (!alt?.key) return;
+    const before = choices;
+    setSwapErr(null);
+    setChoices({ ...choices, [flightId]: alt.key });
+    proposalFlightPayChoose(token, flightId, alt.key)
+      .then(() => setChoiceVersion((v) => v + 1))
+      .catch((e: any) => { setChoices(before); setSwapErr(errText(e)); });
+  }
+  const canSwap = !view.snapshot._locked && Object.keys(opts).length > 0;
+  return (
+    <>
+      {swapErr ? <div className="pv-swap-err" role="alert">{swapErr}</div> : null}
+      <ProposalPreviewPage data={data} payToken={token} choiceVersion={choiceVersion}
+        onSwapFlight={canSwap ? swapFlight : undefined} onDownload={() => downloadPdf(data)} />
+    </>
+  );
 }

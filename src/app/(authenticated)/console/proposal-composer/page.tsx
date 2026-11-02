@@ -58,6 +58,7 @@ import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
 import { toast, errText } from "../../../../lib/advisorHelpers";
 import { enquiryProposalShareCreate, enquiryProposalShareGet, getDestinationPhoto } from "../../../../services/api";
 import { buildProposalTemplateData } from "../../../../lib/proposalTemplateData";
+import { buildFlightOptions } from "../../../../lib/proposalFlightOptions";
 import { ProposalDocument, PAGE_COUNT } from "../../../../components/proposal/ProposalDocument";
 import { ProposalPreviewPage } from "../../../../components/proposal/ProposalPreviewPage";
 import { cx } from "../../../../lib/cx";
@@ -423,6 +424,16 @@ export default function ProposalComposerPage() {
   const linkToken = paidLock?.token || (link && link.enquiryId === enquiryIdSel ? link.token : null);
   const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/p/${linkToken}` : null;
 
+  // What the link is published with: the proposal, plus every live-priced flight's swap options
+  // built as if chosen (proposalFlightOptions), so the customer can swap on the link. If pricing an
+  // option fails, the link still goes out — without swapping for that flight.
+  async function linkSnapshot(): Promise<any> {
+    if (!selected) return proposalData;
+    const options = await buildFlightOptions(selected.data, proposalData, selected.member, advisorId, inclusive, currentAdvisor, hotelEnrichment)
+      .catch(() => ({}));
+    return Object.keys(options).length ? { ...proposalData, _flightOptions: options } : proposalData;
+  }
+
   function createWebLink() {
     if (!selected || creatingLink) return;
     if (paidLock?.token) {
@@ -433,11 +444,13 @@ export default function ProposalComposerPage() {
     }
     setCreatingLink(true);
     const body = JSON.stringify(proposalData);
-    enquiryProposalShareCreate(selected.enquiryId, proposalData)
+    const enquiryId = selected.enquiryId;
+    linkSnapshot()
+      .then((snap) => enquiryProposalShareCreate(enquiryId, snap))
       .then((res: any) => {
         setCreatingLink(false);
         published.current = body;
-        setLink({ enquiryId: selected.enquiryId, token: res.token });
+        setLink({ enquiryId, token: res.token });
         const url = `${window.location.origin}/p/${res.token}`;
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(url).catch(() => {});
@@ -457,7 +470,8 @@ export default function ProposalComposerPage() {
     // Also once on opening: edits made in the Console since the last publish reach the link too.
     if (body === published.current) return;
     const t = setTimeout(() => {
-      enquiryProposalShareCreate(enquiryIdSel, proposalData)
+      linkSnapshot()
+        .then((snap) => enquiryProposalShareCreate(enquiryIdSel, snap))
         .then(() => { published.current = body; })
         .catch(() => { /* the next change, or Web link, publishes again */ });
     }, 2500);
