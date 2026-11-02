@@ -134,7 +134,8 @@ export function FlightExtrasPicker({ ssr, rows, detail, tab, sel, pax, infants, 
   const bagOpts: any[] = (block?.baggage || [])
     .filter((b: any) => Number(b.price) > 0 || !/^no\s*baggage$/i.test(String(b.code || b.label || "").trim()))
     .map((b: any) => ({ ...b, text: b.label }));
-  const mealOpts: any[] = block?.meals || [];
+  // "NoMeal" at ₹0 is likewise not ordering a meal.
+  const mealOpts: any[] = (block?.meals || []).filter((m: any) => Number(m.price) > 0 || !/^no\s*meal$/i.test(String(m.code || m.label || "").trim()));
   const noneAtAll = rows.every((s: any) => {
     const b = blockFor(ssr, s, d);
     return !b?.offered?.baggage && !b?.offered?.seats && !b?.offered?.meals;

@@ -10,7 +10,7 @@ export type AddonRow = { who: string; seat: AddonCell | null; meal: AddonCell | 
 export type AddonTable = { segment: string; kinds: Kind[]; rows: AddonRow[] }[];
 
 // TripSure lists "NoBaggage" at ₹0 next to the real bags: it means no extra bag, so it is not an add-on.
-const isNothing = (x: Extra) => !(Number(x.price) > 0) && /^no\s*baggage$/i.test(String(x.code || x.label || "").split(" · ")[0].trim());
+const isNothing = (x: Extra) => !(Number(x.price) > 0) && /^no\s*(baggage|meal)$/i.test(String(x.code || x.label || "").split(" · ")[0].trim());
 
 function split(x: Extra): { item: string; who: string } {
   const label = String(x.label || x.code || "");
