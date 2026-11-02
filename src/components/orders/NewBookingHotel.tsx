@@ -408,7 +408,14 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code, listedTotal: opt.total })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
-        if (!rate) throw new Error("Tripsure returned no rate for this room.");
+        if (!rate || r.validResponse === false) {
+          // Tripsure lists some rates in the room list that it then can't price ("The selected room(s) are sold out."):
+          // say what it said, and let the picker mark the rate instead of a vague "no rate".
+          const why = String(r.partnerErrorMsg || "").trim();
+          const err: any = new Error(why || "Tripsure returned no rate for this room.");
+          err.soldOut = /sold out|no longer available|not available|unavailable/i.test(why);
+          throw err;
+        }
         return {
           state: "ok", total: Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0, listed: opt.total, changeInPrice: r.changeInPrice === true,
           price: splitPrice(rate.rateBreakdown, Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0),
@@ -446,7 +453,17 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     runCheck(opt)
       .then((chk) => { setChecks((c) => ({ ...c, [opt.code]: chk })); setReviewing({ opt, chk });
         if (chk.changeInPrice || Math.round(chk.total) !== Math.round(chk.listed)) setPriceAlert({ title: opt.title, was: chk.listed, now: chk.total }); })
-      .catch((e: any) => setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e) } })));
+      .catch((e: any) => {
+        const soldOut = !!(e && e.soldOut);
+        setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e), soldOut } }));
+        if (soldOut) {
+          // Nothing else to do with this rate: select the cheapest rate that isn't known to be sold out
+          // (the same room's other rates first), so the advisor can press Reserve again straight away.
+          const rest = roomOptions(details).filter((o) => o.code !== opt.code && !(checks[o.code] && checks[o.code].soldOut));
+          const next = rest.filter((o) => o.gid === opt.gid).sort((a, b) => a.total - b.total)[0] || rest.sort((a, b) => a.total - b.total)[0];
+          if (next) setSelCode(next.code);
+        }
+      });
   }
 
   function confirmAdd(opt: any, fresh?: any) {
@@ -1241,15 +1258,18 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               {selType.rates.map((r) => {
                 const on = r.code === sel.code;
                 const rc = checks[r.code] || {};
+                const gone = rc.state === "err" && !!rc.soldOut; // Tripsure's live check said this rate is sold out
                 const shown = rc.state === "ok" ? rc.total : r.total; // the live price once it has been checked
                 return (
                   <button key={r.code} type="button" role="radio" aria-checked={on} className={`ow-rate${on ? " on" : ""}`}
-                    onClick={() => setSelCode(r.code)} disabled={adding}>
+                    style={gone ? { opacity: 0.55 } : undefined}
+                    onClick={() => setSelCode(r.code)} disabled={adding || gone}>
                     <span className="ow-rate-dot" aria-hidden="true" />
                     <span className="ow-rate-tx">
                       <b>{r.board || (isBreakfast(r) ? "Breakfast included" : "Room only")}</b>
                       {r.inclusions ? <small>{r.inclusions}</small> : null}
                       <small className={r.refundable ? "ok" : "no"}>{r.refundable ? "Free cancellation" : "Non-refundable booking"}</small>
+                      {gone ? <small className="no"><b>Sold out</b> - Tripsure can&apos;t book this rate any more</small> : null}
                     </span>
                     <span className="ow-rate-pr">
                       <b>{inr(shown)}</b><small>{nightsTxt}</small>
@@ -1268,7 +1288,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                 {changed ? `Price changed from ${inr(chk.listed)} to ${inr(chk.total)}. ` : ""}{chk.changes && chk.changes.length ? `${chk.changes.join("; ")}. ` : ""}Tell the customer before reserving.
               </div>
             ) : null}
-            {chk.state === "err" ? <div className="taw-banner taw-banner--warn">{chk.msg}</div> : null}
+            {chk.state === "err" ? <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>{chk.soldOut ? `Tripsure says: ${chk.msg} Pick another rate or room - this one was marked sold out.` : chk.msg}</div> : null}
             {overCapacity(roomsCfg, sel.sleeps).length ? (
               <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
                 This room sleeps {sel.sleeps}, but {overCapacity(roomsCfg, sel.sleeps).map((i) => `Room ${i + 1} has ${roomParty(roomsCfg[i])} guests`).join("; ")}. Pick a larger room, or change who is in each room.
@@ -1280,7 +1300,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         )}
         <div className="ow-rp-foot">
           <span><b>{inr(shownTotal)}</b> <small>{nightsTxt} · Incl. taxes &amp; fees</small></span>
-          <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={!sel || chk.state === "loading" || adding}
+          <button type="button" className="ow-searchbtn" style={{ minHeight: 42 }} disabled={!sel || chk.state === "loading" || adding || (chk.state === "err" && !!chk.soldOut)}
             onClick={() => sel && reserve(sel)}>
             {chk.state === "loading" ? "Checking price…" : "Reserve"}
           </button>
