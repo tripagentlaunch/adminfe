@@ -26,6 +26,9 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { relTime } from "../../lib/relTime";
 import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
+import MeshBackdrop from "../chat/MeshBackdrop";
+import { toast } from "../../lib/advisorHelpers";
+import "../../styles/convo-dark.css"; // the chatbot's dark surface for this card
 import { pullTripLinks } from "../../lib/taraTripLinks";
 import { TaraTripCard } from "./TaraTripCard";
 
@@ -215,31 +218,21 @@ function ConvoListHeader({ context }: any) {
   const { hasMore, olderLoading, olderError, loadOlder } = context;
   if (olderLoading) {
     return (
-      <div role="status" aria-live="polite" style={{ ...HEADER_BOX, color: "#8A7650" }}>
-        <span
-          aria-hidden="true"
-          style={{
-            width: 14, height: 14, borderRadius: "50%", display: "inline-block",
-            border: "2px solid rgba(184,148,95,.25)", borderTopColor: "#B8945F",
-            animation: "tawspin .8s linear infinite",
-          }}
-        />
+      <div role="status" aria-live="polite" className="cv-listhead" style={HEADER_BOX}>
+        <span aria-hidden="true" className="cv-spin" style={{ width: 14, height: 14, borderWidth: 2 }} />
         Loading earlier messages…
       </div>
     );
   }
   if (olderError) {
     return (
-      <div role="alert" style={{ ...HEADER_BOX, color: "#B03434" }}>
+      <div role="alert" className="cv-err" style={HEADER_BOX}>
         <span>Couldn&apos;t load earlier messages.</span>
-        <button type="button" onClick={loadOlder}
-          style={{ background: "none", border: "none", padding: 0, color: "#8A5A2B", fontWeight: 600, cursor: "pointer", fontSize: 11.5 }}>
-          Retry
-        </button>
+        <button type="button" className="cv-link" onClick={loadOlder}>Retry</button>
       </div>
     );
   }
-  if (!hasMore) return <div style={{ ...HEADER_BOX, color: "#A39A88" }}>Start of conversation</div>;
+  if (!hasMore) return <div className="cv-listhead" style={HEADER_BOX}>Start of conversation</div>;
   return <div style={HEADER_BOX} />;
 }
 
@@ -594,42 +587,62 @@ export function ChatbotConversationPanel({ member }: any) {
       .finally(() => { setSending(false); setSendingTo(null); });
   }
 
+  // Call: the customer's number, as a tel: link (the phone app / FaceTime / Teams, whatever this machine uses for calls);
+  // the number is also copied, like the chatbot's own call button, so it can be pasted into any dialler.
+  const callNumber = digits ? "+" + digits : "";
+  function copyCallNumber() {
+    if (!callNumber) return;
+    try { Promise.resolve(navigator.clipboard && navigator.clipboard.writeText(callNumber)).catch(() => {}); } catch { /* clipboard blocked: the tel: link still opens */ }
+    toast(callNumber + " copied. Calling " + ((member && member.name) || "the customer") + "…", "success");
+  }
+  const customerName = (member && member.name) || "the customer";
+
   return (
     <Card
-      className="taw-convo-card"
+      className="taw-convo-card cv"
       title="Conversation"
       icon={<Icon name="chat" size={20} />}
       sub={member ? "with " + ((member && member.name) || code) : "no customer selected"}
-      actions={siteChatLink || waLink ? (
+      actions={member || siteChatLink || waLink ? (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           {siteChatLink ? (
             <a
               href={siteChatLink}
               target="_blank"
               rel="noreferrer"
+              className="cv-pill"
               title="Open this customer's Tara chat on the website, the same conversation they see"
               aria-label="Open this customer's Tara chat on the website"
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, padding: "0 12px",
-                borderRadius: 17, border: "1px solid #B8945F", background: "#FDF6EC", color: "#8A5A2B",
-                fontSize: 12, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap",
-              }}
             >
               <Icon name="sparkle" size={15} />
               Tara site
             </a>
+          ) : null}
+          {callNumber ? (
+            <a
+              href={"tel:" + callNumber}
+              onClick={copyCallNumber}
+              className="cv-iconbtn"
+              title={"Call " + customerName + " · " + callNumber}
+              aria-label={"Call " + customerName}
+            >
+              <Icon name="phone" size={17} />
+            </a>
+          ) : member ? (
+            <span title="No phone number on file for this customer" style={{ display: "inline-flex" }}>
+              <button type="button" className="cv-iconbtn" disabled aria-label="Call (no phone number on file)">
+                <Icon name="phone" size={17} />
+              </button>
+            </span>
           ) : null}
           {waLink ? (
             <a
               href={waLink}
               target="_blank"
               rel="noreferrer"
+              className="cv-iconbtn cv-iconbtn--wa"
               title="Open this customer's WhatsApp"
               aria-label="Open this customer's WhatsApp"
-              style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34,
-                borderRadius: "50%", border: "1px solid #B8945F", background: "#FDF6EC", color: "#25D366",
-              }}
             >
               <WhatsAppLogo size={19} />
             </a>
@@ -637,8 +650,9 @@ export function ChatbotConversationPanel({ member }: any) {
         </span>
       ) : null}
     >
+      <MeshBackdrop id="admin-convo-mesh" />
       {!code ? (
-        <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: "24px 10px" }}>
+        <div className="cv-muted" style={{ padding: "24px 10px", position: "relative" }}>
           This traveller has no access code on file, so there&apos;s no Tara conversation to show.
         </div>
       ) : (
@@ -646,8 +660,8 @@ export function ChatbotConversationPanel({ member }: any) {
           {(() => {
             const pl = presenceLine(presence, Date.now());
             return pl ? (
-              <div aria-live="polite" style={{ display: "flex", alignItems: "center", gap: 7, margin: "0 0 8px 2px", fontSize: 12, color: pl.online ? "#1F7A44" : "#6B7280" }}>
-                <span style={{ width: 8, height: 8, borderRadius: "50%", flex: "none", background: pl.online ? "#25A85A" : "#B8BEC9" }} />
+              <div aria-live="polite" className={"cv-presence" + (pl.online ? " is-online" : "")}>
+                <i />
                 {pl.text}
               </div>
             ) : null;
@@ -657,33 +671,32 @@ export function ChatbotConversationPanel({ member }: any) {
               const pct = Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100));
               const danger = pct >= 90;
               return (
-                <div style={{ marginBottom: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#6B6558", marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600 }}>Claude usage</span>
+                <div className="cv-usage">
+                  <div className="cv-usage__row">
+                    <b>Claude usage</b>
                     <span>
                       ${usage.spentUsd.toFixed(2)} of ${usage.capUsd!.toFixed(2)} used · ${(usage.remainingUsd ?? 0).toFixed(2)} left
                     </span>
                   </div>
-                  <div style={{ height: 6, borderRadius: 999, background: "#ECE7DC", overflow: "hidden" }}>
-                    <div style={{ width: pct + "%", height: "100%", background: danger ? "#B03434" : "#B8945F" }} />
+                  <div className="cv-usage__bar">
+                    <div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} />
                   </div>
                 </div>
               );
             })()
           ) : usage ? (
-            <div style={{ fontSize: 11.5, color: "#6B6558", marginBottom: 12 }}>
+            <div className="cv-usage">
               Claude usage: ${usage.spentUsd.toFixed(2)} (no cap set)
             </div>
           ) : null}
           {error && messages.length > 0 ? (
-            <div role="alert" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: "#FBEDED", color: "#B03434", fontSize: 12 }}>
+            <div role="alert" className="cv-banner">
               <span>
                 {isConnectionError(error)
                   ? "The connection is slow, so new messages may be delayed. Showing the last messages loaded; retrying."
                   : <>Couldn&apos;t refresh: {error} Showing the last messages loaded.</>}
               </span>
-              <button type="button" onClick={() => reloadRef.current && reloadRef.current()}
-                style={{ background: "none", border: "none", padding: 0, color: "#8A5A2B", fontWeight: 600, cursor: "pointer", fontSize: 12, flex: "none" }}>
+              <button type="button" className="cv-link" onClick={() => reloadRef.current && reloadRef.current()}>
                 Retry
               </button>
             </div>
@@ -704,26 +717,18 @@ export function ChatbotConversationPanel({ member }: any) {
                   justifyContent: "center", gap: 12, padding: 20,
                 }}
               >
-                {/* Gold ring spinner — reuses the app's existing `tawspin` keyframes. */}
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 28, height: 28, borderRadius: "50%", display: "inline-block",
-                    border: "3px solid rgba(184,148,95,.25)", borderTopColor: "#B8945F",
-                    animation: "tawspin .8s linear infinite",
-                  }}
-                />
-                <span style={{ fontSize: 13, color: "#8A7650" }}>Loading conversation…</span>
+                <span aria-hidden="true" className="cv-spin" style={{ width: 28, height: 28 }} />
+                <span className="cv-muted">Loading conversation…</span>
               </div>
             ) : error && messages.length === 0 ? (
               <div role="alert" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 20 }}>
-                <div style={{ fontSize: 13, color: "#B03434", textAlign: "center" }}>{error}</div>
-                <button type="button" className="taw-btn taw-btn--sm" onClick={() => reloadRef.current && reloadRef.current()}>
+                <div className="cv-err">{error}</div>
+                <button type="button" className="cv-send" style={{ flex: "none", height: 34 }} onClick={() => reloadRef.current && reloadRef.current()}>
                   Retry
                 </button>
               </div>
             ) : messages.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#9098A8", textAlign: "center", padding: 20 }}>
+              <div className="cv-muted" style={{ padding: 20 }}>
                 No conversation with Tara yet.
               </div>
             ) : (
@@ -752,46 +757,23 @@ export function ChatbotConversationPanel({ member }: any) {
                   const trip = !isCustomer && typeof m.content === "string" ? pullTripLinks(m.content) : null;
                   const tripLinks = trip && trip.links.length ? trip : null;
                   return (
-                    <div style={{ display: "flex", flexDirection: "column", paddingBottom: 10 }}>
+                    <div className="cv-row">
                       {caption ? (
                         <div
+                          className="cv-label"
                           title={`Sent ${isCustomer ? "from" : "on"} ${caption.label}`}
-                          style={{
-                            alignSelf: isCustomer ? "flex-start" : "flex-end",
-                            display: "inline-flex", alignItems: "center", gap: 5,
-                            fontSize: 9.5, fontWeight: 600, letterSpacing: ".06em", textTransform: "uppercase",
-                            color: "#8A8070", margin: "0 4px 3px",
-                          }}
+                          style={{ alignSelf: isCustomer ? "flex-start" : "flex-end" }}
                         >
-                          <span aria-hidden="true" style={{ width: 5, height: 5, borderRadius: "50%", background: caption.dot }} />
+                          <i aria-hidden="true" style={{ background: caption.dot }} />
                           {caption.label}
                         </div>
                       ) : null}
-                      <div
-                        style={{
-                          alignSelf: isCustomer ? "flex-start" : "flex-end",
-                          maxWidth: "82%",
-                          background: isCustomer ? "#F1F3F5" : m.tara ? "#E3EEF9" : "#EDE3CF",
-                          borderRadius: 10,
-                          padding: "8px 12px",
-                          fontSize: 13.5,
-                          color: "#1F2430",
-                          lineHeight: 1.45,
-                          whiteSpace: "pre-wrap",
-                          // A long link (an itinerary URL) wraps inside the bubble instead of pushing the thread sideways.
-                          overflowWrap: "anywhere",
-                          minWidth: 0,
-                        }}
-                      >
-                        <div style={{ fontSize: 10.5, fontWeight: 600, color: "#8A8070", marginBottom: 3 }}>
+                      <div className={"cv-msg " + (isCustomer ? "cv-msg--customer" : m.tara ? "cv-msg--tara" : "cv-msg--advisor")}>
+                        <div className="cv-msg__who">
                           {isCustomer ? ((member && member.name) || "Customer") : m.tara ? "🤖 Tara" : m.real ? (m.sender || "Advisor") : "Tara"}
                         </div>
                         {tripLinks ? tripLinks.rest : m.content}
-                        {m.at ? (
-                          <div style={{ fontSize: 10, color: "#A39A88", marginTop: 4, textAlign: "right" }}>
-                            {fmtTime(m.at)}
-                          </div>
-                        ) : null}
+                        {m.at ? <div className="cv-msg__time">{fmtTime(m.at)}</div> : null}
                       </div>
                       {tripLinks ? tripLinks.links.map((l) => <TaraTripCard key={l.key} code={code} tripKey={l.key} url={l.url} />) : null}
                     </div>
@@ -801,65 +783,46 @@ export function ChatbotConversationPanel({ member }: any) {
             )}
           </div>
           {hasNew ? (
-            <button
-              type="button"
-              onClick={jumpToBottom}
-              style={{
-                position: "absolute", left: "50%", bottom: 10, transform: "translateX(-50%)",
-                border: "1px solid #B8945F", background: "#FDF6EC", color: "#8A5A2B",
-                borderRadius: 999, padding: "5px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(0,0,0,.12)",
-              }}
-            >
+            <button type="button" className="cv-newpill" onClick={jumpToBottom}>
               New messages ↓
             </button>
           ) : null}
           </div>
 
           {customerTyping ? (
-            <div role="status" aria-label="The customer is typing" style={{ flex: "none", display: "flex", gap: 4, alignItems: "center", margin: "0 0 8px 4px", height: 18 }}>
+            <div role="status" aria-label="The customer is typing" className="cv-typing">
               {[0, 1, 2].map((i) => (
-                <span key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: "#9098A8", animation: "taw-typing 1.2s ease-in-out infinite", animationDelay: i * 0.18 + "s" }} />
+                <span key={i} style={{ animationDelay: i * 0.18 + "s" }} />
               ))}
-              <style>{"@keyframes taw-typing{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}"}</style>
             </div>
           ) : null}
 
-          <div style={{ flex: "none", border: "1px solid #E9E1CF", borderRadius: 12, background: "#FDFBF6", padding: "10px 12px", marginBottom: 8 }}>
-            <div style={{ fontSize: 13.5, fontWeight: 600, color: "#1F2430", lineHeight: 1.25 }}>Take over the chat with AI</div>
-            <div style={{ fontSize: 11.5, color: "#8A8070", margin: "2px 0 8px", lineHeight: 1.3 }}>
+          <div className="cv-take">
+            <div className="cv-take__title">Take over the chat with AI</div>
+            <div className="cv-take__sub">
               Choose how to proceed. You can let Tara continue, or take over and reply as the advisor.
             </div>
             {handoffStatus === "loading" ? (
-              <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>Checking who is replying…</div>
+              <div role="status" className="cv-note">Checking who is replying…</div>
             ) : handoffStatus === "error" ? (
-              <div role="alert" style={{ fontSize: 11.5, color: "#B03434", marginBottom: 8 }}>
+              <div role="alert" className="cv-note cv-note--err">
                 Couldn&apos;t check whether Tara is paused for this traveller; the choice below may not match.{" "}
-                <button type="button" onClick={() => setHandoffTick((t) => t + 1)}
-                  style={{ background: "none", border: "none", padding: 0, color: "#8A5A2B", fontWeight: 600, cursor: "pointer", fontSize: 11.5 }}>
-                  Retry
-                </button>
+                <button type="button" className="cv-link" onClick={() => setHandoffTick((t) => t + 1)}>Retry</button>
               </div>
             ) : null}
             {websiteOnly ? (
-              <div role="status" style={{ fontSize: 11.5, color: "#8A7650", marginBottom: 8 }}>
+              <div role="status" className="cv-note">
                 No WhatsApp number on file: your replies go to this traveller&apos;s website chat.
               </div>
             ) : null}
             {waitingLine ? (
-              <div
-                role="status"
-                style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                  border: "1px solid #E6D3A8", background: "#FDF6EC", borderRadius: 8, padding: "7px 10px", marginBottom: 8,
-                  fontSize: 12, color: "#8A5A2B", fontWeight: 600,
-                }}
-              >
+              <div role="status" className="cv-wait">
                 <span>{waitingLine}</span>
                 {mode === "tara" ? (
                   <button
                     type="button"
-                    className="taw-btn taw-btn--sm"
+                    className="cv-send"
+                    style={{ flex: "none", height: 32 }}
                     disabled={modeSaving || handoffStatus === "loading"}
                     onClick={() => chooseMode("advisor")}
                   >
@@ -868,7 +831,7 @@ export function ChatbotConversationPanel({ member }: any) {
                 ) : null}
               </div>
             ) : null}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+            <div className="cv-modes">
               {([
                 { id: "tara", icon: "sparkle", title: "Let Tara reply", sub: "Tara will respond to the customer" },
                 { id: "advisor", icon: "edit", title: "I'll reply", sub: "Tara waits for you" },
@@ -879,19 +842,14 @@ export function ChatbotConversationPanel({ member }: any) {
                   <button
                     key={o.id}
                     type="button"
+                    className={"cv-mode" + (active ? " is-on" : "")}
                     disabled={modeSaving || handoffStatus === "loading"}
                     aria-pressed={active}
                     onClick={() => chooseMode(o.id)}
-                    style={{
-                      display: "flex", flexDirection: "column", alignItems: "center", gap: 1, textAlign: "center",
-                      padding: "6px 6px", borderRadius: 8, cursor: modeSaving ? "wait" : "pointer",
-                      border: active ? "1.5px solid #B8945F" : "1px solid #E1E4E8",
-                      background: active ? "#FDF6EC" : "#fff", color: active ? "#8A5A2B" : "#1F2430",
-                    }}
                   >
-                    {pendingMode === o.id ? <Spinner /> : <Icon name={o.icon} size={16} style={{ color: active ? "#B8945F" : "#9098A8" }} />}
-                    <span style={{ fontSize: 12.5, fontWeight: 600, lineHeight: 1.25 }}>{o.title}</span>
-                    <span style={{ fontSize: 10.5, color: "#8A8070", lineHeight: 1.2 }}>{o.sub}</span>
+                    {pendingMode === o.id ? <Spinner /> : <Icon name={o.icon} size={16} />}
+                    <b>{o.title}</b>
+                    <small>{o.sub}</small>
                   </button>
                 );
               })}
@@ -899,7 +857,7 @@ export function ChatbotConversationPanel({ member }: any) {
 
             {takenOver ? (
               <>
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <div className="cv-composer">
                   <input
                     value={draft}
                     onChange={(e) => { setDraft(e.target.value); if (sendError) setSendError(null); }}
@@ -911,10 +869,9 @@ export function ChatbotConversationPanel({ member }: any) {
                       }
                     }}
                     placeholder="Type your message..."
-                    style={{ flex: 1, border: "1px solid #E1E4E8", borderRadius: 8, padding: "9px 12px", fontSize: 13.5, outline: "none" }}
                   />
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <div className="cv-sendrow">
                   {([
                     { ch: "whatsapp" as const, label: "Send to WhatsApp", off: websiteOnly },
                     { ch: "web" as const, label: "Send to website", off: false },
@@ -922,11 +879,10 @@ export function ChatbotConversationPanel({ member }: any) {
                     <button
                       key={b.ch}
                       type="button"
-                      className={"taw-btn" + (b.ch === defaultChannel ? " taw-btn--primary" : "")}
+                      className={"cv-send" + (b.ch === defaultChannel ? " is-primary" : "")}
                       disabled={!draft.trim() || sending || b.off}
                       title={b.off ? "No WhatsApp number on file for this traveller" : b.ch === "whatsapp" ? "Send this message to the customer's WhatsApp only" : "Send this message to the customer's website chat only"}
                       onClick={() => handleSend(b.ch)}
-                      style={{ flex: 1, padding: "9px 12px", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7 }}
                     >
                       {sendingTo === b.ch ? <Spinner /> : null}
                       {b.label}
@@ -934,9 +890,9 @@ export function ChatbotConversationPanel({ member }: any) {
                   ))}
                 </div>
                 {sendError ? (
-                  <div role="alert" style={{ marginTop: 6, fontSize: 12, color: "#B03434", lineHeight: 1.35 }}>{sendError}</div>
+                  <div role="alert" className="cv-note cv-note--err" style={{ marginTop: 6, marginBottom: 0 }}>{sendError}</div>
                 ) : null}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8, fontSize: 11.5, color: "#8A8070" }}>
+                <div className="cv-foot">
                   <span>
                     {mode === "both" ? "You and Tara are both replying" : "You are currently in advisor mode"}
                     {replyGoesTo ? ` · the customer last wrote on ${replyGoesTo}` : ""}

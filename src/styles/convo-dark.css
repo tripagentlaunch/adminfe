@@ -1,0 +1,501 @@
+/* ==========================================================================
+   The advisor's Conversation card on the customer chatbot's surface: the same dark
+   mesh-gradient background, colours, bubbles, glass header and composer as Tara's chat
+   (chatbot-fe src/design/chat.css). Every class is prefixed `cv-`, and the card itself
+   is `.taw-convo-card.cv`, so nothing else in the app changes.
+   ========================================================================== */
+@import url("https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600&display=swap");
+
+.taw-convo-card.cv {
+  --cv-ink: #0a0a0b;
+  --cv-ivory: #f2ede4;
+  --cv-ivory-2: rgba(242, 237, 228, 0.74);
+  --cv-ivory-3: rgba(242, 237, 228, 0.56);
+  --cv-champagne: #d8c29a;
+  --cv-amber: #f2b879;
+  --cv-line: rgba(242, 237, 228, 0.12);
+  --cv-font: "Jost", -apple-system, "Helvetica Neue", sans-serif;
+
+  position: relative;
+  isolation: isolate;
+  background: var(--cv-ink);
+  border-color: var(--cv-line);
+  color: var(--cv-ivory);
+  font-family: var(--cv-font);
+  -webkit-font-smoothing: antialiased;
+}
+.taw-convo-card.cv *,
+.taw-convo-card.cv *::before,
+.taw-convo-card.cv *::after {
+  box-sizing: border-box;
+}
+.taw-convo-card.cv button,
+.taw-convo-card.cv input {
+  font-family: inherit;
+}
+
+/* ---- backdrop ---------------------------------------------------------- */
+.cv-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.cv-bg canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.cv-bg__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+}
+
+/* ---- header: frosted glass over the backdrop ----------------------------- */
+.cv .taw-card-h {
+  z-index: 3;
+  padding: 12px 16px;
+  gap: 10px;
+  background: linear-gradient(180deg, rgba(8, 6, 5, 0.78) 0%, rgba(8, 6, 5, 0.6) 100%);
+  -webkit-backdrop-filter: blur(24px) saturate(1.15);
+  backdrop-filter: blur(24px) saturate(1.15);
+  border-bottom: 1px solid var(--cv-line);
+}
+.cv .taw-card-h h3 {
+  color: var(--cv-ivory);
+  font-family: var(--cv-font);
+  font-size: 16px;
+  font-weight: 500;
+}
+.cv .taw-card-h .sub {
+  color: var(--cv-ivory-3);
+  font-family: var(--cv-font);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+.cv .taw-card-h > svg {
+  color: var(--cv-champagne);
+}
+/* The backdrop is anchored to the whole card (so it also runs behind the header, as in the chatbot):
+   the body itself is not positioned, and everything in it sits above the backdrop. */
+.cv .taw-card-b {
+  position: static;
+  background: transparent;
+  padding: 12px 16px 14px;
+}
+.cv .taw-card-b > :not(.cv-bg) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Round icon buttons and the Tara-site pill, as in the chatbot's header. */
+.cv-iconbtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid rgba(242, 237, 228, 0.18);
+  background: #202023;
+  color: var(--cv-ivory);
+  cursor: pointer;
+  text-decoration: none;
+}
+.cv-iconbtn:hover:not(:disabled) {
+  border-color: var(--cv-champagne);
+}
+.cv-iconbtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cv-iconbtn--wa {
+  color: #25d366;
+}
+.cv-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 19px;
+  border: 1px solid var(--cv-champagne);
+  background: rgba(216, 194, 154, 0.1);
+  color: var(--cv-champagne);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cv-pill:hover {
+  background: rgba(216, 194, 154, 0.18);
+}
+
+/* ---- status lines ---------------------------------------------------------- */
+.cv-presence {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px 2px;
+  font-size: 12.5px;
+  color: var(--cv-ivory-3);
+}
+.cv-presence.is-online {
+  color: var(--cv-ivory-2);
+}
+.cv-presence i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: rgba(242, 237, 228, 0.35);
+}
+.cv-presence.is-online i {
+  background: #3fcf7a;
+}
+.cv-usage {
+  margin-bottom: 12px;
+  font-size: 11.5px;
+  color: var(--cv-ivory-3);
+}
+.cv-usage__row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+}
+.cv-usage__row b {
+  font-weight: 600;
+  color: var(--cv-ivory-2);
+}
+.cv-usage__bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(242, 237, 228, 0.12);
+  overflow: hidden;
+}
+.cv-usage__bar > div {
+  height: 100%;
+  background: var(--cv-champagne);
+}
+.cv-usage__bar > div.is-danger {
+  background: var(--cv-amber);
+}
+.cv-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: rgba(242, 184, 121, 0.12);
+  border: 1px solid rgba(242, 184, 121, 0.3);
+  color: var(--cv-amber);
+  font-size: 12.5px;
+}
+.cv-link {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--cv-champagne);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cv-muted {
+  font-size: 13px;
+  color: var(--cv-ivory-3);
+  text-align: center;
+}
+.cv-err {
+  font-size: 13px;
+  color: var(--cv-amber);
+  text-align: center;
+}
+.cv-spin {
+  display: inline-block;
+  border-radius: 50%;
+  border: 3px solid rgba(216, 194, 154, 0.25);
+  border-top-color: var(--cv-champagne);
+  animation: tawspin 0.8s linear infinite;
+}
+.cv-listhead {
+  color: var(--cv-ivory-3);
+}
+
+/* ---- the thread ------------------------------------------------------------ */
+.cv-row {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 12px;
+}
+.cv-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 6px 4px;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cv-ivory-3);
+}
+.cv-label i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+/* The customer's messages are white; Tara and the advisor answer in dark frosted glass. */
+.cv-msg {
+  max-width: 82%;
+  min-width: 0;
+  padding: 10px 15px;
+  font-size: 15px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cv-msg a {
+  color: inherit;
+  text-decoration: underline;
+}
+.cv-msg--customer {
+  align-self: flex-start;
+  border-radius: 22px 22px 22px 6px;
+  background: #ffffff;
+  color: #191613;
+}
+.cv-msg--tara,
+.cv-msg--advisor {
+  align-self: flex-end;
+  border-radius: 22px 22px 6px 22px;
+  background: rgba(84, 84, 90, 0.55);
+  -webkit-backdrop-filter: blur(18px) saturate(1.1);
+  backdrop-filter: blur(18px) saturate(1.1);
+  border: 1px solid rgba(190, 190, 196, 0.32);
+  color: #ffffff;
+}
+.cv-msg--advisor {
+  border-color: rgba(216, 194, 154, 0.5);
+}
+.cv-msg__who {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 3px;
+  color: rgba(25, 22, 19, 0.55);
+}
+.cv-msg--tara .cv-msg__who,
+.cv-msg--advisor .cv-msg__who {
+  color: var(--cv-champagne);
+}
+.cv-msg__time {
+  margin-top: 4px;
+  text-align: right;
+  font-size: 10.5px;
+  color: rgba(25, 22, 19, 0.45);
+}
+.cv-msg--tara .cv-msg__time,
+.cv-msg--advisor .cv-msg__time {
+  color: var(--cv-ivory-3);
+}
+.cv-newpill {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  padding: 6px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--cv-champagne);
+  background: rgba(13, 13, 15, 0.92);
+  color: var(--cv-champagne);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.cv-typing {
+  flex: none;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  margin: 0 0 8px 4px;
+  height: 18px;
+}
+.cv-typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cv-champagne);
+  opacity: 0.35;
+  animation: taw-typing 1.2s ease-in-out infinite;
+}
+@keyframes taw-typing {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* ---- "Take over the chat": the chatbot's composer glass ------------------------- */
+.cv-take {
+  flex: none;
+  margin-bottom: 8px;
+  padding: 14px 16px;
+  border-radius: 24px;
+  background: rgba(13, 13, 15, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  backdrop-filter: blur(30px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.cv-take__title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--cv-ivory);
+  line-height: 1.25;
+}
+.cv-take__sub {
+  margin: 3px 0 10px;
+  font-size: 12.5px;
+  color: var(--cv-ivory-3);
+  line-height: 1.35;
+}
+.cv-note {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  color: var(--cv-champagne);
+}
+.cv-note--err {
+  color: var(--cv-amber);
+}
+.cv-wait {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(216, 194, 154, 0.4);
+  background: rgba(216, 194, 154, 0.1);
+  color: var(--cv-champagne);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.cv-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.cv-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 6px;
+  text-align: center;
+  border-radius: 16px;
+  border: 1px solid rgba(242, 237, 228, 0.18);
+  background: #202023;
+  color: var(--cv-ivory);
+  cursor: pointer;
+}
+.cv-mode:hover:not(:disabled) {
+  border-color: rgba(216, 194, 154, 0.6);
+}
+.cv-mode.is-on {
+  border: 1.5px solid var(--cv-champagne);
+  background: rgba(216, 194, 154, 0.14);
+  color: var(--cv-champagne);
+}
+.cv-mode:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.cv-mode svg {
+  color: var(--cv-ivory-3);
+}
+.cv-mode.is-on svg {
+  color: var(--cv-champagne);
+}
+.cv-mode b {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.cv-mode small {
+  font-size: 11px;
+  color: var(--cv-ivory-3);
+  line-height: 1.25;
+}
+.cv-mode.is-on small {
+  color: var(--cv-ivory-2);
+}
+.cv-composer {
+  display: flex;
+  margin-top: 10px;
+  padding: 6px 8px;
+  border-radius: 28px;
+  background: rgba(13, 13, 15, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.cv-composer input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--cv-ivory);
+  font-size: 15px;
+}
+.cv-composer input::placeholder {
+  color: var(--cv-ivory-3);
+}
+.cv-sendrow {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cv-send {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 21px;
+  border: 1px solid rgba(242, 237, 228, 0.18);
+  background: #202023;
+  color: var(--cv-ivory);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cv-send.is-primary {
+  border: 0;
+  background: #d6d6da;
+  color: #1b1b1e;
+}
+.cv-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cv-foot {
+  margin-top: 9px;
+  font-size: 12px;
+  color: var(--cv-ivory-3);
+}
+
+/* Spinner inside the card keeps the app's own look, tinted to the surface. */
+.cv .taw-spin {
+  border-color: rgba(216, 194, 154, 0.3);
+  border-top-color: var(--cv-champagne);
+}
