@@ -53,7 +53,7 @@ import { PaidTripHistory } from "./PaidTripHistory";
 import { requestLivePrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -432,7 +432,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // rather than silently omitting it.
   const unresolvedItems = data.days.flatMap((d: any) => d.items).filter((it: any) => it.priceIsFrom);
   const unresolved = unresolvedItems.reduce((s: number, it: any) => s + it.price, 0);
-  const finTotal = data.totals.confirmed + data.totals.held + unresolved || 1;
+  const totals = itineraryTotals(data);
+  const finTotal = totals.confirmed + totals.held + unresolved || 1;
 
   // Always derived from whatever's actually in `day.items` now
   // (2026-09-03) — previously fell back to the day's static
@@ -492,17 +493,17 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         <div className="taw-itin-totals">
           <div>
             <b>
-              {inr(data.totals.grand)}
-              {unresolved > 0 ? "–" + inr(data.totals.grand + unresolved) + "+" : ""}
+              {inr(totals.grand)}
+              {unresolved > 0 ? "–" + inr(totals.grand + unresolved) + "+" : ""}
             </b>
             <span>total</span>
           </div>
           <div>
-            <b>{inr(data.totals.confirmed)}</b>
+            <b>{inr(totals.confirmed)}</b>
             <span>confirmed</span>
           </div>
           <div>
-            <b>{inr(data.totals.held)}</b>
+            <b>{inr(totals.held)}</b>
             <span>held</span>
           </div>
           {unresolved > 0 ? (
@@ -517,8 +518,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             arithmetic on themselves — segment widths are proportional
             to each bucket's share of the (low-end) total. */}
         <div className="taw-itin-fin-bar">
-          <div className="taw-itin-fin-seg taw-itin-fin-seg--confirmed" style={{ flexBasis: (data.totals.confirmed / finTotal) * 100 + "%" }} />
-          <div className="taw-itin-fin-seg taw-itin-fin-seg--held" style={{ flexBasis: (data.totals.held / finTotal) * 100 + "%" }} />
+          <div className="taw-itin-fin-seg taw-itin-fin-seg--confirmed" style={{ flexBasis: (totals.confirmed / finTotal) * 100 + "%" }} />
+          <div className="taw-itin-fin-seg taw-itin-fin-seg--held" style={{ flexBasis: (totals.held / finTotal) * 100 + "%" }} />
           {unresolved > 0 ? (
             <div className="taw-itin-fin-seg taw-itin-fin-seg--unresolved" style={{ flexBasis: (unresolved / finTotal) * 100 + "%" }} />
           ) : null}

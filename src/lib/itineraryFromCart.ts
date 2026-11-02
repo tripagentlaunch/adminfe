@@ -815,6 +815,22 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
   };
 }
 
+// itineraryTotals — Total / Confirmed / Held, always from the items as they are now. The stored
+// `totals` were kept as running sums (added on add, taken off on remove), which swaps and price
+// refreshes never adjusted, so they drifted: an empty itinerary could still read ₹6k held.
+// "From" prices stay out (they're shown as the open range), as before.
+export function itineraryTotals(data: any): { grand: number; confirmed: number; held: number } {
+  const items = [...((data?.days || []) as any[]).flatMap((d: any) => d.items || []), ...(data?.visa ? [data.visa] : [])];
+  let grand = 0, confirmed = 0;
+  for (const it of items) {
+    const p = Number(it?.price) || 0;
+    if (!(p > 0) || it.priceIsFrom) continue;
+    grand += p;
+    if (it.status === "booked") confirmed += p;
+  }
+  return { grand, confirmed, held: grand - confirmed };
+}
+
 // swapFlightAlternative (2026-10-22) — the flight counterpart of swapHotelAlternative: makes alternative
 // `altIndex` the chosen flight for this leg and moves the previous choice into that slot. Pure. Flight
 // alternatives carry no key, so they are addressed by position. The comparison line on every alternative is
