@@ -22,6 +22,12 @@ let liveDownUntil = 0;
 // Real answers by query: retyping or backspacing never asks TripSure twice.
 const liveCache = new Map<string, any[]>();
 
+// An answer TripSure already gave for this text while it was being typed (null if none), so Search
+// doesn't ask again for a city whose suggestions were just on screen.
+export function cachedLiveCities(query: string): any[] | null {
+  return liveCache.get(query.trim().toLowerCase()) || null;
+}
+
 // Live TripSure location rows, or null when TripSure is down/slow/empty.
 export function liveCities(query: string): Promise<any[] | null> {
   const key = query.trim().toLowerCase();

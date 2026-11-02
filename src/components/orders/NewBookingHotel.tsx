@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
+import { cachedLiveCities, citySuggest, instantCitySuggest } from "../../lib/citySuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
@@ -167,10 +168,10 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-// No .catch here: a failed request must reject so AutosuggestInput shows "Couldn't load suggestions"
-// instead of "No matches." (which means the provider answered with nothing).
-const citySuggestions = (q: string) =>
-  q ? hotelAutosuggestV2(q).then((r: any) => rankLocationSuggestions(q, (r && r.locationSuggestions) || [])) : Promise.resolve([]);
+// Same as the Search desk's City field (lib/citySuggest.ts): the built-in city directory answers at once
+// (instantSuggestions below), Tripsure's live list replaces it only when it answers within 4s, and a slow
+// or down Tripsure is not asked again for a minute - so the box never sits on "Searching..." waiting for it.
+const citySuggestions = (q: string) => (q ? citySuggest(q, rankLocationSuggestions) : Promise.resolve([]));
 
 export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdded, onError }: {
   customer: Customer;
@@ -303,8 +304,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     setBusy(true);
     const withLoc = location
       ? Promise.resolve(location)
-      : hotelAutosuggestV2(form.city.trim()).then((r: any) => {
-          const top = r && r.locationSuggestions && r.locationSuggestions[0];
+      : Promise.resolve(cachedLiveCities(form.city)).then((rows: any) => rows || hotelAutosuggestV2(form.city.trim()).then((r: any) => (r && r.locationSuggestions) || [])).then((rows: any[]) => {
+          const top = rows[0];
           if (!top) throw new Error(`No location match for "${form.city.trim()}".`);
           return top;
         });
@@ -560,8 +561,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               className="ow-pill-input"
               value={form.city}
               onChange={(v: any) => { set("city", String(v)); setLocation(null); }}
-              onSelect={(l: any) => { set("city", l.name); setLocation(l); }}
+              // A directory city has no Tripsure location id behind it: leave `location` empty so Search resolves it live.
+              onSelect={(l: any) => { set("city", l.name); setLocation(l._isFallbackDefault ? null : l); }}
               fetchSuggestions={citySuggestions}
+              instantSuggestions={(q: string) => (q ? instantCitySuggest(q, rankLocationSuggestions) : [])}
               floating
               renderSuggestion={(l: any) => (
                 <span className="ow-sug">
