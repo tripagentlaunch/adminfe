@@ -26,6 +26,8 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { relTime } from "../../lib/relTime";
 import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
+import { pullTripLinks } from "../../lib/taraTripLinks";
+import { TaraTripCard } from "./TaraTripCard";
 
 interface ConvoMessage {
   id: string; // stable and unique: the source row's id (never the array index)
@@ -746,6 +748,9 @@ export function ChatbotConversationPanel({ member }: any) {
                 itemContent={(_i, m) => {
                   const isCustomer = m.role === "user" || m.role === "customer";
                   const caption = m.channel ? CHANNEL_CAPTION[m.channel] : undefined;
+                  // An itinerary link in Tara's / the advisor's message is a card, as in the customer's chat, not a bare URL.
+                  const trip = !isCustomer && typeof m.content === "string" ? pullTripLinks(m.content) : null;
+                  const tripLinks = trip && trip.links.length ? trip : null;
                   return (
                     <div style={{ display: "flex", flexDirection: "column", paddingBottom: 10 }}>
                       {caption ? (
@@ -781,13 +786,14 @@ export function ChatbotConversationPanel({ member }: any) {
                         <div style={{ fontSize: 10.5, fontWeight: 600, color: "#8A8070", marginBottom: 3 }}>
                           {isCustomer ? ((member && member.name) || "Customer") : m.tara ? "🤖 Tara" : m.real ? (m.sender || "Advisor") : "Tara"}
                         </div>
-                        {m.content}
+                        {tripLinks ? tripLinks.rest : m.content}
                         {m.at ? (
                           <div style={{ fontSize: 10, color: "#A39A88", marginTop: 4, textAlign: "right" }}>
                             {fmtTime(m.at)}
                           </div>
                         ) : null}
                       </div>
+                      {tripLinks ? tripLinks.links.map((l) => <TaraTripCard key={l.key} code={code} tripKey={l.key} url={l.url} />) : null}
                     </div>
                   );
                 }}
