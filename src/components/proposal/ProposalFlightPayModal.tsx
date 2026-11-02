@@ -17,12 +17,13 @@ import { payHeldOrder } from "../../lib/proposalPayment";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
 import { PayTimer } from "./PayTimer";
+import { addonLines } from "../../lib/flightAddons";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
   pax: { adults: number; children: number; infants: number };
   guest?: { firstName: string; lastName: string; email: string; mobile: string } | null;
-  flights: { id: string; title: string; date: string; route: string; fare_name: string | null; extras: { label: string; segment: string }[] }[];
+  flights: { id: string; title: string; date: string; route: string; fare_name: string | null; extras: { label: string; segment: string; kind?: string; pax?: number; price?: number }[] }[];
   /** Hotels booked in the same payment (rooms re-checked and locked when the customer presses Pay). */
   stays?: { id: string; name: string; room: string; check_in: string; check_out: string }[];
   /** "all": every flight passenger; "lead": hotels only, just the lead guest. */
@@ -135,7 +136,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                 <div key={f.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
                   <b>{f.title}</b> · {f.route} · {fmtDate(f.date)}
                   {f.fare_name && f.fare_name !== "Searched fare" ? <span style={{ color: "#777" }}> · {f.fare_name} fare</span> : null}
-                  {f.extras.length ? <div style={{ color: "#666", marginTop: 3 }}>{f.extras.map((x) => x.label).join(" · ")}</div> : null}
+                  {f.extras.length ? <div style={{ color: "#666", marginTop: 3 }}>{addonLines(f.extras, false).map((x) => x.label).join(" · ")}</div> : null}
                 </div>
               ))}
               {stays.map((h) => (

@@ -20,6 +20,7 @@ import { partyText } from "./flightParty";
 import { computeCostRange } from "./tripCostRange";
 import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
+import { addonLines, addonTable } from "./flightAddons";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -382,8 +383,11 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
           it.pricing.checkinKg ? `${it.pricing.checkinKg} kg check-in` : null, it.pricing.refundable ? "Refundable" : "Non-refundable",
           // The fare is for the whole party searched; say who, so it never reads as one traveller's price.
           it.paxMix ? `Priced for ${partyText(it.paxMix)}` : null].filter(Boolean).join(" · ") : null,
-        extrasLine: it.pricing && (it.pricing.extras || []).length
-          ? (it.pricing.extras as any[]).map((x: any) => (x.kind === "meal" ? `${x.label} (meal)` : x.label) + ((it.pricing.extras as any[]).some((y: any) => y.segment !== x.segment) ? ` · ${x.segment}` : "")).join(" · ")
+        // Add-ons as a table (traveller × seat / meal / baggage, per segment); extrasLine is
+        // only the text for a priced flight with none.
+        extrasTable: it.pricing ? addonTable(it.pricing.extras) : [],
+        extrasLine: it.pricing && addonTable(it.pricing.extras).length
+          ? addonLines(it.pricing.extras).map((l) => l.label).join(" · ")
           : it.pricing ? "No add-ons — seat assigned by the airline at check-in" : null,
         cabin: it.cabin,
         segments: it.segments || [],
@@ -571,7 +575,8 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   function flightBreakdown(item: any, sell: number): { label: string; amount: number }[] | null {
     const p = item && item.type === "flight" ? item.pricing : null;
     if (!p || !(sell > 0)) return null;
-    const extras = ((p.extras || []) as any[]).map((x: any) => ({ label: x.label + " · " + x.segment, amount: Number(x.price) || 0 }));
+    // One line per item ("Corporate Meal Plan × 5 · BLR → DEL"), not one per traveller.
+    const extras = addonLines(p.extras);
     const extrasTotal = extras.reduce((n, x) => n + x.amount, 0);
     const base = Number(p.baseFare);
     const rows: { label: string; amount: number }[] = [];

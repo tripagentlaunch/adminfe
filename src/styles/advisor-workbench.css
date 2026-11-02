@@ -1848,7 +1848,10 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-psg-state{margin-left:auto;font-size:12.5px;color:var(--warn-ink,#8a6400);}
 .taw-psg-state.ok{color:var(--success,#2f6b4a);font-weight:600;}
 .taw-psg-toggle{display:inline-flex;align-items:center;gap:4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink,#785c12);font-weight:600;}
-.taw-psg-b{padding:0 14px 14px;display:grid;gap:12px;}
+/* The panel sits in the builder's fixed top part (only the days list scrolls), so a big group
+   (9 travellers) ran past the card's bottom and was cut off. The open list scrolls on its own. */
+.taw-psg{flex-shrink:0;}
+.taw-psg-b{padding:0 14px 14px;display:grid;gap:12px;max-height:min(62vh,680px);overflow-y:auto;overscroll-behavior:contain;}
 .taw-psg-note{margin:0;font-size:12.5px;color:var(--taupe);line-height:1.5;}
 .taw-psg-card{border:1px solid var(--line);border-left:3px solid var(--warn-ink,#b08428);border-radius:10px;background:var(--card);padding:12px 14px 14px;}
 .taw-psg-card.ok{border-left-color:var(--success,#2f6b4a);}

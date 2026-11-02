@@ -23,6 +23,7 @@
 import { paxText, requestChips } from "./flightRequests";
 import { hotelRequestChips, occText } from "./hotelOccupancy";
 import { AIRPORTS } from "./airports";
+import { addonLines } from "./flightAddons";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -278,7 +279,7 @@ function livePriceChips(p: any): string[] {
     p.fareName && p.fareName !== "Searched fare" ? p.fareName : "",
     p.refundable ? "Refundable" : "Non-refundable",
     p.checkinKg ? p.checkinKg + " kg check-in" : "",
-    ...(p.extras || []).map((x: any) => x.label + (x.price ? " " + inrPlain(x.price) : "") + " · " + x.segment),
+    ...addonLines(p.extras).map((l) => l.label + (l.amount ? " " + inrPlain(l.amount) : "")),
   ].filter(Boolean);
 }
 function livePriceMeta(p: any, mix: any): string {

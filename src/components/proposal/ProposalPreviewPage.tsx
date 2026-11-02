@@ -47,6 +47,7 @@ const readPaymentRef = () => new URLSearchParams(window.location.search).get("re
 // "?pay=open": opened from the advisor's preview — start with the payment window open.
 const readPayOpen = () => new URLSearchParams(window.location.search).get("pay") === "open";
 import "../../styles/proposal-preview.css";
+import type { AddonTable } from "../../lib/flightAddons";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
@@ -229,7 +230,34 @@ function RecommendedFlightRow({ f }: { f: any }) {
         </div>
       </div>
       {f.fareLine ? <div className="pv-recflight-extras"><b>Fare</b> {f.fareLine}</div> : null}
-      {f.extrasLine ? <div className="pv-recflight-extras"><b>Add-ons</b> {f.extrasLine}</div> : null}
+      {f.extrasTable && f.extrasTable.length ? <AddonsTable table={f.extrasTable} /> : f.extrasLine ? <div className="pv-recflight-extras"><b>Add-ons</b> {f.extrasLine}</div> : null}
+    </div>
+  );
+}
+
+// The add-ons picked for each traveller: one row per traveller, a column per kind picked
+// (seat / meal / extra baggage), one block per segment when the flight has several.
+const ADDON_HEAD: Record<string, string> = { seat: "Seat", meal: "Meal", baggage: "Extra baggage" };
+function AddonsTable({ table }: { table: AddonTable }) {
+  return (
+    <div className="pv-addons">
+      <b className="pv-addons-title">Add-ons</b>
+      {table.map((t) => (
+        <div key={t.segment} className="pv-addons-seg">
+          {table.length > 1 && t.segment ? <div className="pv-addons-route">{t.segment}</div> : null}
+          <table className="pv-addons-table">
+            <thead><tr><th>Traveller</th>{t.kinds.map((k) => <th key={k}>{ADDON_HEAD[k]}</th>)}</tr></thead>
+            <tbody>
+              {t.rows.map((r) => (
+                <tr key={r.who}>
+                  <td>{r.who}</td>
+                  {t.kinds.map((k) => <td key={k}>{r[k] ? r[k]!.label : <span className="pv-addons-none">—</span>}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   );
 }

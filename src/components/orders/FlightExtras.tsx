@@ -130,7 +130,10 @@ export function FlightExtrasPicker({ ssr, rows, detail, tab, sel, pax, infants, 
   const si = Math.min(segIdx, rows.length - 1);
   const seg = rows[si];
   const block = blockFor(ssr, seg, d);
-  const bagOpts: any[] = (block?.baggage || []).map((b: any) => ({ ...b, text: b.label }));
+  // TripSure also lists "NoBaggage" at ₹0: that is simply not adding a bag.
+  const bagOpts: any[] = (block?.baggage || [])
+    .filter((b: any) => Number(b.price) > 0 || !/^no\s*baggage$/i.test(String(b.code || b.label || "").trim()))
+    .map((b: any) => ({ ...b, text: b.label }));
   const mealOpts: any[] = block?.meals || [];
   const noneAtAll = rows.every((s: any) => {
     const b = blockFor(ssr, s, d);
