@@ -46,8 +46,11 @@ const readPayment = () => new URLSearchParams(window.location.search).get("payme
 const readPaymentRef = () => new URLSearchParams(window.location.search).get("ref") || "";
 // "?pay=open": opened from the advisor's preview — start with the payment window open.
 const readPayOpen = () => new URLSearchParams(window.location.search).get("pay") === "open";
+// "?debug=1": the advisor testing a link — the live check's calls are shown under Pay now.
+const readDebug = () => new URLSearchParams(window.location.search).get("debug") === "1";
 import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
+import { LiveCheckTrace } from "./LiveCheckTrace";
 
 const TABS = ["Plan", "Days", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
@@ -570,6 +573,7 @@ export function ProposalPreviewPage({
   const [flightQuote, setFlightQuote] = useState<FlightPayQuote | null>(null);
   const [payingFlights, setPayingFlights] = useState(false);
   const payOpen = useSyncExternalStore(noSubscribe, readPayOpen, () => false);
+  const debug = useSyncExternalStore(noSubscribe, readDebug, () => false);
   const autoOpened = useRef(false);
   const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
   const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
@@ -985,8 +989,8 @@ export function ProposalPreviewPage({
                       </button>
                     ) : previewPayable ? (
                       payPreviewUrl ? (
-                        <a className="pv-cta pv-cta--pay" href={`${payPreviewUrl}?pay=open`} target="_blank" rel="noreferrer"
-                          title="Opens the customer's web link in a new tab, with the payment window open">
+                        <a className="pv-cta pv-cta--pay" href={`${payPreviewUrl}?pay=open&debug=1`} target="_blank" rel="noreferrer"
+                          title="Opens the customer's web link in a new tab, with the payment window open and the live check details shown (for you only)">
                           Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span> <span aria-hidden="true">↗</span>
                         </a>
                       ) : (
@@ -1031,6 +1035,10 @@ export function ProposalPreviewPage({
                       ) : null}
                       {" "}= trip total {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)}.
                     </div>
+                  ) : null}
+                  {payToken && debug ? (
+                    <LiveCheckTrace token={payToken} version={`${check.status}:${choiceVersion}:${payErr || ""}:${paying}`}
+                      onRerun={runCheck} busy={check.status === "checking"} />
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
                     <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>

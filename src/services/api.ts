@@ -2637,6 +2637,9 @@ function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/
 // { status: "ready", order_id, amount, quoted, price_changed, pay_by } | needs_details | paid.
 // The customer swapped a flight to another of its options on the link: recorded, any unpaid hold
 // let go, and the quote for the trip as now chosen returned (the next refresh prices it live).
+// Advisor only (testing a link): the last live checks / swaps / payments on it, each with every
+// call made to the travel partner — request summary (no passenger details), status, answer.
+function proposalFlightPayTrace(token) { return fastapiFlightCall("/proposal-share/" + encodeURIComponent(token) + "/pay/flights/trace", { method: "GET" }); }
 function proposalFlightPayChoose(token, flightId, key) { return proposalPublicCall(token, "/pay/flights/choose", { method: "POST", body: { flight_id: flightId, key: key } }); }
 function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
 function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
@@ -2889,6 +2892,7 @@ export {
   proposalFlightPayQuote,
   proposalFlightPayRefresh,
   proposalFlightPayChoose,
+  proposalFlightPayTrace,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
   proposalFlightPayConfirm,

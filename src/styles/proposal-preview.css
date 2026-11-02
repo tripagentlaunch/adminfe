@@ -940,3 +940,21 @@
 
 /* Public link: a swap the server refused (e.g. payment already started). */
 .pv-swap-err { position: sticky; top: 0; z-index: 5; margin: 0; padding: 10px 16px; background: #fbeaea; color: #8a2b2b; font-size: 14px; text-align: center; }
+
+/* ?debug=1 on a proposal link: the live check's calls (LiveCheckTrace), for the advisor testing. */
+.pv-trace { margin-top: 18px; padding: 14px 16px; border: 1px dashed #b9ad9c; border-radius: 10px; background: #fbf8f2; font-size: 13px; color: #3a352e; text-align: left; }
+.pv-trace-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.pv-trace-head span { color: #8a7f72; font-size: 12px; }
+.pv-trace-head .pv-linkbtn { margin-left: auto; }
+.pv-trace-run { margin: 6px 0; }
+.pv-trace-run > summary { cursor: pointer; font-weight: 600; }
+.pv-trace-run > summary .good { color: #2f6b4a; }
+.pv-trace-run > summary .bad { color: #a33a2b; }
+.pv-trace-call { margin: 6px 0 6px 14px; padding: 6px 8px; border-left: 3px solid #2f6b4a; background: #fff; border-radius: 4px; }
+.pv-trace-call.is-bad { border-left-color: #a33a2b; }
+.pv-trace-call summary { cursor: pointer; }
+.pv-trace-call code { font-size: 12px; }
+.pv-trace-errline { color: #a33a2b; }
+.pv-trace-label { margin-top: 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8a7f72; }
+.pv-trace pre { margin: 2px 0 0; padding: 8px; background: #f4efe6; border-radius: 6px; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+.pv-trace-err, .pv-trace-sub { color: #8a7f72; }
