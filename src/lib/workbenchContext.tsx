@@ -116,6 +116,13 @@ export interface WorkbenchContextValue {
   // (already converted by adminbe, see getTaraPlan) in as this enquiry's itinerary,
   // replacing whatever is there. The caller confirms before replacing real content.
   loadTaraItinerary: (enquiryId: string, itinerary: any) => void;
+  // Tara's newest plan opened automatically: only into an empty Builder, decided at load time.
+  autoLoadTaraItinerary: (enquiryId: string, itinerary: any) => void;
+  // A paid trip is locked (itinerary.locked): unlock it on purpose, or start a new trip for the traveller.
+  unlockItinerary: (enquiryId: string) => void;
+  startNewTrip: (enquiryId: string) => Promise<any>;
+  // The saved itineraries have been read back from the server (see useWorkspacePersistence).
+  workspaceRestored: boolean;
   // parkedItineraries / parkTaraItinerary / resumeParkedItinerary — "← Back" from Tara's
   // itinerary sets it aside (edits kept) and shows the Generate / Start-from-scratch chooser;
   // resume puts it back.

@@ -7,6 +7,25 @@ import { Icon } from "../ui";
 import { fmtINR, type Flight, type Hotel, type Itinerary, type Order, type Visa } from "../../lib/orderTypes";
 import { statusClass } from "./orderUi";
 import { OrderFulfilment } from "./OrderFulfilment";
+import { bookingCancelOrder, bookingDeleteOrder } from "../../services/api";
+import { errText } from "../../lib/errText";
+import { toast } from "../../lib/advisorHelpers";
+
+// A stay's photo over its gradient + name; if the photo is missing or fails to load,
+// the gradient and name stay (never a broken image).
+function Photo({ src, tone, label }: { src?: string | null; tone: string; label: string }) {
+  const [bad, setBad] = useState(false);
+  return (
+    <div className="ow-photo" style={{ background: tone, position: "relative", overflow: "hidden" }}>
+      {src && !bad ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={src} alt={label} loading="lazy" onError={() => setBad(true)}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : null}
+      <span style={{ position: "relative" }}>{label}</span>
+    </div>
+  );
+}
 
 function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
   const [open, setOpen] = useState(false);
@@ -22,7 +41,8 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
         <div className="ow-city r"><div className="code">{f.to}</div><div className="time">{f.arr}</div><div className="nm">{f.toCity}</div></div>
       </div>
       <div className="ow-seg-foot">
-        <span><span className="taw-chip taw-chip--dom">{f.cabin}</span> &nbsp;{fmtINR(f.pricePerTraveller)} <small>per traveller</small></span>
+        <span><span className="taw-chip taw-chip--dom">{f.cabin}</span> &nbsp;
+          {f.pricePerTraveller > 0 ? <>{fmtINR(f.pricePerTraveller)} <small>per traveller</small></> : <small>Included in the fare above</small>}</span>
         <button type="button" className="taw-btn taw-btn--sm" onClick={() => setOpen((v) => !v)}>{open ? "Hide details" : "View details"}</button>
       </div>
       {open ? (
@@ -30,7 +50,7 @@ function FlightCard({ f, travellers }: { f: Flight; travellers: number }) {
           <div><b>Baggage</b>{f.detail.baggage || "Not provided"}</div>
           <div><b>Seats</b>{f.detail.seat || "Not selected yet"}</div>
           <div><b>Terminal</b>{f.detail.terminal || "Not provided"}</div>
-          <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div>
+          {f.pricePerTraveller > 0 ? <div><b>Segment total</b>{fmtINR(f.pricePerTraveller * travellers)} for {travellers}</div> : null}
         </div>
       ) : null}
     </div>
@@ -52,7 +72,7 @@ function HotelTab({ h }: { h: Hotel | null }) {
   return (
     <div className="ow-card">
       <div className="ow-hotel">
-        <div className="ow-photo" style={{ background: h.tone }}>{h.name}</div>
+        <Photo src={h.imageUrl} tone={h.tone} label={h.name} />
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
             <div>
@@ -125,7 +145,35 @@ function VisaTab({ v }: { v: Visa | null }) {
   );
 }
 
-export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; onAddFlight?: () => void; onChanged?: () => void }) {
+export function OrderDetail({ order, onAddFlight, onChanged, onDeleted }: {
+  order: Order; onAddFlight?: () => void; onChanged?: () => void; onDeleted?: () => void;
+}) {
+  // Cancel keeps the order (and any payment) on record; Delete removes it from the database.
+  const [ending, setEnding] = useState<null | "cancel" | "delete">(null);
+  const [endBusy, setEndBusy] = useState(false);
+  const [endErr, setEndErr] = useState<string | null>(null);
+  async function endOrder(kind: "cancel" | "delete") {
+    if (!order.dbId) return;
+    setEndBusy(true);
+    setEndErr(null);
+    try {
+      if (kind === "delete") {
+        await bookingDeleteOrder(order.dbId);
+        toast(`Order ${order.id} deleted`, "success");
+        setEnding(null);
+        onDeleted?.();
+      } else {
+        await bookingCancelOrder(order.dbId);
+        toast(`Order ${order.id} cancelled`, "success");
+        setEnding(null);
+        onChanged?.();
+      }
+    } catch (e: any) {
+      setEndErr(errText(e));
+    } finally {
+      setEndBusy(false);
+    }
+  }
   const [itinId, setItinId] = useState(order.itineraries[0].id);
   const first = order.itineraries[0];
   // A hotel-only itinerary has nothing under Flights, so open on Hotels.
@@ -144,7 +192,33 @@ export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; o
             <span><span className="num">Order #{order.number} ·</span> {order.id}</span>
             <span className={statusClass(order.status)}>{order.status}</span>
           </div>
+          {order.dbId && order.status !== "Cancelled" ? (
+            <div className="ow-head-acts">
+              <button type="button" className="taw-btn taw-btn--sm" disabled={endBusy} onClick={() => { setEndErr(null); setEnding("cancel"); }}>Cancel order</button>
+              <button type="button" className="taw-btn taw-btn--sm ow-danger" disabled={endBusy} onClick={() => { setEndErr(null); setEnding("delete"); }}>
+                <Icon name="x" size={13} /> Delete order
+              </button>
+            </div>
+          ) : null}
         </div>
+        {ending ? (
+          <div className={`ow-end${ending === "delete" ? " del" : ""}`} role="alertdialog" aria-label={ending === "delete" ? "Delete order" : "Cancel order"}>
+            <div style={{ whiteSpace: "normal" }}>
+              {ending === "delete" ? (
+                <><b>Delete order {order.id}?</b> It is removed for good, with its itineraries, travellers and payment entries. Only possible when nothing is booked with a supplier and no money has been received. TripSure&apos;s fare or room lock simply expires.</>
+              ) : (
+                <><b>Cancel order {order.id}?</b> It moves to Cancelled and stays on record, so a refund can still be recorded against it. Only possible when nothing is booked with a supplier.</>
+              )}
+            </div>
+            {endErr ? <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>{endErr}</div> : null}
+            <div className="ow-end-btns">
+              <button type="button" className="taw-btn taw-btn--sm" disabled={endBusy} onClick={() => setEnding(null)}>Keep the order</button>
+              <button type="button" className={`taw-btn taw-btn--sm${ending === "delete" ? " ow-danger-solid" : " taw-btn--primary"}`} disabled={endBusy} onClick={() => endOrder(ending)}>
+                {endBusy ? "Working…" : ending === "delete" ? "Yes, delete it" : "Yes, cancel it"}
+              </button>
+            </div>
+          </div>
+        ) : null}
         <div className="ow-facts">
           <div className="ow-fact"><div className="k">Customer</div><div className="v">{order.customerName}<small>{order.email}</small></div></div>
           <div className="ow-fact"><div className="k">Travel dates</div><div className="v">{order.travelDates}</div></div>
@@ -183,7 +257,7 @@ export function OrderDetail({ order, onAddFlight, onChanged }: { order: Order; o
 
         <div>
           <div className="ow-card ow-trip">
-            <div className="ow-photo" style={{ background: order.tone }}>{order.destination}</div>
+            <Photo src={it.hotel?.imageUrl} tone={order.tone} label={order.destination} />
             <h5>{it.title}</h5>
             <div className="m"><Icon name="calendar" size={13} /> {it.dates}</div>
             <div className="m"><Icon name="user" size={13} /> {n} traveller{n === 1 ? "" : "s"} · Lead: {lead ? lead.name : "not added yet"}</div>

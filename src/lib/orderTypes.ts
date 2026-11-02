@@ -74,8 +74,17 @@ export interface FulfilmentItem {
   error?: string | null;
   booked_at?: string | null;
   amount?: number | null;
+  /** flight: who `amount` (the whole group's fare) was priced for. */
+  party?: { adults: number; children: number; infants: number } | null;
   can_book: boolean;
   blocked_reason?: string | null;
+  /** hotel only: a confirmed room can be cancelled / has a tax invoice. */
+  can_cancel?: boolean;
+  can_invoice?: boolean;
+  /** flight only: documents the fare needs (Create Itinerary conditions): passport / pan / gst. */
+  documents_required?: string[];
+  /** flight only: the journey's x-trace-id, quoted to TripSure support. */
+  trace_id?: string | null;
 }
 export interface PaymentRow { id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null }
 export interface Fulfilment {
@@ -92,13 +101,15 @@ export interface Fulfilment {
     mix_error?: string | null;
     list: any[];
   };
-  payment: { total: number; paid: number; due: number; currency: string; payments: PaymentRow[] };
+  payment: { total: number; paid: number; refunded?: number; due: number; currency: string; payments: PaymentRow[] };
   items: FulfilmentItem[];
 }
 export interface Order {
   id: string; number: number; createdAt: string; // ISO date
   customerName: string; email: string; destination: string;
   travelDates: string; travellers: Traveller[];
+  /** ISO dates of the trip's first departure / last return (passport validity checks). */
+  travelStart?: string | null; travelEnd?: string | null;
   amount: number; paymentStatus: PaymentStatus; status: OrderStatus;
   tone: string; itineraries: Itinerary[];
   /** booking_orders.id (uuid). */

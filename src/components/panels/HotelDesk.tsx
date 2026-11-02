@@ -10,18 +10,21 @@ import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
+import { HotelSearchBar } from "../orders/HotelSearchBar";
+import { HotelItineraryPopup, type HotelPopupSearch } from "../orders/HotelItineraryPopup";
 import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { distanceText, straightKm, type DistOrigin, type Drive } from "../../lib/hotelDistance";
+import { FROM_PRICES, fromKey, hotelAlternatives, priceOf } from "../../lib/hotelAlternatives";
 import {
-  BED_OPTIONS, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
+  BED_OPTIONS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
   type HotelRequests, type RoomOcc,
 } from "../../lib/hotelOccupancy";
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
-import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
+import { Empty, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, isLuxury, activeFilterCount, filterHotels, hotelFacets, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
 import { HotelMap, placesFromSuggestion } from "./HotelMap";
@@ -57,14 +60,8 @@ const HOTEL_RESULTS_CACHE = new Map<string, { at: number; res: any }>();
 // that mounts again for the same search re-attaches and keeps receiving pages.
 type MoreJob = { res: any; info: { loaded: number; expected?: number; failed?: boolean } | null; stop: () => void; subs: Set<() => void> };
 const MORE_JOBS = new Map<string, MoreJob>();
-// TripSure's listing carries no price (priceSummary is empty), so the hotels on
-// screen are priced from their cheapest live room (POST /hotels/rates, 5 per
-// call), keyed by hotel + search token so it is asked once per search.
-// null = TripSure has no bookable room for it.
-const FROM_PRICES = new Map<string, { price: number; board: string | null; refundable: any } | null>();
 const FROM_FAILED = new Map<string, number>(); // the rates call failed (when): "Rates on selection", retried after a minute
 const RETRY_FAILED_MS = 60_000;
-const fromKey = (t: any) => t.hotelId + "|" + t.token;
 function keepHotelResults(key: string, res: any) {
   if (HOTEL_RESULTS_CACHE.size > 20) HOTEL_RESULTS_CACHE.clear();
   HOTEL_RESULTS_CACHE.set(key, { at: Date.now(), res: { ...res, more: null } });
@@ -108,63 +105,6 @@ function cityLocationSuggestions(query: string) {
   // Instant from the built-in directory for 1 letter; live TripSure results win when they
   // answer within 2.5s, else the directory fills in (see lib/citySuggest.ts, same as flights).
   return citySuggest(query, rankLocationSuggestions);
-}
-
-// The live list mixes cities, areas, landmarks, airports and single hotels;
-// the type tag says which. Picking a hotel searches just that property.
-function renderCityLocationSuggestion(loc: any) {
-  const type = String(loc.type || "").toLowerCase();
-  const tag = type === "hotel" ? "Hotel" : type === "airport" ? "Airport" : type === "city" ? "City"
-    : type === "state" || type === "country" ? "Region" : type ? "Area" : "";
-  return (
-    <span className="taw-locsug">
-      <span>
-        {loc.name}
-        <small>{[loc.type && type !== "city" ? loc.city : null, loc.state, loc.country].filter(Boolean).join(", ")}</small>
-      </span>
-      {tag ? <em className={type === "hotel" ? "is-hotel" : ""}>{tag}</em> : null}
-    </span>
-  );
-}
-
-// Three swap options for a hotel, picked automatically: same star rating, closest
-// price (or nearest by straight line when unpriced). Removable in the builder.
-// `_handles` lets addRoom price them live (POST /hotels/rates) — listings are
-// often unpriced, which used to save them at ₹0.
-// Shape = what swapHotelAlternative / the proposal read.
-// Prices come from the listing or, when it has none, the live "from" price on
-// screen (FROM_PRICES); hotels TripSure has no rooms for are skipped. Five
-// candidates go out so that three still remain if some can't be priced.
-const ALT_CANDIDATES = 5;
-function priceOf(x: any): number {
-  const t = x._tripsure;
-  const known = t && t.hotelId ? FROM_PRICES.get(fromKey(t)) : undefined;
-  return offerNet(x) || (known ? known.price : 0);
-}
-function hotelAlternatives(shown: any[], o: any): any[] {
-  const d0 = o.detail || {};
-  const net0 = priceOf(o);
-  const dist = (x: any) => {
-    const d = x.detail || {};
-    if (net0 > 0 && priceOf(x) > 0) return Math.abs(priceOf(x) - net0);
-    if (d0.lat != null && d.lat != null) return straightKm(Number(d0.lat), Number(d0.lng), Number(d.lat), Number(d.lng)) * 1000;
-    return Infinity;
-  };
-  return shown
-    .filter((x: any) => x.id !== o.id && ((x.detail || {}).stars || 0) === (d0.stars || 0)
-      && !(x._tripsure && x._tripsure.hotelId && FROM_PRICES.get(fromKey(x._tripsure)) === null))
-    .sort((a: any, b: any) => dist(a) - dist(b))
-    .slice(0, ALT_CANDIDATES)
-    .map((x: any) => {
-      const d = x.detail || {};
-      const t = x._tripsure || {};
-      return {
-        _handles: t.hotelId && t.docKey && t.token ? { hotelId: String(t.hotelId), docKey: t.docKey, token: t.token } : null,
-        hotelKey: String(x.id), name: d.hotelName || "Hotel", image: d.image || null, price: priceOf(x),
-        stars: d.stars ?? null, address: d.address || null, board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
-        detail: [d.stars ? d.stars + "-star" : null, d.address].filter(Boolean).join(" · "),
-      };
-    });
 }
 
 // The distance line saved with a hotel added to the itinerary.
@@ -215,66 +155,6 @@ function DistanceFrom({ dist, hotels }: { dist: any; hotels: any[] }) {
       </div>
       {dist.busy ? <Spinner /> : null}
       {dist.err ? <div className="taw-dist-err">{dist.err}</div> : null}
-    </div>
-  );
-}
-
-function nightsLabel(checkIn: string, checkOut: string) {
-  const n = Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
-  if (!isFinite(n)) return null;
-  return <div className="taw-nights">{n > 0 ? n + " night" + (n === 1 ? "" : "s") : "Check-out must be after check-in"}</div>;
-}
-
-// Rooms & guests editor: per room, adults and children (each child's age —
-// TripSure prices children by age).
-function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: RoomOcc[]) => void }) {
-  const setRoom = (i: number, r: RoomOcc) => onChange(value.map((x, j) => (j === i ? r : x)));
-  return (
-    <div className="taw-pax">
-      {value.map((r, i) => (
-        <div key={i} className="taw-room">
-          <div className="taw-pax-row">
-            <b>Room {i + 1}</b>
-            {value.length > 1 ? (
-              <button type="button" className="taw-linkbtn" onClick={() => onChange(value.filter((_, j) => j !== i))}>Remove</button>
-            ) : null}
-          </div>
-          <div className="taw-pax-row">
-            <span>Adults <small>12+ years</small></span>
-            <span className="taw-stepper">
-              <button type="button" aria-label="Fewer adults" disabled={r.adults <= 1} onClick={() => setRoom(i, { ...r, adults: r.adults - 1 })}><Icon name="minus" size={12} /></button>
-              <b>{r.adults}</b>
-              <button type="button" aria-label="More adults" disabled={r.adults >= MAX_ADULTS_PER_ROOM} onClick={() => setRoom(i, { ...r, adults: r.adults + 1 })}><Icon name="plus" size={12} /></button>
-            </span>
-          </div>
-          <div className="taw-pax-row">
-            <span>Children <small>under 12</small></span>
-            <span className="taw-stepper">
-              <button type="button" aria-label="Fewer children" disabled={!r.childAges.length} onClick={() => setRoom(i, { ...r, childAges: r.childAges.slice(0, -1) })}><Icon name="minus" size={12} /></button>
-              <b>{r.childAges.length}</b>
-              <button type="button" aria-label="More children" disabled={r.childAges.length >= MAX_CHILDREN_PER_ROOM} onClick={() => setRoom(i, { ...r, childAges: r.childAges.concat([8]) })}><Icon name="plus" size={12} /></button>
-            </span>
-          </div>
-          {r.childAges.length ? (
-            <div className="taw-childages">
-              {r.childAges.map((age, k) => (
-                <label key={k}>
-                  Child {k + 1} age
-                  <select className="taw-input" value={age} onChange={(e) => setRoom(i, { ...r, childAges: r.childAges.map((a, m) => (m === k ? Number(e.target.value) : a)) })}>
-                    {Array.from({ length: 12 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : a}</option>)}
-                  </select>
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ))}
-      {value.length < MAX_ROOMS ? (
-        <button type="button" className="taw-linkbtn" style={{ justifySelf: "start", margin: "6px 0 2px" }}
-          onClick={() => onChange(value.concat([{ adults: 1, childAges: [] }]))}>
-          + Add room
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -501,11 +381,13 @@ export function readableDescription(raw: any): string {
 // been seen equal to the whole stay's total).
 function roomOptions(det: any, nights: number): any[] {
   const out: any[] = [];
-  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any) =>
+  ((det && det.hotelInfo && det.hotelInfo.roomGroups) || []).forEach((g: any, gi: number) =>
     (g.options || []).forEach((o: any) => {
+      if (!o.recommendationId) return;
       const sr = (o.standardRooms || [])[0] || {};
       const rt = sr.roomType || {};
       out.push({
+        group: gi,
         code: o.recommendationId,
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
@@ -514,6 +396,8 @@ function roomOptions(det: any, nights: number): any[] {
         perNight: Number(o.totalRate) > 0 && nights > 0 ? Number(o.totalRate) / nights / ((o.standardRooms || []).length || 1) : null,
         total: Number(o.totalRate) || 0,
         maxAdults: rt.maxAdults,
+        inclusions: (sr.inclusions || []).join(", "),
+        bed: String(sr.bedType || "").trim(),
       });
     })
   );
@@ -530,7 +414,6 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const [err, setErr] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
   const [checks, setChecks] = useState<any>({}); // bookingCode -> {state, ...}
-  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -546,7 +429,15 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
     hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
-        if (!rate) throw new Error("TripSure returned no rate for this room.");
+        // TripSure listed this room but its live price-check came back empty. It says why in
+        // partnerErrorMsg ("The selected room(s) are sold out."); relay that, and only fall back
+        // to the stale-session advice when it gives no reason.
+        if (!rate) {
+          const why = String((r && r.partnerErrorMsg) || "").trim();
+          throw new Error(why
+            ? `TripSure says: ${why.replace(/\.$/, "")}. Pick another room, or use “Refresh prices” above for current availability.`
+            : "This rate is no longer available from TripSure. Use “Refresh prices” above to get current rates, then try again.");
+        }
         const total = Number(rate.rateBreakdown && rate.rateBreakdown.total) || 0;
         setChecks((c: any) => ({
           ...c,
@@ -625,7 +516,18 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const info = (det && det.hotelInfo) || {};
   const opts = roomOptions(det, Number((offer && offer.detail && offer.detail.nights) || 0));
   const description = readableDescription(info.description);
-  const shownOpts = showAll ? opts : opts.slice(0, 8);
+  // Exactly the supplier's roomGroups: one card per group (standardRoomIds), in the supplier's order,
+  // with every option of that group (0..n) under it. Nothing is capped or re-sorted.
+  const types: { group: number; title: string; bed: string; rates: any[] }[] = [];
+  opts.forEach((o) => {
+    let t = types.find((x) => x.group === o.group);
+    if (!t) types.push((t = { group: o.group, title: o.title, bed: o.bed, rates: [] }));
+    t.rates.push(o);
+  });
+  const shownTypes = types;
+  const stayNights = Number((offer && offer.detail && offer.detail.nights) || 0);
+  const stayRooms = Number((offer && offer.detail && offer.detail.rooms) || 1);
+  const priceNote = (stayNights ? stayNights + " night" + (stayNights === 1 ? "" : "s") + ", " : "") + stayRooms + " room" + (stayRooms === 1 ? "" : "s");
   const amenities: string[] = [];
   (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
   const rev = (info.reviews || [])[0];
@@ -673,50 +575,61 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
           <input className="taw-input" placeholder="Note for the hotel (optional) — e.g. anniversary, airport pickup" maxLength={200}
             value={req.note} onChange={(e) => setReq({ ...req, note: e.target.value })} />
         </div>
-        <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>Rooms &amp; rates ({opts.length})</div>
+        <div style={{ fontSize: 12, fontWeight: 600, margin: "6px 0" }}>
+          Select a room <small className="taw-muted">{types.length} room{types.length === 1 ? "" : "s"} · {opts.length} rate option{opts.length === 1 ? "" : "s"}</small>
+        </div>
         {opts.length === 0 ? <div className="taw-banner taw-banner--info">No rooms available for these dates.</div> : null}
-        {shownOpts.map((opt) => {
-          const chk = checks[opt.code] || {};
-          const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
-          return (
-            <div key={opt.code} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 7 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600 }}>{opt.title}{opt.rooms > 1 ? " × " + opt.rooms : ""}</div>
-                  <div className="taw-res-sub">
-                    {opt.board ? <span>{opt.board}</span> : null}
-                    {opt.refundable ? <span className="taw-chip taw-chip--ref">Refundable</span> : <span className="taw-chip taw-chip--noref">Non-ref</span>}
-                    {opt.perNight ? <span className="ta-num">{inr(opt.perNight)}/night/room</span> : null}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
-                  {chk.state === "ok" ? (
-                    <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} disabled={!!adding} onClick={() => addRoom(opt, chk)}>
-                      <Icon name="plus" size={13} /> {adding === opt.code ? "Adding…" : "Add this room"}
-                    </button>
-                  ) : (
-                    <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
-                      {chk.state === "loading" ? <Spinner /> : "Confirm price"}
-                    </button>
-                  )}
-                </div>
-              </div>
-              {chk.state === "ok" ? (
-                <div style={{ fontSize: 11.5, marginTop: 5, color: changed ? "#B03434" : "var(--taupe)" }}>
-                  {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
-                  {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
-                </div>
-              ) : null}
-              {chk.state === "err" ? (
-                <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
-              ) : null}
+        {shownTypes.map((t) => (
+          <div key={t.group} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "9px 11px", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{t.title}</div>
+              <small className="taw-muted ta-num" style={{ whiteSpace: "nowrap" }}>From {inr(Math.min(...t.rates.map((r: any) => r.total)))}</small>
             </div>
-          );
-        })}
-        {opts.length > 8 && !showAll ? (
-          <button className="taw-linkbtn" onClick={() => setShowAll(true)}>Show all {opts.length} room options</button>
-        ) : null}
+            {t.bed ? <div className="taw-res-sub"><span>{t.bed}</span></div> : null}
+            {t.rates.map((opt) => {
+              const chk = checks[opt.code] || {};
+              const changed = chk.state === "ok" && Math.round(chk.total) !== Math.round(chk.listed);
+              const refundable = chk.state === "ok" ? chk.refundable : opt.refundable;
+              return (
+                <div key={opt.code} style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{opt.board || (/breakfast/i.test(opt.inclusions) ? "Breakfast included" : "Room only")}</div>
+                      {opt.inclusions ? <div className="taw-res-sub"><span>{opt.inclusions}</span></div> : null}
+                      <div className="taw-res-sub">
+                        {refundable ? <span className="taw-chip taw-chip--ref">Free cancellation</span> : <span className="taw-chip taw-chip--noref">Non-refundable</span>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
+                      <small className="taw-muted">{priceNote}</small>
+                      <div>
+                        {chk.state === "ok" ? (
+                          <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 4 }} disabled={!!adding} onClick={() => addRoom(opt, chk)}>
+                            <Icon name="plus" size={13} /> {adding === opt.code ? "Adding…" : "Add this room"}
+                          </button>
+                        ) : (
+                          <button className="taw-btn taw-btn--sm" style={{ marginTop: 4 }} disabled={chk.state === "loading"} onClick={() => confirmPrice(opt)}>
+                            {chk.state === "loading" ? <Spinner /> : "Confirm price"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  {chk.state === "ok" ? (
+                    <div style={{ fontSize: 11.5, marginTop: 5, color: changed ? "#B03434" : "var(--taupe)" }}>
+                      {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
+                      {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
+                    </div>
+                  ) : null}
+                  {chk.state === "err" ? (
+                    <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -897,12 +810,13 @@ export function HotelDesk(props: any) {
   });
   // Rooms & guests: the enquiry's travellers, else the itinerary flight's fare mix.
   const [occ, setOcc] = useState<RoomOcc[]>(() => saved?.occ || occFromPersons((ask && ask.persons && ask.persons.length ? ask.persons : props.tripDates && props.tripDates.persons) || undefined));
-  const [occOpen, setOccOpen] = useState(false);
   // Default searches keep only 5★ and 4★ hotels (5★ shown first); budget trips tick this.
   const [includeLower, setIncludeLower] = useState<boolean>(() => !!saved?.includeLower);
   const includeLowerRef = useRef(includeLower);
   useEffect(() => { includeLowerRef.current = includeLower; }, [includeLower]);
   const [modifyOpen, setModifyOpen] = useState(false);
+  // Search opens the Add-a-hotel popup (the New Booking hotel flow) over the page; its last step adds to the itinerary.
+  const [popup, setPopup] = useState<HotelPopupSearch | null>(null);
   // The full location object the advisor picked from the City typeahead
   // (id/name/type/coordinates/state/country) — set on AutosuggestInput's
   // onSelect, cleared whenever they type again. When present, runReal()
@@ -999,7 +913,7 @@ export function HotelDesk(props: any) {
     }));
   }, [tripStart, tripEnd]);
 
-  function runReal(signal?: AbortSignal) {
+  function runReal(signal?: AbortSignal, refresh?: boolean) {
     const city = form.city.trim();
     const checkIn = form.checkIn;
     const checkOut = form.checkOut;
@@ -1037,7 +951,7 @@ export function HotelDesk(props: any) {
         fetchFromCache: false,
       };
 
-      return hotelListingStart(listingPayload, signal).then((listRes: any) => {
+      return hotelListingStart(listingPayload, signal, refresh).then((listRes: any) => {
         const ctx = {
           international: countryCode !== "IN",
           nights: nights,
@@ -1140,7 +1054,6 @@ export function HotelDesk(props: any) {
     stopMore();
     setErr(null);
     setModifyOpen(false);
-    setOccOpen(false);
     distReq.current++;
     setDriveById({});
     setDistBusy(false);
@@ -1162,7 +1075,7 @@ export function HotelDesk(props: any) {
       }
       const search = startSearch();
       searchRef.current = search;
-      runReal(search.signal)
+      runReal(search.signal, !!force)
         .then((r: any) => {
           if (searchRef.current !== search) return;
           search.done();
@@ -1300,7 +1213,9 @@ export function HotelDesk(props: any) {
   // on `showResults`), brought here and to VisaDesk so all three Search
   // desks behave the same way instead of Hotels/Visas dumping results
   // underneath a form that's still sitting there taking up room.
-  const showResults = loading || res != null;
+  // The hotels are now listed in the Add-a-hotel popup, not inline: Search never fills `res`, so the inline results
+  // (resultsView below) are no longer shown, even for a search restored from an older session.
+  const showResults = false;
   // "Edit search" opens the form above the results (they stay until the new
   // search answers), keeping every field as searched.
   function backToSearch() {
@@ -1321,6 +1236,11 @@ export function HotelDesk(props: any) {
     if (props.onExpandChange) props.onExpandChange(showResults);
   }, [showResults]);
 
+  function openPopup() {
+    setErr(null);
+    setPopup({ city: form.city.trim(), location: selectedLocation, checkIn: form.checkIn, checkOut: form.checkOut, rooms: occ.map((r) => ({ adults: r.adults, childAges: r.childAges.slice() })) });
+  }
+
   const formView = (
     <>
       {err ? (
@@ -1329,58 +1249,20 @@ export function HotelDesk(props: any) {
           {err}
         </div>
       ) : null}
-      <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
-        <Field label="City, area or hotel" htmlFor="taw-ho-city">
-          <AutosuggestInput
-            value={form.city}
-            onChange={(v: any) => {
-              set("city", v);
-              setSelectedLocation(null);
-            }}
-            onSelect={(loc: any) => {
-              set("city", loc.name);
-              // A fallback default has no real TripSure location id behind
-              // it — leave selectedLocation null so runReal() falls through
-              // to its own live hotelAutosuggestV2() resolution at Search
-              // time, exactly as if the advisor had typed the city by hand.
-              setSelectedLocation(loc._isFallbackDefault ? null : loc);
-            }}
-            fetchSuggestions={cityLocationSuggestions}
-            renderSuggestion={renderCityLocationSuggestion}
-            getKey={(loc: any) => loc.id}
-            showDefaultsOnFocus
-            placeholder="Dubai, Bandra or a hotel name"
-          />
-        </Field>
-        <Field label="Check-in" htmlFor="taw-ho-in">
-          <input className="taw-input" type="date" value={form.checkIn} onChange={(e) => set("checkIn", e.target.value)} />
-        </Field>
-        <Field label="Check-out" htmlFor="taw-ho-out">
-          <input className="taw-input" type="date" value={form.checkOut} onChange={(e) => set("checkOut", e.target.value)} />
-        </Field>
-      </div>
-      <div className="taw-row taw-row-2" style={{ marginBottom: 13 }}>
-        <div style={{ minWidth: 0 }}>
-          <Field label="Rooms & guests" htmlFor="taw-ho-occ">
-            <button type="button" className="taw-input taw-paxbtn" aria-expanded={occOpen} onClick={() => setOccOpen((v) => !v)}>
-              <Icon name="people" size={14} />
-              <span>{occText(occ)}</span>
-            </button>
-          </Field>
-        </div>
-        <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={() => run()}>
-            {loading ? <Spinner /> : <Icon name="search" size={16} />}
-            {loading ? "Searching…" : "Search Hotels"}
-          </button>
-        </div>
-      </div>
-      {occOpen ? <RoomsEditor value={occ} onChange={setOcc} /> : null}
-      <label className="taw-checkrow" style={{ marginBottom: 8 }}>
+      {/* The same search form as New Booking's hotel step (components/orders/HotelSearchBar). */}
+      <HotelSearchBar
+        city={form.city} onCity={(v) => set("city", v)}
+        location={selectedLocation} onLocation={setSelectedLocation}
+        checkIn={form.checkIn} checkOut={form.checkOut}
+        onDates={(i, o) => { touched.current.checkIn = true; touched.current.checkOut = true; setForm((f) => ({ ...f, checkIn: i, checkOut: o })); }}
+        rooms={occ} onRooms={setOcc}
+        busy={false} onSearch={openPopup} onProblem={setErr}
+        fetchSuggestions={cityLocationSuggestions} showDefaultsOnFocus
+      />
+      <label className="taw-checkrow" style={{ margin: "12px 0 4px" }}>
         <input type="checkbox" checked={includeLower} onChange={(e) => setIncludeLower(e.target.checked)} />
         Include 3★ and below (budget stays) — otherwise only 5★ and 4★ hotels
       </label>
-      {nightsLabel(form.checkIn, form.checkOut)}
     </>
   );
 
@@ -1405,7 +1287,7 @@ export function HotelDesk(props: any) {
             </span>
           </div>
         ) : null}
-        {res && !loading && !moreInfo && searchedAt && now - searchedAt > STALE_AFTER_MS ? (
+        {res && !loading && !moreInfo && searchedAt ? (
           <span style={{ fontSize: 12, color: "var(--taupe)" }}>
             Searched {ageLabel(searchedAt)} ·{" "}
             <button type="button" className="taw-linkbtn" onClick={() => run(true)}>Refresh prices</button>
@@ -1434,7 +1316,22 @@ export function HotelDesk(props: any) {
     </div>
   );
 
-  return <div className="taw-fade-in taw-fdesk">{showResults ? resultsView : formView}</div>;
+  return (
+    <div className="taw-fade-in taw-fdesk">
+      {formView}
+      {popup ? (
+        <HotelItineraryPopup
+          search={popup}
+          onClose={() => setPopup(null)}
+          onAdd={(item) => {
+            props.onAdd(item);
+            toast((item.hotelName || "Hotel") + (item.roomType ? " — " + item.roomType : "") + " added at " + inr(item.baseNet), "success");
+            setPopup(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
 }
 
 // Split out of HotelDesk's render purely so the filter/sort math below reads
@@ -1498,9 +1395,15 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
     if (!todo.length) return;
     todo.forEach((t: any) => FROM_FAILED.delete(fromKey(t)));
     let live = true;
-    (async () => {
-      for (let i = 0; i < todo.length && live; i += 5) {
-        const batch = todo.slice(i, i + 5).filter((t: any) => !FROM_PRICES.has(fromKey(t)));
+    // Batches of 5 (the backend prices a batch in parallel); three batches in flight at once,
+    // so the first screenful is priced in one round trip instead of one batch after another.
+    const batches: any[][] = [];
+    for (let i = 0; i < todo.length; i += 5) batches.push(todo.slice(i, i + 5));
+    let next = 0;
+    let stopped = false;
+    const worker = async () => {
+      while (live && !stopped && next < batches.length) {
+        const batch = batches[next++].filter((t: any) => !FROM_PRICES.has(fromKey(t)));
         if (!batch.length) continue;
         try {
           const r: any = await hotelRates(batch.map((t: any) => ({ hotelId: String(t.hotelId), docKey: t.docKey, token: t.token })));
@@ -1515,19 +1418,19 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
           });
           if (!answered) {
             // TripSure is failing for every hotel: stop rather than keep asking.
-            todo.slice(i + 5).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
-            if (live) setPricedTick((n) => n + 1);
-            break;
+            stopped = true;
+            batches.slice(next).forEach((b) => b.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now())));
           }
         } catch {
           // Keep "Rates on selection"; the next scroll or filter change tries again.
-          todo.slice(i).forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
-          if (live) setPricedTick((n) => n + 1);
-          break;
+          stopped = true;
+          batch.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now()));
+          batches.slice(next).forEach((b) => b.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now())));
         }
         if (live) setPricedTick((n) => n + 1);
       }
-    })();
+    };
+    Promise.all([worker(), worker(), worker()]);
     return () => { live = false; };
   }, [shown, visible]);
   const fromPrice = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);

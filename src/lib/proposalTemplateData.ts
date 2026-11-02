@@ -16,9 +16,12 @@
  * needed for those after all.
  * ===========================================================================*/
 
+import { partyText } from "./flightParty";
 import { computeCostRange } from "./tripCostRange";
 import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
+import { addonCount, addonLines, addonTable } from "./flightAddons";
+import { flightKeyOf } from "./itineraryFromCart";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -252,6 +255,11 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         city,
         name: it.title,
         roomAndBoard: [it.roomType, boardWord(it.detailRest)].filter(Boolean).join(" · "),
+        // Raw fields the customer "Pay now" flow needs to re-search this exact room server-side
+        // (checkIn/checkOut as ISO, the plain room name). Display uses dateRange/roomAndBoard above.
+        roomType: it.roomType || null,
+        checkIn: it._dayIso || null,
+        checkOut: it._dayIso ? addDaysIso(it._dayIso, parseNights(it.duration)) : null,
         // Cart-built hotels carry "In X, out Y" in `sub`; generated ones (backend blocks) don't, so the
         // dates come from the day the stay starts plus its nights.
         dateRange: it.sub?.match(/In (.+?), out (.+)$/)
@@ -329,11 +337,19 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     return dt.toISOString().slice(0, 10);
   }
 
+  const cabinWord = (c: any) => {
+    const t = String(c || "").replace(/_/g, " ").toLowerCase();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : null;
+  };
   const flights = days
     .flatMap((day: any) => (day.items || []).filter((it: any) => it.type === "flight")
       .map((it: any) => ({ ...it, time: clockTime(it.time), arrTime: clockTime(it.arrTime), _dayIso: day._iso, _route: day.route })))
     .map((it: any) => {
-      const [depCity, arrCity] = String(it._route || "").split(" → ").map((s: string) => s.trim());
+      // The day's route only when it is one ("DEL → GOI"); a Tara day title ("Arrival and the
+      // ghats at dusk") is not a city — the flight's own airports are.
+      const [depCity, arrCity] = String(it._route || "").includes("→")
+        ? String(it._route).split(" → ").map((s: string) => s.trim())
+        : [it.origin || "", it.dest || ""];
       const arrivalIso = it.time ? addDurationDate(it._dayIso, it.time, it.duration) : null;
       return {
         date: dayIsoLabel(it._dayIso),
@@ -354,10 +370,37 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         stops: it.stops ?? null,
         price: it.price || 0,
         isOriginalChoice: !it.originalFlightNo || it.originalFlightNo === it.flightNo,
-        alternatives: (it.alternatives || []).map((a: any) => ({
+        // key: the flight's numbers ("IX 2945+IX 1036") — how the customer's link names the option
+        // they chose, and how Pay now finds it again.
+        key: flightKeyOf({ ...it, depTime: it.time }),
+        // A live-priced flight lists only options priced live too (fare + that airline's own seats,
+        // meals, bags for every traveller), so swapping never shows a price that isn't real.
+        // altIndex: the option's place in the itinerary (Swap acts on it).
+        alternatives: (it.alternatives || []).map((a: any, altIndex: number) => ({ a, altIndex }))
+          .filter(({ a }: any) => !it.pricing || a.pricing)
+          .map(({ a, altIndex }: any) => ({
           carrier: a.carrier, flightNo: a.flightNo, depTime: clockTime(a.depTime), arrTime: clockTime(a.arrTime), stops: a.stops ?? 0,
-          price: a.price || 0, detail: a.detail || null,
+          price: a.price || 0, detail: a.detail || null, altIndex, key: flightKeyOf(a),
+          // What the customer compares on: cabin, checked bag and refundability.
+          facts: [cabinWord(it.cabin), a.baggageKg ? `${a.baggageKg} kg check-in` : null, a.refundable == null ? null : a.refundable ? "Refundable" : "Non-refundable"].filter(Boolean),
+          // Priced live with its add-ons ("+ Swap option"): its price includes them (named). A
+          // default option is its fare for the same travellers alone.
+          livePriced: !!a.pricing && !a.pricing.fareOnly,
+          addonsNote: a.pricing && !a.pricing.fareOnly ? (addonCount(a.pricing.extras) ? "incl. " + addonCount(a.pricing.extras) : "no add-ons") : null,
+          fareOnly: !!it.pricing && (!a.pricing || !!a.pricing.fareOnly),
         })),
+        // A flight priced live in the Console: its fare option, what the fare includes and the
+        // add-ons picked (one line each), and the fare vs add-ons split of its price.
+        fareLine: it.pricing ? [it.pricing.fareName && it.pricing.fareName !== "Searched fare" ? `${it.pricing.fareName} fare` : null, cabinWord(it.cabin),
+          it.pricing.checkinKg ? `${it.pricing.checkinKg} kg check-in` : null, it.pricing.refundable ? "Refundable" : "Non-refundable",
+          // The fare is for the whole party searched; say who, so it never reads as one traveller's price.
+          it.paxMix ? `Priced for ${partyText(it.paxMix)}` : null].filter(Boolean).join(" · ") : null,
+        // Add-ons as a table (traveller × seat / meal / baggage, per segment); extrasLine is
+        // only the text for a priced flight with none.
+        extrasTable: it.pricing ? addonTable(it.pricing.extras) : [],
+        extrasLine: it.pricing && addonTable(it.pricing.extras).length
+          ? addonLines(it.pricing.extras).map((l) => l.label).join(" · ")
+          : it.pricing ? "No add-ons — seat assigned by the airline at check-in" : null,
         cabin: it.cabin,
         segments: it.segments || [],
         title: it.title,
@@ -484,6 +527,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
   const itemQueuesByType: Record<string, any[]> = {};
   for (const day of days) {
     for (const it of day.items || []) {
+      if (it.type === "note" || !(it.type === "flight" || it.type === "hotel" || Number(it.price) > 0)) continue; // same as cartFromItinerary
       (itemQueuesByType[it.type] ||= []).push({ ...it, _route: day.route });
     }
   }
@@ -497,7 +541,10 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     if (item.type === "flight") {
       const airline = (item.title || "").split(" · ")[0];
       const cabin = item.cabin ? item.cabin.toLowerCase() : "";
-      return [airline, cabin].filter(Boolean).join(" ") + (item._route ? `, ${item._route}` : "");
+      // The flight's own route; a day's route only when it is one ("DEL → GOI"), not a day title.
+      const titleRoute = String(item.title || "").split(" · ").find((x: string) => x.includes("→"));
+      const route = item.origin && item.dest ? `${item.origin} → ${item.dest}` : titleRoute || (String(item._route || "").includes("→") ? item._route : "");
+      return [airline, cabin].filter(Boolean).join(" ") + (route ? `, ${route}` : "");
     }
     if (item.type === "hotel") {
       const hotelName = (item.title || "").split(",")[0];
@@ -529,18 +576,51 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     const lines: { label: string; sell: number }[] = [];
     for (const type of order) {
       for (const item of itemQueuesByType[type] || []) {
-        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0 });
+        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, breakdown: flightBreakdown(item, item.price || 0) } as any);
       }
     }
     return lines;
   }
 
+  // A live-priced flight's line, opened up for the customer: base fare, each add-on, and the
+  // rest of the line (taxes, airline / supplier fees and charges) — adding up to the line exactly.
+  function flightBreakdown(item: any, sell: number): { label: string; amount: number }[] | null {
+    const p = item && item.type === "flight" ? item.pricing : null;
+    if (!p || !(sell > 0)) return null;
+    // One line per item ("Corporate Meal Plan × 5 · BLR → DEL"), not one per traveller.
+    const extras = addonLines(p.extras);
+    const extrasTotal = extras.reduce((n, x) => n + x.amount, 0);
+    const base = Number(p.baseFare);
+    const rows: { label: string; amount: number }[] = [];
+    if (Number.isFinite(base) && base > 0 && base <= sell - extrasTotal) {
+      rows.push({ label: "Base fare" + (p.fareName && p.fareName !== "Searched fare" ? ` (${p.fareName})` : ""), amount: base });
+      rows.push({ label: "Taxes, fees & charges", amount: Math.round((sell - extrasTotal - base) * 100) / 100 });
+    } else {
+      rows.push({ label: "Airfare incl. taxes & fees", amount: Math.round((sell - extrasTotal) * 100) / 100 });
+    }
+    return [...rows, ...extras];
+  }
+
   const enrichedCostLines = pricing?.lines?.length
     ? pricing.lines.map((ln: any) => {
         const lnType = String(ln.type || "").toLowerCase();
-        return { ...ln, label: enrichedLabel((itemQueuesByType[lnType] || []).shift(), ln.label || ln.type) };
+        const item = (itemQueuesByType[lnType] || []).shift();
+        return { ...ln, label: enrichedLabel(item, ln.label || ln.type), breakdown: flightBreakdown(item, Number(ln.sell)), _itemId: item?.id };
       })
     : fallbackLinesFromItinerary();
+  // "Getting there" shows each flight at the same customer price as its "What it costs" line
+  // (not the supplier cost), and its alternatives on the same basis, so the page has one price.
+  if (pricing?.lines?.length) {
+    for (const f of flights as any[]) {
+      const ln: any = enrichedCostLines.find((l: any) => l._itemId && l._itemId === f.id);
+      const sell = Number(ln?.sell);
+      if (!(sell > 0) || !(f.price > 0)) continue;
+      const ratio = sell / f.price;
+      f.price = sell;
+      f.alternatives = (f.alternatives || []).map((a: any) => ({ ...a, price: a.price ? Math.round(a.price * ratio) : a.price }));
+    }
+  }
+  for (const ln of enrichedCostLines as any[]) delete ln._itemId;
   // The quote's total also carries the planning fee, GST and TCS (commerce_quote_service): list
   // them, so the lines the customer reads add up to the total they're shown.
   if (pricing?.lines?.length) {

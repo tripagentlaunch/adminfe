@@ -43,7 +43,11 @@ export function bookingHandoffUrl({ enquiry, member, itinerary }: { enquiry: any
   } else if (Array.isArray(persons) && persons.length) set("adults", Math.min(9, persons.length));
   // What the customer asked for on that flight, shown on the seats & baggage step.
   const r = route.item?.requests;
-  if (r) {
+  const lp = route.item?.pricing;
+  if (lp) {
+    // Priced live in the Console: the fare option and the exact add-ons to pick again.
+    set("note", ["Itinerary price: " + (lp.fareName || "fare"), ...(lp.extras || []).map((x: any) => x.label + " (" + x.segment + ")")].join(" · "));
+  } else if (r) {
     set("bag", r.extraBaggageKg || "");
     set("seat", r.seat);
     set("meal", r.meal);

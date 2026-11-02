@@ -23,6 +23,7 @@
  * ===========================================================================*/
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { relTime } from "../../lib/relTime";
 import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 
@@ -72,6 +73,18 @@ function waDigits(phone: any): string {
   return digits.length === 10 ? "91" + digits : digits;
 }
 
+// A transient connectivity problem on a background poll — the request never
+// came back (a timeout, or fetch() itself rejecting when the network drops or a
+// sleeping Render service is briefly unreachable). Every browser words the raw
+// network failure differently ("Failed to fetch" in Chrome, "Load failed" in
+// Safari, "NetworkError…" in Firefox); all of them mean the same thing as a
+// timeout, so the panel reassures and keeps retrying rather than flashing the
+// raw string. The conversation read hits one origin/path/headers whether it
+// loads or polls, so a poll that fails this way is connectivity, not a bug.
+function isConnectionError(message?: string | null): boolean {
+  return /timed out|failed to fetch|load failed|network\s*error|networkerror|fetch failed/i.test(String(message || ""));
+}
+
 function fmtTime(at?: number | null): string {
   if (!at) return "";
   const ms = at < 1e12 ? at * 1000 : at;
@@ -98,18 +111,6 @@ function codeFromUrl(): string {
 }
 
 type Mode = "tara" | "advisor" | "both";
-
-// "just now", "12 min ago", "today 6:40 PM", "yesterday 6:40 PM", "27 Oct 6:40 PM".
-function relTime(ms: number, now: number): string {
-  const mins = Math.floor(Math.max(0, now - ms) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return mins + " min ago";
-  const d = new Date(ms);
-  const at = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (d.toDateString() === new Date(now).toDateString()) return "today " + at;
-  if (d.toDateString() === new Date(now - 864e5).toDateString()) return "yesterday " + at;
-  return d.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + at;
-}
 
 // The customer's presence for the header line: online now, last seen, or the time of their last message
 // (all WhatsApp ever tells us; it does not share online status or typing with a business).
@@ -675,7 +676,7 @@ export function ChatbotConversationPanel({ member }: any) {
           {error && messages.length > 0 ? (
             <div role="alert" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8, padding: "6px 10px", borderRadius: 8, background: "#FBEDED", color: "#B03434", fontSize: 12 }}>
               <span>
-                {/timed out/i.test(String(error))
+                {isConnectionError(error)
                   ? "The connection is slow, so new messages may be delayed. Showing the last messages loaded; retrying."
                   : <>Couldn&apos;t refresh: {error} Showing the last messages loaded.</>}
               </span>

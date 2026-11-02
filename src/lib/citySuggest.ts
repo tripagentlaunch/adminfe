@@ -19,9 +19,20 @@ const LIVE_MIN_CHARS = 2;
 const LIVE_WAIT_MS = 4000;
 const LIVE_RETRY_MS = 60_000;
 let liveDownUntil = 0;
+// Real answers by query: retyping or backspacing never asks TripSure twice.
+const liveCache = new Map<string, any[]>();
+
+// An answer TripSure already gave for this text while it was being typed (null if none), so Search
+// doesn't ask again for a city whose suggestions were just on screen.
+export function cachedLiveCities(query: string): any[] | null {
+  return liveCache.get(query.trim().toLowerCase()) || null;
+}
 
 // Live TripSure location rows, or null when TripSure is down/slow/empty.
 export function liveCities(query: string): Promise<any[] | null> {
+  const key = query.trim().toLowerCase();
+  const hit = liveCache.get(key);
+  if (hit) return Promise.resolve(hit);
   if (Date.now() < liveDownUntil) return Promise.resolve(null);
   const markDown = () => {
     liveDownUntil = Date.now() + LIVE_RETRY_MS;
@@ -30,6 +41,7 @@ export function liveCities(query: string): Promise<any[] | null> {
   const live = hotelAutosuggestV2(query)
     .then((r: any) => {
       const rows = (r && r.locationSuggestions) || [];
+      if (rows.length) liveCache.set(key, rows);
       return rows.length ? rows : null;
     })
     .catch(markDown);
@@ -70,4 +82,10 @@ export function citySuggest(query: string, rank: (q: string, rows: any[]) => any
   if (!query) return Promise.resolve([]);
   if (query.trim().length < LIVE_MIN_CHARS) return Promise.resolve(directoryCities(query, limit));
   return liveCities(query).then((rows) => (rows ? rank(query, rows) : directoryCities(query, limit)));
+}
+
+// What to show at once while the live call is out: cached live rows, else the directory.
+export function instantCitySuggest(query: string, rank: (q: string, rows: any[]) => any[], limit = 8): any[] {
+  const cached = liveCache.get(query.trim().toLowerCase());
+  return cached ? rank(query, cached) : directoryCities(query, limit);
 }

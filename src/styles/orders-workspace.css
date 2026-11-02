@@ -104,6 +104,7 @@
 /* ---- New booking (real flow) -------------------------------------------- */
 .ow-live{margin-left:6px;font-size:9px;letter-spacing:.1em;text-transform:uppercase;padding:1px 6px;border-radius:999px;background:var(--gold-bg);color:var(--gold-ink,#785c12);font-family:var(--eyebrow);vertical-align:middle;}
 .ow-lock{margin-top:10px;padding:9px 11px;border:1px dashed var(--line);border-radius:10px;font-size:12px;background:var(--bone,#F4EFE3);display:grid;gap:2px;}
+.ow-lock div{overflow-wrap:anywhere;}
 .ow-modal{max-width:640px;max-height:88vh;overflow-y:auto;gap:12px;}
 .ow-modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
 .ow-modal-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px;}
@@ -243,7 +244,8 @@
 @media (max-width:760px){.ow-sbar-route{flex-basis:100%;}.ow-sbar-opts{flex-basis:100%;}.ow-searchbtn{flex-basis:100%;}}
 
 /* ---- Unified single-row search card (flights + hotels) -------------------- */
-.ow-trip{display:flex;gap:8px;margin-bottom:8px;}
+/* One way / Round trip pills (was .ow-trip, which also styled the order page's trip card as a row) */
+.ow-triptype{display:flex;gap:8px;margin-bottom:8px;}
 .ow-trip-pill{padding:6px 16px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:12.5px;font-weight:600;color:var(--taupe);font-family:inherit;cursor:pointer;}
 .ow-trip-pill.on{background:#1a1712;border-color:#1a1712;color:#fff;}
 .ow-trip-pill:disabled{opacity:.45;cursor:not-allowed;}
@@ -281,6 +283,15 @@
 .ow-cal-pill small{font-size:10.5px;color:var(--muted);font-family:var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;}
 .ow-cal-pill b{font-size:13.5px;}
 .ow-cal-pill.on{border-color:var(--ink,#171310);box-shadow:0 0 0 1px var(--ink,#171310);}
+.ow-cal-pill small{display:flex;align-items:center;gap:5px;}
+.ow-cal-pill.p-start{background:var(--success-bg);border-color:rgba(91,122,91,.35);}
+.ow-cal-pill.p-start small{color:var(--success-ink);}
+.ow-cal-pill.p-start .nb-dot{background:transparent;color:var(--success-ink);}
+.ow-cal-pill.p-end{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.ow-cal-pill.p-end small{color:var(--gold-ink);}
+.ow-cal-pill.p-end .nb-dot{background:currentColor;color:var(--gold-ink);}
+.ow-cal-pill.p-start.on{border-color:var(--success);box-shadow:0 0 0 2px var(--success);}
+.ow-cal-pill.p-end.on{border-color:var(--gold);box-shadow:0 0 0 2px var(--gold);}
 .ow-cal-nights{font-size:11.5px;color:var(--taupe);}
 .ow-cal-nav{position:absolute;left:12px;right:12px;top:76px;display:flex;justify-content:space-between;pointer-events:none;z-index:1;}
 .ow-cal-arrow{pointer-events:auto;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;}
@@ -293,11 +304,12 @@
 .ow-cal-day:hover:not(:disabled):not(.is-start):not(.is-end){background:rgba(23,19,16,.08);border-radius:50%;}
 .ow-cal-day:disabled{color:rgba(0,0,0,.25);cursor:not-allowed;text-decoration:line-through;}
 .ow-cal-day.is-today{font-weight:700;}
-.ow-cal-day.in-range{background:rgba(23,19,16,.12);}
-.ow-cal-day.is-start,.ow-cal-day.is-end{background:var(--ink,#171310);color:#fff;font-weight:600;}
-.ow-cal-day.is-start{border-radius:50% 0 0 50%;}
-.ow-cal-day.is-end{border-radius:0 50% 50% 0;}
+/* Start = green (check-in / depart), end = gold (check-out / return), stay in between = warm band. */
+.ow-cal-day.in-range{background:var(--bone);}
+.ow-cal-day.is-start{background:var(--success);color:#fff;font-weight:600;border-radius:50% 0 0 50%;}
 .ow-cal-day.is-start:not(.has-range){border-radius:50%;}
+.ow-cal-day.is-end{background:var(--gold);color:var(--ink);font-weight:600;border-radius:0 50% 50% 0;}
+.ow-cal-day.is-start.is-end{border-radius:50%;}
 .ow-gpanel{display:flex;align-items:center;gap:22px;flex-wrap:wrap;border:1px solid var(--line);border-radius:14px;padding:12px 16px;background:var(--card);}
 .ow-gstep{display:flex;align-items:center;gap:12px;font-size:13px;}
 @media (max-width:640px){.ow-cal-months{grid-template-columns:1fr;}.ow-cal-nav{display:none;}}
@@ -369,7 +381,7 @@
 
 /* Single-date calendar (flight Depart) — shares .ow-cal; gold selected day */
 .ow-cal--single{max-width:340px;}
-.ow-cal--single .ow-cal-day.is-start{background:var(--gold);color:var(--ink);font-weight:700;border-radius:50%;}
+.ow-cal--single .ow-cal-day.is-start{background:var(--success);color:#fff;font-weight:700;border-radius:50%;}
 .ow-cal--single .ow-cal-day.is-today:not(.is-start){box-shadow:inset 0 0 0 1px var(--gold);border-radius:50%;}
 .ow-cal-foot{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid var(--line);}
 .ow-cal-foot .ow-link:disabled{opacity:.4;cursor:not-allowed;}
@@ -408,3 +420,444 @@
 .ow-tf-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;}
 .ow-tf-lead{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;}
 @media (max-width:720px){.ow-grid2{grid-template-columns:1fr;}}
+
+/* Fare options sheet (FareOptionsPanel) */
+.ow-fare-back{position:fixed;inset:0;z-index:90;background:rgba(20,20,20,.45);display:flex;align-items:center;justify-content:center;padding:16px;}
+.ow-fare{background:var(--card);border-radius:14px;max-width:760px;width:100%;max-height:88vh;overflow:auto;padding:16px;display:grid;gap:12px;}
+.ow-fare-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+.ow-fare-list{display:grid;gap:10px;}
+.ow-fare-card{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:8px;}
+.ow-fare-card.cur{border-color:var(--gold);}
+.ow-fare-top{display:flex;justify-content:space-between;gap:12px;}
+.ow-fare-price{text-align:right;display:grid;}
+.ow-fare-feat{margin:0;padding:0;list-style:none;display:grid;gap:3px;font-size:13px;}
+.ow-fare-feat li.ok{color:var(--ok,#1f6f5c);}
+.ow-fare-acts{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;}
+.ow-fare-rules{border-top:1px dashed var(--line);padding-top:8px;display:grid;gap:6px;}
+.ow-fare-rule{display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:13px;}
+@media(max-width:560px){.ow-fare-rule{grid-template-columns:1fr;}}
+
+/* Seat map (SeatMap.tsx) */
+.ow-sm{display:grid;gap:10px;}
+.ow-sm-legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:11.5px;color:var(--taupe);}
+.ow-sm-legend span{display:inline-flex;align-items:center;gap:5px;}
+.ow-sm-plane{position:relative;border:1px solid var(--line);border-radius:36px 36px 12px 12px;padding:8px 14px 10px;background:var(--card);max-width:340px;width:100%;margin:0 auto;}
+/* Price bubble above the hovered seat */
+.ow-sm-tip{position:absolute;z-index:3;transform:translate(-50%,calc(-100% - 8px));pointer-events:none;white-space:nowrap;background:var(--ink);color:#fff;border-radius:8px;padding:6px 10px;font-size:12.5px;box-shadow:0 6px 16px -6px rgba(23,19,16,.5);}
+.ow-sm-tip small{display:block;font-size:11px;opacity:.8;}
+.ow-sm-tip::after{content:"";position:absolute;left:50%;bottom:-5px;width:10px;height:10px;background:var(--ink);transform:translateX(-50%) rotate(45deg);}
+.ow-sm-nose{text-align:center;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe);padding:6px 0 8px;}
+.ow-sm-scroll{max-height:clamp(220px,42vh,420px);overflow-y:auto;overscroll-behavior:contain;display:grid;gap:4px;padding:4px 0;}
+.ow-sm-row{display:flex;align-items:center;justify-content:center;gap:4px;}
+.ow-sm-head{position:sticky;top:0;background:var(--card);z-index:1;padding-bottom:2px;}
+.ow-sm-row.exitrow{border-top:1px dashed #c9503a;border-bottom:1px dashed #c9503a;padding:3px 0;}
+.ow-sm-no{width:20px;text-align:center;font-size:10.5px;color:var(--taupe);flex:none;}
+.ow-sm-col{width:26px;text-align:center;font-size:11px;font-weight:600;color:var(--taupe);flex:none;}
+.ow-sm-col.aisle{width:16px;}
+.ow-sm-col.blank{height:26px;}
+.ow-sm-gap{text-align:center;font-size:10.5px;color:var(--taupe);padding:2px 0;border-top:1px dotted var(--line);border-bottom:1px dotted var(--line);}
+.ow-sm-seat{position:relative;display:inline-block;width:26px;height:26px;border-radius:7px 7px 4px 4px;border:1.5px solid var(--line);padding:0;cursor:pointer;flex:none;background:var(--card);}
+/* One clearly different hue per price band (never shades of one colour): free = green,
+   then blue / amber / rose from the cheapest to the dearest paid band. */
+.ow-sm-seat.f{border-color:#3d8b5f;background:#cfe9d8;}
+.ow-sm-seat.p0{border-color:#3f74a8;background:#cfe0f3;}
+.ow-sm-seat.p1{border-color:#c48a12;background:#f6d98f;}
+.ow-sm-seat.p2{border-color:#b0415f;background:#f2c2d0;}
+.ow-sm-seat.plain{border-color:var(--line-2);background:var(--card);}
+.ow-sm-seat.sel{border-color:var(--ink);background:var(--ink);box-shadow:0 0 0 2px var(--gold);}
+.ow-sm-seat:not(.booked):not(:disabled):hover{transform:translateY(-1px);box-shadow:0 0 0 2px var(--ink);}
+.ow-sm-band{font-weight:600;color:var(--ink);}
+.ow-sm-seat.sel::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;font-size:13px;font-weight:700;color:#fff;}
+.ow-sm-seat.booked{border-color:transparent;background:rgba(0,0,0,.12);cursor:not-allowed;}
+.ow-sm-seat.booked::after{content:"×";position:absolute;inset:0;display:grid;place-items:center;font-size:13px;color:rgba(0,0,0,.35);}
+.ow-sm-seat.leg:not(.booked)::before{content:"";position:absolute;left:3px;right:3px;top:2px;height:3px;border-radius:2px;background:var(--ink);}
+.ow-sm-seat.exit:not(.booked):not(.sel)::after{content:"E";position:absolute;inset:0;display:grid;place-items:center;font-size:9px;font-weight:700;color:#c9503a;}
+.ow-sm-seat.wca:not(.booked):not(.sel)::after{content:"♿";position:absolute;inset:0;display:grid;place-items:center;font-size:11px;}
+.ow-sm-seat:disabled:not(.booked){opacity:.6;cursor:not-allowed;}
+.ow-sm-seat:focus-visible{outline:2px solid var(--ink);outline-offset:1px;}
+.ow-sm-info{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-height:34px;font-size:13px;border:1px solid var(--line);border-radius:10px;padding:6px 10px;}
+.ow-sm-info small{color:var(--taupe);}
+.ow-sm-info .taw-btn{margin-left:auto;}
+.ow-sel-tab.off{opacity:.55;}
+.ow-sel-tab small{margin-left:auto;font-size:10px;color:var(--taupe);}
+
+.ow-pb{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:12px;background:var(--card);}
+.ow-pb h4{margin:0 0 8px;font-size:14px;}
+.ow-pb-row{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;color:var(--taupe);padding:4px 0;}
+.ow-pb-row.tot{border-top:1px solid var(--line);margin-top:6px;padding-top:10px;color:inherit;font-weight:600;font-size:14px;}
+.ow-rp{display:flex;flex-direction:column;}
+.ow-rp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.ow-rp-head h3{margin:0;font-size:18px;}
+.ow-rp-body{display:grid;grid-template-columns:minmax(180px,34%) 1fr;gap:14px;}
+.ow-rp-list{display:flex;flex-direction:column;gap:6px;}
+.ow-rp-item{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);cursor:pointer;font-size:12.5px;}
+.ow-rp-item.on{border-color:var(--ink,#171310);box-shadow:inset 3px 0 0 var(--ink,#171310);}
+.ow-rp-item span{color:var(--taupe);}
+.ow-rp-detail h3{margin:10px 0 6px;font-size:16px;}
+.ow-rp-plan{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0;}
+.ow-rp-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 0 4px;margin-top:12px;border-top:1px solid var(--line);background:var(--card);}
+.ow-rp-foot b{font-size:17px;}
+.ow-rp-foot small{display:block;color:var(--taupe);font-size:11.5px;}
+@media(max-width:640px){.ow-rp-body{grid-template-columns:1fr;}}
+/* ── New booking (NewBookingModal): header, step bar, customer cards, search ── */
+.nb-modal{gap:14px;padding:22px 26px;}
+/* The panel scrolls as a flex column: never let the header, step bar or footers shrink (the
+   step bar scrolls sideways, so it would otherwise collapse and cut its labels). */
+.nb-modal>*{flex-shrink:0;}
+.nb-steps{min-height:36px;flex-wrap:wrap;row-gap:8px;overflow:visible!important;}
+.nb-mhead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;}
+.nb-mtitle h2{margin:0;font:600 21px/1.2 var(--serif);color:var(--ink);}
+.nb-mtitle span{display:block;margin-top:2px;font-size:12.5px;color:var(--taupe);}
+.nb-close{flex:none;width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:var(--card);display:grid;place-items:center;cursor:pointer;color:var(--taupe);}
+.nb-close:hover:not(:disabled){color:var(--ink);background:var(--bone);}
+.nb-steps{flex:none;display:flex;align-items:center;gap:6px;list-style:none;margin:0;padding:0 0 14px;border-bottom:1px solid var(--line);overflow-x:auto;}
+.nb-steps li{display:flex;align-items:center;gap:7px;font:500 11px var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap;}
+.nb-steps li+li::before{content:"";width:22px;height:1px;background:var(--line-2);margin-right:2px;}
+.nb-steps li i{font-style:normal;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line-2);font:600 11px var(--sans);letter-spacing:0;color:var(--taupe);background:var(--card);}
+.nb-steps li.on{color:var(--ink);}
+.nb-steps li.on i{border-color:var(--gold);background:var(--gold-bg);color:var(--gold-ink);}
+.nb-steps li.done i{border-color:var(--gold);background:var(--gold);color:#fff;}
+
+.nb-card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:12px;}
+.nb-card-t{display:flex;align-items:center;gap:8px;font:600 12px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--taupe);}
+.nb-card-t svg{color:var(--gold-ink);}
+.nb-cust{display:grid;grid-template-columns:minmax(0,1.2fr) auto minmax(0,1fr);gap:16px;align-items:stretch;}
+.nb-or{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--muted);font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;}
+.nb-or::before,.nb-or::after{content:"";flex:1;width:1px;background:var(--line-2);}
+.nb-search{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:12px;padding:0 14px;background:var(--card);height:46px;}
+.nb-search:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+.nb-search svg{color:var(--taupe);flex:none;}
+.nb-search input,.nb-search input:focus{flex:1;min-width:0;height:100%;border:0;outline:0;box-shadow:none;padding:0;border-radius:0;background:transparent;font:15px var(--sans);color:var(--ink);}
+.nb-hits{display:flex;flex-direction:column;gap:6px;min-height:170px;max-height:300px;overflow-y:auto;}
+.nb-hint{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;color:var(--muted);font-size:13px;padding:18px;border:1px dashed var(--line-2);border-radius:12px;}
+.nb-hint svg{color:var(--muted-deco);}
+.nb-hit{display:flex;align-items:center;gap:12px;width:100%;text-align:left;border:1px solid var(--line);background:var(--card);border-radius:12px;padding:10px 12px;cursor:pointer;font-family:inherit;transition:background var(--dur-fast) var(--ease),border-color var(--dur-fast) var(--ease);}
+.nb-hit:hover{background:var(--bone);border-color:var(--gold);}
+.nb-hit .ow-av{width:36px;height:36px;font-size:13px;}
+.nb-hit .who{flex:1;min-width:0;font-size:14px;font-weight:600;color:var(--ink);}
+.nb-hit .who small{display:block;font-weight:400;color:var(--taupe);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.nb-hit .go{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--gold-ink);font-weight:600;opacity:0;transition:opacity var(--dur-fast);}
+.nb-hit .go svg{transform:rotate(-90deg);}
+.nb-hit:hover .go,.nb-hit:focus-visible .go{opacity:1;}
+.nb-cta{margin-top:auto;height:44px;}
+
+/* Flights | Hotels switch */
+.nb-product{display:inline-flex;align-self:flex-start;gap:4px;padding:4px;border-radius:999px;background:var(--bone);border:1px solid var(--line);}
+.nb-product button{display:inline-flex;align-items:center;gap:8px;border:0;background:transparent;border-radius:999px;padding:8px 18px;font:600 13.5px var(--sans);color:var(--taupe);cursor:pointer;}
+.nb-product button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow);}
+.nb-product button:not(.on):hover{color:var(--ink);}
+
+/* Flight search: route on its own row (From = green, To = gold), then dates /
+   travellers / search. A picked place shows its full city and airport name. */
+.nb-searchwrap{display:flex;flex-direction:column;gap:10px;}
+.nb-searchwrap .ow-sbar--flight{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
+.nb-searchwrap .ow-sbar--flight .ow-sbar-route{flex:1 1 100%;gap:0;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--field{border-radius:14px;padding:10px 18px;min-height:76px;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--date{flex:1 1 150px;border-radius:14px;}
+.nb-searchwrap .ow-sbar--flight .ow-pill--trav{flex:1.4 1 200px;border-radius:14px;}
+.nb-searchwrap .ow-sbar--flight .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
+.nb-searchwrap .ow-swap{width:38px;height:38px;margin:0 -10px;box-shadow:var(--shadow);}
+.nb-searchwrap .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
+.nb-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:1px;border:2px solid currentColor;}
+.nb-from .ow-pill-l{color:var(--success-ink);}
+.nb-to .ow-pill-l{color:var(--gold-ink);}
+.nb-from .nb-dot{background:transparent;}
+.nb-to .nb-dot{background:currentColor;}
+.nb-from.set{background:var(--success-bg);border-color:rgba(91,122,91,.35);}
+.nb-to.set{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.nb-from:focus-within{border-color:var(--success);box-shadow:0 0 0 3px rgba(91,122,91,.15);}
+.nb-to:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+.nb-place{white-space:normal;overflow:visible;font-size:12px;line-height:1.35;}
+.nb-place b{color:var(--ink);font-weight:600;}
+
+/* Hotel search, same pattern: destination on its own row (gold, like a flight's
+   To), then check-in (green) / check-out (gold) / guests / search. */
+.nb-modal .ow-sbar--hotel,
+.hsb .ow-sbar--hotel{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-where,
+.hsb .ow-sbar--hotel .ow-sbar-where{flex:1 1 100%;border-radius:14px;padding:10px 18px;min-height:76px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-date,
+.hsb .ow-sbar--hotel .ow-sbar-date{flex:1 1 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-guests,
+.hsb .ow-sbar--hotel .ow-sbar-guests{flex:1.4 1 200px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-searchbtn,
+.hsb .ow-sbar--hotel .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-pill-input .taw-input::placeholder,
+.hsb .ow-sbar--hotel .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
+.nb-dest .ow-pill-l{color:var(--gold-ink);display:inline-flex;align-items:center;gap:5px;}
+.nb-dest.set{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
+.nb-dest:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
+/* Start / end of a stay or trip: green = depart / check-in, gold = return / check-out. */
+.nb-start{color:var(--success-ink);}
+.nb-end{color:var(--gold-ink);}
+.nb-end .nb-dot{background:currentColor;}
+
+.nb-done{border:1px solid var(--line);border-radius:14px;padding:28px 24px;background:var(--card);display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;}
+.nb-done-ic{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;background:var(--success-bg);color:var(--success-ink);}
+.nb-done h3{margin:4px 0 0;font:600 22px/1.2 var(--serif);}
+.nb-done p{margin:0;max-width:520px;color:var(--taupe);font-size:13.5px;}
+.nb-next{list-style:none;counter-reset:nb;display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0 6px;padding:0;width:100%;max-width:600px;}
+.nb-next li{counter-increment:nb;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--ivory);text-align:left;display:flex;flex-direction:column;gap:2px;}
+.nb-next li::before{content:counter(nb);font:600 11px var(--sans);color:var(--gold-ink);}
+.nb-next b{font-size:13.5px;}
+.nb-next span{font-size:12px;color:var(--taupe);}
+.nb-done-btns{display:flex;gap:10px;margin-top:6px;}
+
+@media (max-width:820px){
+  .nb-cust{grid-template-columns:minmax(0,1fr);}
+  .nb-or{flex-direction:row;}
+  .nb-or::before,.nb-or::after{width:auto;height:1px;}
+  .nb-steps li:not(.on) span{display:none;}
+  .nb-next{grid-template-columns:1fr;}
+}
+.ow-rp-item{flex-direction:row;align-items:center;gap:10px;}
+.ow-rp-th{width:56px;height:44px;flex:none;border-radius:8px;overflow:hidden;display:block;}
+.ow-rp-tx{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.ow-rp-gal{position:relative;}
+.ow-rp-count{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.92);border-radius:999px;padding:3px 9px;font-size:11px;}
+.ow-rp-nav{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.92);cursor:pointer;font-size:18px;line-height:1;}
+.ow-rp-nav.l{left:10px;}.ow-rp-nav.r{right:10px;}
+.ow-rp-dots{position:absolute;bottom:10px;left:0;right:0;display:flex;justify-content:center;gap:5px;}
+.ow-rp-dots i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.6);}
+.ow-rp-dots i.on{background:#fff;}
+.ow-rp-th img,.ow-rp-th .ow-thumb-ph{width:100%;height:100%;object-fit:cover;display:block;}
+
+/* Room panel, Tripsure-style: filters on top, one entry per room type, rate options as radio rows */
+.ow-rp-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 10px;}
+.ow-rp-sel{width:auto;min-width:96px;padding:6px 10px;font-size:12.5px;}
+.ow-rp-rates{display:flex;flex-direction:column;gap:8px;margin:10px 0;}
+.ow-rate{display:flex;align-items:center;gap:12px;text-align:left;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;width:100%;}
+.ow-rate.on{border-color:var(--ink,#171310);background:rgba(23,19,16,.04);}
+.ow-rate-dot{width:16px;height:16px;flex:none;border-radius:50%;border:2px solid var(--taupe);box-sizing:border-box;}
+.ow-rate.on .ow-rate-dot{border:5px solid var(--ink,#171310);}
+.ow-rate-tx{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;font-size:13px;}
+.ow-rate-tx small{color:var(--taupe);font-size:11.5px;white-space:normal;}
+.ow-rate-tx small.ok{color:#2f6b3a;}
+.ow-rate-tx small.no{color:#a2552a;}
+.ow-rate-pr{display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex:none;}
+.ow-rate-pr b{font-size:15px;}
+.ow-rate-pr small{color:var(--taupe);font-size:11.5px;}
+
+/* Review your stay (after Reserve), like Tripsure's Review & pay */
+.ow-rv{display:flex;flex-direction:column;gap:12px;}
+.ow-rv-card{border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden;}
+.ow-rv-hotel{display:flex;gap:12px;align-items:center;padding:14px;}
+.ow-rv-hotel b{display:block;font-size:16px;line-height:1.25;}
+.ow-rv-hpic,.ow-rv-rpic{flex:none;border-radius:10px;overflow:hidden;display:block;}
+.ow-rv-hpic{width:72px;height:72px;}
+.ow-rv-rpic{width:64px;height:52px;}
+.ow-rv-hpic img,.ow-rv-rpic img,.ow-rv-hpic .ow-thumb-ph,.ow-rv-rpic .ow-thumb-ph{width:100%;height:100%;object-fit:cover;display:block;}
+.ow-rv-row{display:flex;gap:14px;align-items:flex-start;padding:14px;border-top:1px solid var(--line);}
+.ow-rv-nights{flex:none;width:64px;text-align:center;border:1px solid var(--line);border-radius:10px;padding:8px 4px;}
+.ow-rv-nights b{display:block;font-size:20px;}
+.ow-rv-nights small{font-size:10px;letter-spacing:.08em;color:var(--taupe);}
+.ow-rv-lines{display:flex;flex-direction:column;gap:4px;font-size:13px;min-width:0;}
+.ow-rv-lines > div{display:flex;gap:12px;}
+.ow-rv-lines > div span{min-width:70px;color:var(--taupe);}
+.ow-rv-link{align-self:flex-start;background:none;border:0;padding:0;font:inherit;font-size:13px;text-decoration:underline;color:var(--ink,#171310);cursor:pointer;}
+.ow-rv-ic{flex:none;width:34px;height:34px;display:grid;place-items:center;font-size:24px;line-height:1;}
+.ow-drawer-back{position:fixed;inset:0;z-index:95;background:rgba(20,20,20,.45);display:flex;justify-content:flex-end;}
+.ow-drawer{width:min(420px,100%);height:100%;overflow-y:auto;background:var(--card);padding:16px 18px;box-shadow:-8px 0 24px rgba(0,0,0,.18);}
+.ow-drawer-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;font-size:16px;}
+.ow-drawer ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:12px;font-size:13.5px;line-height:1.45;}
+.ow-pop{width:min(420px,100%);max-height:86vh;overflow-y:auto;background:var(--card);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;}
+.ow-pop-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:14px;}
+.ow-pop-list li{display:flex;gap:10px;align-items:center;}
+.ow-pop-dot{flex:none;width:12px;height:12px;border-radius:50%;background:#5b5bf0;}
+.ow-pop-dot.ok{background:#2f6b3a;}
+
+/* Room panel: the list and the detail scroll on their own, so picking a room from far down the
+   list shows its detail right beside it instead of at the top of the page */
+.ow-rp-body{align-items:start;}
+.ow-rp-list,.ow-rp-detail{max-height:min(60vh,560px);overflow-y:auto;overscroll-behavior:contain;}
+.ow-rp-list{padding-right:2px;}
+.ow-rp-head h3 small{display:block;font-size:11.5px;font-weight:400;margin-top:2px;}
+@media(max-width:640px){.ow-rp-list{max-height:34vh;}.ow-rp-detail{max-height:none;overflow-y:visible;}}
+
+/* New-booking modal: while the room picker is open the modal itself stops scrolling and the picker
+   fills the space under the steps/tabs. Only the room list and the room detail scroll, each to its own
+   end, so the price breakdown + Total Amount are always reachable and the Reserve bar never leaves the
+   bottom. (Before, a 60vh cap on the panes plus the modal's own scroll fought each other and clipped
+   the total.) */
+@media(min-width:641px){
+  .nb-modal:has(>.ow-rp){height:min(88vh,860px);overflow:hidden;}
+  .nb-modal>.ow-rp{flex:1 1 0;min-height:0;}
+  .nb-modal .ow-rp-body{flex:1 1 0;min-height:0;grid-template-rows:minmax(0,1fr);align-items:stretch;}
+  .nb-modal .ow-rp-list,.nb-modal .ow-rp-detail{max-height:none;height:100%;min-height:0;overflow-y:auto;overscroll-behavior:contain;}
+  .nb-modal .ow-rp-detail{padding-right:6px;padding-bottom:8px;}
+}
+
+.ow-rd-photo{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:12px;margin:4px 0 12px;}
+.ow-rd-title{font-size:18px;margin:0 0 6px;}
+.ow-rd-meta{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;padding-bottom:12px;border-bottom:1px solid var(--line);margin-bottom:12px;}
+.ow-rd-h{font-size:15px;margin:12px 0 6px;}
+.ow-rd-list{margin:0;padding-left:18px;font-size:13px;line-height:1.9;}
+/* How long TripSure holds a locked fare (NewBookingModal) */
+.nb-expiry{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;border-radius:10px;font-size:12.5px;background:var(--info-bg);color:var(--info-ink);border:1px solid rgba(92,122,138,.25);margin-bottom:10px;text-align:left;}
+.nb-expiry.soon{background:var(--warn-bg);color:var(--warn-ink);border-color:rgba(156,107,63,.3);}
+.nb-expiry.gone{background:var(--danger-bg);color:var(--danger-ink);border-color:rgba(178,85,47,.3);}
+
+/* ── Flight itinerary panel (FlightItinerary.tsx): Timeline / Fare options / add-ons ── */
+.fi-back{position:fixed;inset:0;z-index:5;background:rgba(23,19,16,.38);display:flex;justify-content:flex-end;}
+.fi-panel{width:min(980px,100%);height:100%;background:var(--card);display:flex;flex-direction:column;box-shadow:-24px 0 48px -24px rgba(23,19,16,.45);animation:fi-in var(--dur-slow) var(--ease);}
+@keyframes fi-in{from{transform:translateX(24px);opacity:.6}to{transform:none;opacity:1}}
+.fi-head{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid var(--line);}
+.fi-head h3{margin:0;font:600 21px var(--serif);}
+.fi-body{flex:1;min-height:0;display:grid;grid-template-columns:210px minmax(0,1fr);}
+.fi-nav{border-right:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:2px;overflow-y:auto;}
+.fi-tab{display:flex;align-items:center;gap:10px;padding:13px 20px;border:0;background:transparent;font:500 14px var(--sans);color:var(--taupe);cursor:pointer;text-align:left;border-right:3px solid transparent;}
+.fi-tab:hover{color:var(--ink);background:var(--ivory);}
+.fi-tab.on{color:var(--ink);font-weight:600;background:linear-gradient(90deg,var(--card),var(--gold-bg));border-right-color:var(--gold);}
+.fi-tab.on svg{color:var(--gold-ink);}
+.fi-tab.muted span{opacity:.6;}
+.fi-tab em{margin-left:auto;font-style:normal;font-size:11px;font-weight:700;min-width:20px;height:20px;border-radius:999px;display:grid;place-items:center;background:var(--success);color:#fff;}
+.fi-main{overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:12px;}
+.fi-foot{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 24px;border-top:1px solid var(--line);background:var(--card);}
+.fi-price b{display:block;font:600 24px var(--serif);font-variant-numeric:tabular-nums lining-nums;}
+.fi-price small{font-size:12.5px;color:var(--taupe);}
+.fi-actions{display:flex;gap:10px;align-items:center;}
+.fi-next{min-width:150px;height:46px;}
+
+/* Fare option cards */
+.fi-fares{display:flex;flex-direction:column;gap:18px;}
+.fi-fare{position:relative;border:1px solid var(--line-2);border-radius:14px;padding:18px 18px 12px;background:var(--card);}
+.fi-fare.on{border:2px solid var(--gold);background:linear-gradient(180deg,var(--gold-bg),var(--card) 92px);}
+.fi-fare-cabin{position:absolute;top:-11px;left:16px;padding:2px 10px;border-radius:999px;font:600 11.5px var(--sans);background:var(--card);border:1px solid var(--line-2);color:var(--taupe);}
+.fi-fare.on .fi-fare-cabin{background:var(--gold);border-color:var(--gold);color:var(--ink);}
+.fi-fare-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:10px;border-bottom:1px solid var(--line);}
+.fi-fare-name{font-size:14px;font-weight:600;}
+.fi-fare-price{display:inline-block;font:600 22px var(--serif);margin-top:2px;font-variant-numeric:tabular-nums lining-nums;}
+.fi-fare-sel{display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13.5px;color:var(--success-ink);}
+.fi-fare-sel svg{background:var(--success);color:#fff;border-radius:50%;padding:3px;width:20px;height:20px;}
+.fi-fare-feat{list-style:none;margin:10px 0 0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:13px;color:var(--ink);}
+.fi-fare-feat li{display:flex;align-items:center;gap:6px;}
+.fi-fare-feat li svg{color:var(--taupe);}
+.fi-fare-rules{padding-top:10px;border-top:1px dashed var(--line-2);}
+.fi-fare-feat li.ok{color:var(--success-ink);}
+.fi-fare-feat li.no{color:var(--danger-ink);}
+.fi-fare-more{margin-top:8px;font-size:12.5px;}
+
+/* Timeline */
+.fi-tl-legs{display:flex;flex-direction:column;gap:16px;}
+.fi-tl{border:1px solid var(--line);border-radius:14px;overflow:hidden;}
+.fi-tl-head{display:flex;align-items:center;gap:8px;padding:14px 18px;background:var(--ivory);border-bottom:1px solid var(--line);font-size:15px;}
+.fi-tl-head span{color:var(--taupe);}
+.fi-tl-leg{font:600 11px var(--eyebrow);letter-spacing:.12em;text-transform:uppercase;color:var(--gold-ink)!important;}
+.fi-tl-row{display:grid;grid-template-columns:72px 22px minmax(0,1fr);align-items:center;gap:12px;padding:8px 18px;}
+.fi-tl-time{font:600 18px var(--sans);font-variant-numeric:tabular-nums;text-align:right;}
+.fi-tl-time sup{color:var(--danger);font-size:11px;margin-left:2px;}
+.fi-tl-time.small{font-size:12.5px;font-weight:500;color:var(--taupe);}
+.fi-tl-dot{justify-self:center;width:12px;height:12px;border-radius:50%;background:var(--muted-deco);}
+.fi-tl-dot.open{background:var(--card);border:2px solid var(--muted-deco);}
+.fi-tl-line{justify-self:center;width:2px;height:34px;background:var(--line-2);}
+.fi-tl-place b{display:block;font-size:14.5px;}
+.fi-tl-place small{display:block;font-size:12.5px;color:var(--taupe);}
+.fi-tl-layover{display:grid;grid-template-columns:72px 22px minmax(0,1fr);align-items:center;gap:12px;padding:10px 18px;background:var(--ivory);}
+.fi-tl-layover.long{background:var(--warn-bg);}
+.fi-tl-layover.long b{color:var(--warn-ink);}
+.fi-tl-wait{justify-self:center;width:10px;height:10px;background:var(--cognac);}
+
+/* Add-ons: one chip per segment with its count */
+.fi-segs{display:flex;gap:8px;flex-wrap:wrap;padding-bottom:4px;}
+.fi-seg{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:12px;border:1px solid var(--line-2);background:var(--card);font:600 13.5px var(--sans);color:var(--ink);cursor:pointer;}
+.fi-seg small{font-size:10.5px;font-weight:600;color:var(--taupe);background:var(--bone);border-radius:999px;padding:2px 6px;}
+.fi-seg em{font-style:normal;font-size:11.5px;font-weight:600;color:var(--taupe);background:var(--bone);border-radius:999px;padding:2px 8px;}
+.fi-seg em.got{background:var(--success-bg);color:var(--success-ink);}
+.fi-seg.on{border-color:var(--gold);background:var(--gold-bg);box-shadow:0 0 0 1px var(--gold);}
+/* Travellers row under the segments: green once that traveller has this add-on. */
+.fi-pax{margin-top:6px;}
+.fi-pax .fi-seg{font-weight:500;font-size:13px;color:var(--taupe);}
+.fi-pax .fi-seg.got{color:var(--ink);border-color:var(--success-ink);background:var(--success-bg);}
+.fi-pax .fi-seg.got.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold);}
+
+@media (max-width:760px){
+  .fi-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);}
+  .fi-nav{flex-direction:row;border-right:0;border-bottom:1px solid var(--line);padding:0 8px;overflow-x:auto;}
+  .fi-tab{border-right:0;border-bottom:3px solid transparent;padding:12px;}
+  .fi-tab.on{border-bottom-color:var(--gold);background:transparent;}
+  .fi-fare-feat{grid-template-columns:1fr;}
+}
+
+/* Cabin class chips on the results screen (re-run the same search in that cabin) */
+.nb-cabins{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.nb-cabins-l{font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-right:2px;}
+.nb-cabin{padding:7px 16px;border-radius:999px;border:1px solid var(--line-2);background:var(--card);font:600 13px var(--sans);color:var(--taupe);cursor:pointer;}
+.nb-cabin:hover:not(:disabled){color:var(--ink);border-color:var(--ink);}
+.nb-cabin.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.nb-cabin:disabled:not(.on){opacity:.5;cursor:not-allowed;}
+
+/* Grouped airport suggestions (New booking From / To) */
+.taw-typeahead-heading{padding:8px 12px 4px;cursor:default;}
+.nb-sug-city .ow-sug-t b{font-size:14px;}
+.nb-sug-city .ow-sug-ic{background:var(--gold-bg);color:var(--gold-ink);}
+.nb-sug-nested{padding-left:26px;position:relative;}
+.nb-sug-nested::before{content:"↳";position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;}
+.nb-sug-code{margin-left:auto;font:600 13px var(--sans);letter-spacing:.06em;color:var(--taupe);padding-left:12px;}
+/* "62 km from LGW" when a flight uses another airport than the one searched */
+.nb-away{font-size:11px;color:var(--warn-ink);margin-top:2px;white-space:nowrap;}
+/* Nearby airports when a search finds nothing */
+.nb-nearby{display:flex;flex-direction:column;gap:8px;max-width:560px;margin:4px auto 0;}
+.nb-nearby-t{font:500 11px var(--eyebrow);letter-spacing:.14em;text-transform:uppercase;color:var(--muted);}
+.nb-nearby-btn{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:10px 14px;border:1px solid var(--line-2);border-radius:12px;background:var(--card);font:14px var(--sans);cursor:pointer;}
+.nb-nearby-btn b{font-weight:700;margin-right:6px;}
+.nb-nearby-btn small{color:var(--taupe);font-size:12px;}
+.nb-nearby-btn:hover:not(:disabled){border-color:var(--gold);background:var(--gold-bg);}
+.taw-typeahead-list.nb-airport-list{max-height:min(460px,62vh);}
+
+/* Book section of the Flight itinerary panel (travellers -> payment -> ticket) */
+.nb-booked-head{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--success-bg);border:1px solid rgba(91,122,91,.25);}
+.nb-booked-head .nb-done-ic{width:34px;height:34px;flex:none;}
+.nb-booked-head b{display:block;font-size:14.5px;color:var(--success-ink);}
+.nb-booked-head small{display:block;font-size:12.5px;color:var(--taupe);margin-top:2px;}
+.fi-main .ow-ful{margin:0;}
+
+/* Order header: Cancel / Delete order (OrderDetail) */
+.ow-head-acts{display:flex;gap:8px;flex-wrap:wrap;}
+.ow-danger{color:var(--danger-ink);border-color:rgba(178,85,47,.4);}
+.ow-danger:hover:not(:disabled){background:var(--danger-bg);}
+.ow-danger-solid{background:var(--danger);border-color:var(--danger);color:#fff;}
+.ow-end{margin-top:12px;padding:12px 14px;border-radius:12px;border:1px solid var(--line-2);background:var(--bone);display:flex;flex-direction:column;gap:10px;font-size:13px;}
+.ow-end.del{background:var(--danger-bg);border-color:rgba(178,85,47,.35);}
+.ow-end-btns{display:flex;justify-content:flex-end;gap:8px;}
+
+/* Soft passport-validity note in the travellers form */
+.ow-tf-pp{grid-column:1/-1;font-size:12.5px;padding:7px 10px;border-radius:9px;border:1px solid var(--line);}
+.ow-tf-pp.ok{background:var(--success-bg);color:var(--success-ink);border-color:rgba(91,122,91,.25);}
+.ow-tf-pp.warn{background:var(--warn-bg);color:var(--warn-ink);border-color:rgba(156,107,63,.3);}
+.ow-tf-pp.bad{background:var(--danger-bg);color:var(--danger-ink);border-color:rgba(178,85,47,.3);}
+
+/* Search options (guide 6.2 fields) under the flight search bar */
+.nb-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.nb-opts .ow-link{display:inline-flex;align-items:center;gap:6px;font-weight:600;}
+.nb-opts .ow-sub{white-space:normal;}
+.nb-opts-panel{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 14px;align-items:end;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--card);}
+.nb-opts-check{display:flex;align-items:center;gap:8px;font-size:13.5px;}
+.nb-opts-note{grid-column:2/-1;}
+@media (max-width:820px){.nb-opts-panel{grid-template-columns:1fr 1fr;}.nb-opts-note{grid-column:1/-1;}}
+
+/* TripSure's own order (guide 7.2 / 7.3) under a flight item */
+.ow-ts{margin-top:8px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--ivory);display:flex;flex-direction:column;gap:6px;font-size:12.5px;}
+.ow-ts-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.ow-ts-st{font:600 10.5px var(--eyebrow);letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:var(--bone);color:var(--taupe);}
+.ow-ts-st.confirmed{background:var(--success-bg);color:var(--success-ink);}
+.ow-ts-st.payment_failed,.ow-ts-st.booking_failed{background:var(--danger-bg);color:var(--danger-ink);}
+.ow-ts-row{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+.ow-ts-events{margin:2px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:3px;}
+.ow-ts-events small{margin-left:8px;color:var(--taupe);}
+/* Console pricing drawer: price breakdown (FlightQuoteDrawer.tsx) */
+.fi-pb{display:grid;gap:0;max-width:640px;}
+.fi-pb-row{display:flex;justify-content:space-between;gap:16px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;}
+.fi-pb-row span{min-width:0;overflow-wrap:anywhere;}
+.fi-pb-row.sub{padding:6px 0 6px 14px;color:var(--taupe);font-size:13px;border-bottom-style:dashed;}
+.fi-pb-head{font-weight:600;padding-top:14px;}
+.fi-pb-total{border-bottom:0;border-top:2px solid var(--ink);margin-top:6px;padding-top:12px;font-size:16px;}
+.fi-pb-total b{font:600 20px var(--serif);}
+
+/* New booking results: the cheapest fare on each day around the searched one. */
+.nb-fares{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding:2px 0 8px;}
+.nb-fares-l{flex:none;align-self:center;font-size:11px;color:var(--taupe);max-width:96px;line-height:1.3;}
+.nb-fare{flex:none;display:flex;flex-direction:column;gap:2px;align-items:center;min-width:88px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bone,#fff);font:inherit;cursor:pointer;}
+.nb-fare span{font-size:11px;color:var(--taupe);}
+.nb-fare b{font-size:13px;}
+.nb-fare.on{border-color:var(--gold,#b08d3c);background:rgba(176,141,60,.12);}
+.nb-fare:disabled{opacity:.55;cursor:default;}

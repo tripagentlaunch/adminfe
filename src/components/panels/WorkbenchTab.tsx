@@ -57,10 +57,11 @@
  * they're lifted into WorkbenchShell (App.jsx) alongside advisors/members/
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import { ResizableColumns } from "../ResizableColumns";
 import { useRouter } from "next/navigation";
-import { getMessagesByPhone, sendMessageByPhone } from "../../services/api";
+import { getMessagesByPhone, sendMessageByPhone, siteMembers } from "../../services/api";
 
 import { Card, Empty, Icon, Spinner } from "../ui";
 import { ChatbotConversationPanel, memberCode } from "./ChatbotConversationPanel";
@@ -366,6 +367,8 @@ function findEnquiryTraveller(travellers: any, convoTarget: any, member: any, tr
   );
 }
 
+const noSubscribe = () => () => {};
+
 export function WorkbenchTab(props: any) {
   // creating/onCreateOrder: unused now that Quote Builder isn't rendered on
   // this screen — kept in the destructure since the parent still passes
@@ -409,6 +412,20 @@ export function WorkbenchTab(props: any) {
   // QueueProfileAccordion (carries code + phone); it's lifted here because the
   // panel renders in a sibling column. Falls back to the enquiry-loaded member.
   const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
+  // The Traveller Profile opens as a popup from the round button at the top left of the
+  // Itinerary Builder, so the itinerary and Search get the whole row. It stays mounted
+  // while closed: it also drives the Queue dropdown in the Enquiries header.
+  const [profileOpen, setProfileOpen] = useState(false);
+  // false while server-rendering / hydrating, true in the browser after: <body> exists to portal into.
+  const portalReady = useSyncExternalStore(noSubscribe, () => true, () => false);
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !document.querySelector('[role="listbox"]')) setProfileOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [profileOpen]);
+  const profileName = String((convoMember && convoMember.name) || "");
+  const profileInitials = profileName.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   // ONE flag for both columns: the tabbed summary panel (column 2) and the
   // chat (column 3) show together. Otherwise column 2 is the Itinerary Builder
   // card (chooser / Drafting… / ItineraryView) and column 3 is the search panel.
@@ -431,6 +448,13 @@ export function WorkbenchTab(props: any) {
   // The "start this itinerary" content — the Drafting… spinner while
   // generating, else the Generate AI / Start from scratch chooser. Rendered
   // by the Itinerary Builder card below.
+  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
+  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
+  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
+  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
+  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
+  const taraMember =
+    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
   const itineraryStartNode = generating ? (
           // Real loading state (2026-09-06) — "Generate AI Itinerary" now
           // waits on a real Claude call (POST /enquiries/{id}/generate-
@@ -459,25 +483,12 @@ export function WorkbenchTab(props: any) {
           <div className="taw-itin-choose">
             <Icon name="sparkle" size={28} />
             <div className="title">Start this itinerary</div>
-            <div className="message">Generate a draft from what the enquiry asked for, or build it from scratch — either way, everything stays fully editable.</div>
-            <button className="taw-btn taw-btn--primary taw-btn--block" onClick={() => startItinerary("ai")}>
-              <Icon name="sparkle" size={16} />
-              Generate AI Itinerary
-            </button>
-            <button className="taw-btn taw-btn--block" onClick={() => startItinerary("scratch")}>
-              <Icon name="plus" size={16} />
-              Start from scratch
-            </button>
+            <div className="message">Pick one of Tara&apos;s itineraries for this traveller, or start from scratch and add flights and hotels from Search — either way, everything stays fully editable.</div>
+            <TaraItineraryLink variant="cards" member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry}
+              onScratch={() => startItinerary("scratch")} />
           </div>
   );
 
-  // Who the Tara link looks up. Plans are filed under the traveller's ACCESS CODE, which the
-  // CRM `members` row (what a Queue pick leaves in `member`) does not carry — so resolve the same
-  // way the Conversation panel does: the picked traveller, else the traveller list entry matching
-  // this member by email/phone/id, else the loaded profile's member; the first one with a code.
-  const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
-  const taraMember =
-    [convoTarget, enquiryTraveller, askReady ? travellerProfile.member : null, convoMember].find((m: any) => memberCode(m)) || convoMember;
   // Tara's itinerary is the one on screen (the converted plan carries `taraPlan`).
   const taraShowing = !!(selEnqId && itineraryData && itineraryData.taraPlan);
 
@@ -498,33 +509,54 @@ export function WorkbenchTab(props: any) {
   );
 
   return (
-    // Drag the handles between columns to widen the Itinerary Builder or Search (saved per browser).
-    <ResizableColumns storageKey="taw.console.columns.v1" defaults={[3, 4, 3]} className="taw-grid taw-cols-3">
-      {profileColumn}
-
+    <>
+    {/* Portalled to <body> so it sits above the app sidebar and header. */}
+    {portalReady ? createPortal(
+      <div className={"taw-prof-pop" + (profileOpen ? " is-open" : "")} aria-hidden={!profileOpen}>
+        <div className="taw-prof-pop-back" onClick={() => setProfileOpen(false)} />
+        <div className="taw-prof-pop-panel" role="dialog" aria-modal="true" aria-label="Traveller profile">
+          <div className="taw-prof-pop-top">
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setProfileOpen(false)} aria-label="Close the traveller profile">
+              <Icon name="x" size={14} /> Close
+            </button>
+          </div>
+          {profileColumn}
+        </div>
+      </div>,
+      document.body,
+    ) : null}
+    {/* Drag the handle between the columns to widen the Itinerary Builder or Search (saved per browser). */}
+    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3">
       <Card
         className="taw-itin-card"
         title="Itinerary Builder"
-        icon={<Icon name="sliders" size={20} />}
+        icon={
+          <button type="button" className={"taw-prof-btn" + (profileInitials ? "" : " is-empty")} onClick={() => setProfileOpen(true)}
+            title={profileName ? `${profileName} — open the traveller profile` : "Open the traveller profile and travellers list"}
+            aria-label="Open the traveller profile" aria-expanded={profileOpen}>
+            {profileInitials || <Icon name="user" size={18} />}
+          </button>
+        }
         sub={convoMember ? "for " + (convoMember.name || "traveller") : "no member selected"}
         actions={
-          // "← Back" (2026-10-21) — only while Tara's itinerary is the one showing. It sets that
-          // itinerary aside (edits kept) and returns to the Generate / Start-from-scratch chooser;
-          // the inline Tara link then offers "Return to Tara's itinerary". This replaces the
-          // header's old "Tara Itinerary" button, which only repeated "Generate AI Itinerary".
-          taraShowing ? (
+          // "← Start" — whenever an itinerary is open (Tara's or one built from scratch). It sets that
+          // itinerary aside (edits kept) and returns to the start screen: Tara's itineraries / Start
+          // from scratch. The start screen then offers "Return to your itinerary" to reopen it.
+          selEnqId && itineraryData ? (
             <button
               type="button"
               className="taw-btn taw-btn--sm"
-              title="Back to Generate AI Itinerary / Start from scratch — Tara's itinerary is kept and can be reopened"
+              title="Back to the start screen (Tara's itineraries / Start from scratch) — this itinerary is kept and can be reopened"
               onClick={() => parkTaraItinerary(selEnqId as string)}
             >
-              ← Back
+              ← Start
             </button>
           ) : null
         }
       >
-        <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} />
+        {/* With an itinerary open: switch between Tara's plans / open one. Before that, the start
+            screen below lists them as cards instead. */}
+        {itineraryData ? <TaraItineraryLink member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry} hidden={taraShowing} /> : null}
         {!selectedEnquiry && convoMember ? (
           itineraryStartNode
         ) : !selectedEnquiry ? (
@@ -560,6 +592,7 @@ export function WorkbenchTab(props: any) {
         onAddSwap={(item: any) => selEnqId && addSwapOptionToItinerary(selEnqId, item)}
       />
     </ResizableColumns>
+    </>
   );
 }
 
@@ -571,9 +604,34 @@ export function WorkbenchTab(props: any) {
 export function ConversationTab() {
   const {
     enquiries, member, selEnqId, travellerProfile, travellers, analyzeConversation,
-    ensureEnquiryForMember, convoTarget, setSummaryDismissedFor,
+    ensureEnquiryForMember, convoTarget, setConvoTarget, setSummaryDismissedFor, membersById,
   } = useWorkbench();
   const router = useRouter();
+
+  // Opened from the notification bell: /console/conversation?code=<access code> (or the bell's event while this
+  // tab is already open) switches the conversation to that customer.
+  useEffect(() => {
+    let cancelled = false;
+    function openByCode(raw: string | null) {
+      const code = String(raw || "").trim().toUpperCase();
+      if (!code) return;
+      const known = Object.values(membersById || {}).find((m: any) => memberCode(m).toUpperCase() === code);
+      if (known) { setConvoTarget(known); return; }
+      siteMembers("select=*&invitation_code=eq." + encodeURIComponent(code) + "&limit=1")
+        .then((rows: any) => {
+          if (cancelled) return;
+          const m: any = Array.isArray(rows) && rows[0];
+          setConvoTarget(m ? { ...m, id: m.id || code, name: m.name || code, invitation_code: code } : { id: code, name: code, invitation_code: code });
+        })
+        .catch(() => { if (!cancelled) setConvoTarget({ id: code, name: code, invitation_code: code }); });
+    }
+    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    if (fromUrl) openByCode(fromUrl);
+    const onOpen = (e: Event) => openByCode((e as CustomEvent).detail);
+    window.addEventListener("ta:open-conversation", onOpen);
+    return () => { cancelled = true; window.removeEventListener("ta:open-conversation", onOpen); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersById]);
   const selectedEnquiry = enquiries.find((e: any) => e.id === selEnqId);
   const askReady = !!(travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selEnqId);
   const baseAsk = askReady ? travellerProfile.enquiry.ask : (selectedEnquiry?.ask || {});

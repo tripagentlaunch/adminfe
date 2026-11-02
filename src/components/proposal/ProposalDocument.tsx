@@ -331,7 +331,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           {data.costLines.map((ln: any, i: number) => (
             <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: LINE, fontSize: 9.5 }}>
               <Text>{ln.label || ln.type}</Text>
-              <Text>{inr(ln.sell)}</Text>
+              <Text>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</Text>
             </View>
           ))}
           <View style={{ flexDirection: "row", justifyContent: "space-between", paddingTop: 10 }}>

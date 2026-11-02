@@ -28,6 +28,8 @@ const ROWS: Row[] = [
   // India
   ["DEL", "Indira Gandhi International Airport", "New Delhi", "India", "IN", ["delhi", "agra"]],
   ["BOM", "Chhatrapati Shivaji Maharaj International Airport", "Mumbai", "India", "IN", ["bombay"]],
+  // Opened 2025; TripSure lists some Mumbai flights here (IX 2914 BLR → NMI).
+  ["NMI", "Navi Mumbai International Airport", "Navi Mumbai", "India", "IN", ["mumbai", "navi mumbai"]],
   ["BLR", "Kempegowda International Airport", "Bengaluru", "India", "IN", ["bangalore"]],
   ["MAA", "Chennai International Airport", "Chennai", "India", "IN", ["madras"]],
   ["HYD", "Rajiv Gandhi International Airport", "Hyderabad", "India", "IN"],

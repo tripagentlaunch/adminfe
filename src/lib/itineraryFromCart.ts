@@ -23,6 +23,7 @@
 import { paxText, requestChips } from "./flightRequests";
 import { hotelRequestChips, occText } from "./hotelOccupancy";
 import { AIRPORTS } from "./airports";
+import { addonLines } from "./flightAddons";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -31,6 +32,8 @@ function uid() {
 export function blankItinerary(): any {
   return {
     destination: "New itinerary",
+    // Built from Search / scratch: dates come from what's added (withTripSummary).
+    source: "scratch",
     dateRange: "",
     // startIso/endIso (2026-09-04) — the itinerary's own committed date
     // bound, separate from whatever days happen to exist yet. null until
@@ -269,6 +272,29 @@ function findOrCreateDay(days: any[], iso: string, route: string) {
   return { days: next, day: inserted };
 }
 
+// A flight priced live in the Console (FlightQuoteDrawer's FlightLivePrice): the fare
+// option, refundability, each add-on picked, and when TripSure confirmed the price.
+function livePriceChips(p: any): string[] {
+  return [
+    p.fareName && p.fareName !== "Searched fare" ? p.fareName : "",
+    p.refundable ? "Refundable" : "Non-refundable",
+    p.checkinKg ? p.checkinKg + " kg check-in" : "",
+    ...addonLines(p.extras).map((l) => l.label + (l.amount ? " " + inrPlain(l.amount) : "")),
+  ].filter(Boolean);
+}
+function livePriceMeta(p: any, mix: any): string {
+  const at = new Date(p.checkedAt);
+  const when = Number.isNaN(at.getTime()) ? "" : " on " + at.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  const split = p.baseFare != null && p.taxes != null
+    ? " (" + inrPlain(p.baseFare) + " base + " + inrPlain(p.taxes) + " taxes" + (p.otherCharges ? " + " + inrPlain(p.otherCharges) + " other charges" : "") + ")"
+    : "";
+  return "Live TripSure price" + (mix ? " for " + paxText(mix) : "") + ", checked" + when + ": " + inrPlain(p.fare) + " fare" + split
+    + (p.extrasTotal ? " + " + inrPlain(p.extrasTotal) + " add-ons" : "")
+    + (p.needs && p.needs.length ? " · needs " + p.needs.join(", ") + " at booking" : "")
+    + " · airline prices can move until it is booked";
+}
+const inrPlain = (n: number) => "₹" + Math.round(Number(n) || 0).toLocaleString("en-IN");
+
 export function addCartItemToItinerary(data: any, cartItem: any) {
   const base = data || blankItinerary();
 
@@ -329,8 +355,14 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
         route: (seg.from || "") + " " + (seg.depTime || "") + " → " + (seg.to || "") + " " + (seg.arrTime || ""),
         duration: fmtSegDuration(seg.durationMin),
       })),
-      chips: [cartItem.refundable ? "Refundable" : "Non-refundable", ...requestChips(cartItem.requests)],
-      meta: cartItem.paxMix ? "Fare for " + paxText(cartItem.paxMix) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "") : "Added from Search",
+      chips: cartItem.pricing
+        ? livePriceChips(cartItem.pricing)
+        : [cartItem.refundable ? "Refundable" : "Non-refundable", ...requestChips(cartItem.requests)],
+      meta: cartItem.pricing
+        ? livePriceMeta(cartItem.pricing, cartItem.paxMix)
+        : cartItem.paxMix ? "Fare for " + paxText(cartItem.paxMix) + (cartItem.requests && cartItem.requests.note ? " · " + cartItem.requests.note : "") : "Added from Search",
+      // The live TripSure price it was added at (Console pricing drawer): fare, add-ons, when checked.
+      pricing: cartItem.pricing || null,
       // Carried into "Book this trip" (lib/bookingHandoff.ts): who the fare is for, and what was asked for.
       paxMix: cartItem.paxMix || null,
       requests: cartItem.requests || null,
@@ -442,8 +474,14 @@ export function withTripSummary(data: any): any {
   // added after the flight moves the destination to the stay's city); a value
   // set by the AI draft or the advisor is never touched.
   const auto: Record<string, boolean> = { ...(data._autoSummary || {}) };
-  const open = (k: string, empty: boolean) => auto[k] || empty;
   const days: any[] = data.days || [];
+  // A trip built from Search (not Tara's / the AI's plan): its dates are what's in it — Day 1 is the
+  // first booking, a one-way flight is just its date — never dates seeded from the enquiry's ask.
+  const searchBuilt = data.source === "scratch" || (!data.taraPlan && !days.some((d: any) => d.description));
+  if (searchBuilt && days.some((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d._iso || "")))) {
+    auto.startIso = auto.endIso = auto.dateRange = auto.nights = true;
+  }
+  const open = (k: string, empty: boolean) => auto[k] || empty;
   const items = days.flatMap((d: any) => (d.items || []).map((it: any) => ({ ...it, _iso: d._iso })));
   const hotels = items.filter((it: any) => it.type === "hotel");
   const flights = items.filter((it: any) => it.type === "flight");
@@ -456,8 +494,11 @@ export function withTripSummary(data: any): any {
   const end = open("endIso", !data.endIso) ? [...dates, ...hotelEnds].sort().pop() || null : data.endIso;
   if (open("startIso", !data.startIso) && start) setAuto("startIso", start);
   if (open("endIso", !data.endIso) && end && end !== start) setAuto("endIso", end);
+  else if (auto.endIso && start && (!end || end === start)) setAuto("endIso", null); // a single day: no end
+
   if (open("dateRange", !data.dateRange) && start) setAuto("dateRange", end && end !== start ? fmtDateRangeIso(start, end) : fmtDayDate(start));
   if (open("nights", !data.nights) && start && end) setAuto("nights", Math.max(0, Math.round((Date.parse(end) - Date.parse(start)) / 86_400_000)));
+  else if (auto.nights && start && !end) setAuto("nights", 0);
   if (open("destination", !data.destination || data.destination === "New itinerary")) {
     // The stay's real city; `sub` is only a fallback (after a swap it starts with "5-star").
     const subCity = hotels.length ? String(hotels[0].sub || "").split(" · ")[0] : "";
@@ -680,8 +721,11 @@ export function addRecommendedHotelToItinerary(data: any, hotel: any, base: Hote
 // wired to real pricing," not a new gap this function introduces.
 export function cartFromItinerary(data: any): any[] {
   if (!data) return [];
+  // Only what can be priced: a day's note (Tara's "Arrival and a Royal Welcome") or an
+  // unpriced activity is not a cost line ("… ₹0" in the proposal's What it costs).
+  const bookable = (it: any) => it.type === "flight" || it.type === "hotel" || (it.type !== "note" && Number(it.price) > 0);
   const items = (data.days || []).flatMap((day: any) =>
-    (day.items || []).map((it: any) => ({
+    (day.items || []).filter(bookable).map((it: any) => ({
       type: it.type,
       product: it.type,
       baseNet: it.price || 0,
@@ -771,6 +815,22 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
   };
 }
 
+// itineraryTotals — Total / Confirmed / Held, always from the items as they are now. The stored
+// `totals` were kept as running sums (added on add, taken off on remove), which swaps and price
+// refreshes never adjusted, so they drifted: an empty itinerary could still read ₹6k held.
+// "From" prices stay out (they're shown as the open range), as before.
+export function itineraryTotals(data: any): { grand: number; confirmed: number; held: number } {
+  const items = [...((data?.days || []) as any[]).flatMap((d: any) => d.items || []), ...(data?.visa ? [data.visa] : [])];
+  let grand = 0, confirmed = 0;
+  for (const it of items) {
+    const p = Number(it?.price) || 0;
+    if (!(p > 0) || it.priceIsFrom) continue;
+    grand += p;
+    if (it.status === "booked") confirmed += p;
+  }
+  return { grand, confirmed, held: grand - confirmed };
+}
+
 // swapFlightAlternative (2026-10-22) — the flight counterpart of swapHotelAlternative: makes alternative
 // `altIndex` the chosen flight for this leg and moves the previous choice into that slot. Pure. Flight
 // alternatives carry no key, so they are addressed by position. The comparison line on every alternative is
@@ -794,6 +854,8 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           depTime: it.time ?? null, arrTime: it.arrTime ?? null, arrDayOffset: it.arrDayOffset ?? 0,
           stops: it.stops ?? 0, price: it.price, baggageKg: it.baggageKg ?? null, refundable: it.refundable ?? null,
           segments: itemSegmentsToLegs(it.segments),
+          // The live price (fare + this flight's own seats / meals / bags) goes down with its flight.
+          ...(it.pricing ? { pricing: it.pricing } : {}),
         };
         const rest = alts.map((a, i) => (i === altIndex ? demoted : a)).map((a) => {
           const gap = a.price - alt.price;
@@ -819,6 +881,11 @@ export function swapFlightAlternative(data: any, itemId: string, altIndex: numbe
           segments: legsToItemSegments(alt.segments),
           origin: alt.origin || it.origin || null,
           dest: alt.dest || it.dest || null,
+          // Add-ons are the airline's own (seat map, meal codes): the chosen flight brings its
+          // live price and add-ons, or none — never the previous flight's.
+          pricing: alt.pricing || null,
+          chips: alt.pricing ? livePriceChips(alt.pricing) : [alt.refundable ? "Refundable" : "Non-refundable"],
+          meta: alt.pricing ? livePriceMeta(alt.pricing, it.paxMix) : "Search price — not checked live; price it from Search before sending",
           alternatives: rest,
         };
       }),
@@ -924,6 +991,17 @@ function itemSegmentsToLegs(rows: any[] | undefined): any[] {
 // (flight: same route and day; hotel: same check-in day) instead of adding a new
 // item. Shapes match what swapFlightAlternative / swapHotelAlternative read.
 export const MAX_SWAP_OPTIONS = 4;
+const paxKey = (m: any) => [m.adults ? m.adults + " adult" + (m.adults > 1 ? "s" : "") : "", m.children ? m.children + " child" + (m.children > 1 ? "ren" : "") : "", m.infants ? m.infants + " infant" + (m.infants > 1 ? "s" : "") : ""].filter(Boolean).join(", ");
+
+/** A flight's identity across the itinerary, the proposal link and Pay now: its flight numbers
+ *  ("6E 6034" or "IX 2945+IX 1036"), the same numbers the server matches TripSure offers on. */
+export function flightKeyOf(f: any): string {
+  const nums = (f?.segments || [])
+    .map((s: any) => String(s?.flightNo || "").trim().split(/\s+/))
+    .filter((b: string[]) => b.length === 2)
+    .map((b: string[]) => b[0].toUpperCase() + " " + (b[1].replace(/^0+/, "") || "0"));
+  return nums.length ? nums.join("+") : [f?.carrier, f?.flightNo, f?.depTime || f?.time].filter(Boolean).join("|");
+}
 
 function itemRoute(it: any): { origin: string | null; dest: string | null } {
   if (it.origin && it.dest) return { origin: it.origin, dest: it.dest };
@@ -950,13 +1028,15 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
     return { data, ok: false, message: "No " + (isFlight ? "flight " + what : "hotel") + " on " + (iso ? fmtDayDate(iso) : "that day") + " in the itinerary yet — add the main one first, then its swap options." };
   }
   const alts: any[] = target.alternatives || [];
-  const alt = isFlight
+  const alt: any = isFlight
     ? {
         carrier: cartItem.airlineName || cartItem.airline || "Flight", flightNo: cartItem.flightNo || "",
         origin: d.originCode, dest: d.destCode, depTime: d.depTime || null, arrTime: d.arrTime || null, arrDayOffset: 0,
         stops: d.stops ?? 0, price: cartItem.baseNet, baggageKg: d.baggageKg ?? null, refundable: cartItem.refundable ?? null,
         segments: d.segments || [],
         detail: [d.duration, stopsLabel(d.stops ?? 0)].filter(Boolean).join(" · "),
+        // Priced live in the price drawer: fare + its own add-ons per traveller (baseNet is that total).
+        ...(cartItem.pricing ? { pricing: cartItem.pricing } : {}),
       }
     : {
         hotelKey: cartItem.hotelKey, name: cartItem._title || cartItem.hotelName || "Hotel", image: d.image || null,
@@ -964,6 +1044,10 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
         board: d.board || null, lat: d.lat ?? null, lng: d.lng ?? null,
         detail: [d.stars ? d.stars + "-star" : null, cartItem.roomTitle, d.board].filter(Boolean).join(" · "),
       };
+  // A live-priced option must be for the same travellers as the flight it can replace.
+  if (isFlight && cartItem.paxMix && target.paxMix && paxKey(cartItem.paxMix) !== paxKey(target.paxMix)) {
+    return { data, ok: false, message: "This option was priced for " + paxKey(cartItem.paxMix) + ", the itinerary's flight for " + paxKey(target.paxMix) + " — search with the same travellers." };
+  }
   const same = (a: any) => (isFlight ? a.flightNo === alt.flightNo && a.depTime === alt.depTime : a.hotelKey && a.hotelKey === (alt as any).hotelKey);
   if (same(target) || (isFlight ? target.flightNo === alt.flightNo && target.time === alt.depTime : target.hotelKey === (alt as any).hotelKey)) {
     return { data, ok: false, message: "That's already the main choice." };

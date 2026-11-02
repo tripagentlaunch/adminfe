@@ -83,9 +83,9 @@ export function RangeCalendar({ checkIn, checkOut, min, onChange, onDone, labels
   return (
     <div className="ow-cal">
       <div className="ow-cal-pills">
-        <div className={`ow-cal-pill${!checkOut ? " on" : ""}`}><small>{labels[0]}</small><b>{fmtPill(checkIn)}</b></div>
+        <div className={`ow-cal-pill p-start${!checkOut ? " on" : ""}`}><small><i className="nb-dot" />{labels[0]}</small><b>{fmtPill(checkIn)}</b></div>
         <span className="ow-cal-nights">{showNights && nights ? `${nights} night${nights === 1 ? "" : "s"}` : "→"}</span>
-        <div className={`ow-cal-pill${checkIn && !checkOut ? " on" : ""}`}><small>{labels[1]}</small><b>{fmtPill(checkOut)}</b></div>
+        <div className={`ow-cal-pill p-end${checkIn && !checkOut ? " on" : ""}`}><small><i className="nb-dot" />{labels[1]}</small><b>{fmtPill(checkOut)}</b></div>
       </div>
       <div className="ow-cal-nav">
         <button type="button" className="ow-cal-arrow" onClick={() => shift(-1)} disabled={prevDisabled} aria-label="Previous month">
@@ -119,7 +119,7 @@ export function SingleCalendar({ value, min, onChange, onDone }: {
   return (
     <div className="ow-cal ow-cal--single">
       <div className="ow-cal-pills">
-        <div className="ow-cal-pill on"><small>Depart</small><b>{fmtPill(value)}</b></div>
+        <div className="ow-cal-pill p-start on"><small><i className="nb-dot" />Depart</small><b>{fmtPill(value)}</b></div>
       </div>
       <div className="ow-cal-nav">
         <button type="button" className="ow-cal-arrow" onClick={() => shift(-1)} disabled={prevDisabled} aria-label="Previous month">

@@ -286,6 +286,12 @@ function travellerPreviewRows(t: any, enquiries: any[], itins: Record<string, an
     }
     const withItin = mine.filter((e: any) => itins[e.id] || (pipeline[e.id] && pipeline[e.id].itinerary_generated_at)).length;
     rows.push(["Itineraries", mine.length ? `${withItin} ${withItin === 1 ? "itinerary" : "itineraries"}` : null]);
+    // Paid trips (money on their booking order, or an itinerary locked by a payment).
+    const paidTrips = mine.filter((e: any) => (pipeline[e.id]?.booking?.paid || 0) > 0 || itins[e.id]?.locked);
+    if (paidTrips.length) {
+      const money = paidTrips.reduce((n: number, e: any) => n + Number(pipeline[e.id]?.booking?.paid || itins[e.id]?.locked?.paid_amount || 0), 0);
+      rows.push(["Paid trips", `${paidTrips.length} · ₹${Math.round(money).toLocaleString("en-IN")} received`]);
+    }
     const proposals = mine.map((e: any) => pipeline[e.id] && pipeline[e.id].proposal).filter(Boolean);
     if (proposals.length) {
       const p = proposals[0];

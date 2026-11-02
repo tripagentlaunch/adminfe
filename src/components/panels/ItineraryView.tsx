@@ -48,9 +48,12 @@ import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
 import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
+import { PassengersPanel } from "./PassengersPanel";
+import { PaidTripHistory } from "./PaidTripHistory";
+import { requestLivePrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -189,7 +192,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch } = useWorkbench();
+  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -340,11 +343,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // computed fresh for any day without one.
   const [openDays, setOpenDays] = useState<Record<string, boolean>>({});
   function dayOpenFor(day: any) {
-    // !dayInBound(day, data) (2026-09-04) — a day outside the itinerary's
+    // !dayInBound(day, summary) (2026-09-04) — a day outside the itinerary's
     // committed range needs a decision, same as any other attention-tier
     // condition; it shouldn't need a manual click just to see WHY it's
     // flagged and what to do about it.
-    return day.id in openDays ? openDays[day.id] : dayHasAttention(day) || !dayInBound(day, data);
+    return day.id in openDays ? openDays[day.id] : dayHasAttention(day) || !dayInBound(day, summary);
   }
   // Tier decides the STARTING state (attention starts open, done starts
   // closed) but every row is a plain toggle from here on (2026-09-03,
@@ -417,7 +420,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // (IncludeDayControl's `suggested`) needs the trip's real total day
   // count, not however many happen to match the current Flights/Hotels
   // tab filter.
-  const totalInBoundCount = data.days.filter((d: any) => dayInBound(d, data)).length;
+  const totalInBoundCount = data.days.filter((d: any) => dayInBound(d, summary)).length;
 
   // Financial rollup (2026-09-03, item #7) — confirmed/held summed to
   // exactly the old "grand" total, but that total silently excluded
@@ -429,7 +432,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // rather than silently omitting it.
   const unresolvedItems = data.days.flatMap((d: any) => d.items).filter((it: any) => it.priceIsFrom);
   const unresolved = unresolvedItems.reduce((s: number, it: any) => s + it.price, 0);
-  const finTotal = data.totals.confirmed + data.totals.held + unresolved || 1;
+  const totals = itineraryTotals(data);
+  const finTotal = totals.confirmed + totals.held + unresolved || 1;
 
   // Always derived from whatever's actually in `day.items` now
   // (2026-09-03) — previously fell back to the day's static
@@ -489,17 +493,17 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         <div className="taw-itin-totals">
           <div>
             <b>
-              {inr(data.totals.grand)}
-              {unresolved > 0 ? "–" + inr(data.totals.grand + unresolved) + "+" : ""}
+              {inr(totals.grand)}
+              {unresolved > 0 ? "–" + inr(totals.grand + unresolved) + "+" : ""}
             </b>
             <span>total</span>
           </div>
           <div>
-            <b>{inr(data.totals.confirmed)}</b>
+            <b>{inr(totals.confirmed)}</b>
             <span>confirmed</span>
           </div>
           <div>
-            <b>{inr(data.totals.held)}</b>
+            <b>{inr(totals.held)}</b>
             <span>held</span>
           </div>
           {unresolved > 0 ? (
@@ -514,8 +518,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             arithmetic on themselves — segment widths are proportional
             to each bucket's share of the (low-end) total. */}
         <div className="taw-itin-fin-bar">
-          <div className="taw-itin-fin-seg taw-itin-fin-seg--confirmed" style={{ flexBasis: (data.totals.confirmed / finTotal) * 100 + "%" }} />
-          <div className="taw-itin-fin-seg taw-itin-fin-seg--held" style={{ flexBasis: (data.totals.held / finTotal) * 100 + "%" }} />
+          <div className="taw-itin-fin-seg taw-itin-fin-seg--confirmed" style={{ flexBasis: (totals.confirmed / finTotal) * 100 + "%" }} />
+          <div className="taw-itin-fin-seg taw-itin-fin-seg--held" style={{ flexBasis: (totals.held / finTotal) * 100 + "%" }} />
           {unresolved > 0 ? (
             <div className="taw-itin-fin-seg taw-itin-fin-seg--unresolved" style={{ flexBasis: (unresolved / finTotal) * 100 + "%" }} />
           ) : null}
@@ -555,6 +559,43 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             : null}
         </div>
       ) : null}
+
+      {data.locked ? (
+        // Paid on the proposal link: this trip is frozen (the link keeps exactly what was paid for).
+        <div className={"taw-locked" + (data.locked.unlocked_at ? " is-open" : "")} role="status">
+          <Icon name={data.locked.unlocked_at ? "edit" : "check"} size={16} />
+          <div className="taw-locked-t">
+            <b>{data.locked.unlocked_at ? "Paid trip — unlocked for editing" : data.locked.all_paid ? "Paid & locked" : "Part-paid & locked"}</b>
+            <small>
+              {[data.locked.order_number ? `Booking ${data.locked.order_number}` : null,
+                data.locked.paid_amount ? `₹${Math.round(data.locked.paid_amount).toLocaleString("en-IN")} paid` : null,
+                data.locked.paid_at ? new Date(data.locked.paid_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null,
+              ].filter(Boolean).join(" · ")}
+              {data.locked.unlocked_at
+                ? ". Changes here don't touch the customer's paid link; sharing again makes a new link. Every change keeps the previous copy in History."
+                : ". The customer's link keeps exactly what they paid for. New plans go in a new trip."}
+            </small>
+          </div>
+          <div className="taw-locked-a">
+            <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => startNewTrip(enquiryId)}>
+              <Icon name="plus" size={13} /> Start a new trip
+            </button>
+            <PaidTripHistory enquiryId={enquiryId} advisors={advisors || []} canRestore={!!data.locked.unlocked_at}
+              // The paid stamp stays as it is now; only the trip itself goes back.
+              onRestore={(it: any) => setData((d: any) => ({ ...it, locked: d.locked }))} />
+            {!data.locked.unlocked_at ? (
+              <button type="button" className="taw-btn taw-btn--sm"
+                onClick={() => { if (window.confirm("This trip is paid. Unlock it for editing only if a change is truly needed — the customer's paid link won't change, and the order keeps what was paid. Unlock?")) unlockItinerary(enquiryId); }}>
+                Unlock to edit
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
+          before it takes a flight's payment). Only when a flight has a live price. */}
+      <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly
@@ -663,7 +704,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         return visibleDays.map((day: any) => {
         const open = dayOpenFor(day);
         const attention = dayHasAttention(day);
-        const inBound = dayInBound(day, data);
+        const inBound = dayInBound(day, summary);
         // Calendar day number from the trip's first day (17 Nov = Day 1, 21 Nov = Day 5).
         const calNumber = dayNumberOf(day._iso, summary.startIso);
         const dayNumber = inBound ? (calNumber != null ? (inBoundCounter = calNumber) : ++inBoundCounter) : null;
@@ -679,7 +720,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           }
         }
         if (calNumber != null) prevIso = day._iso;
-        const suggestedNumber = inBound ? dayNumber! : day._iso < (data.startIso || day._iso) ? 1 : totalInBoundCount + 1;
+        const suggestedNumber = inBound ? dayNumber! : day._iso < (summary.startIso || day._iso) ? 1 : totalInBoundCount + 1;
         function toggle() {
           setOpenDays((s) => ({ ...s, [day.id]: !open }));
         }
@@ -842,6 +883,28 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
+                          {item.type === "flight" && !item.pricing && item.status !== "confirmed" ? (
+                            // Not live-priced (Tara's draft, or added before live pricing): no live fare, no
+                            // breakdown in the proposal and not payable online until priced from Search.
+                            <div className="taw-itin-reprice">
+                              <Icon name="alert" size={12} />
+                              <span>
+                                {item.origin && item.dest && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))
+                                  ? "Not live-priced yet — get TripSure's live fare for this flight (route, day and flight numbers filled in for you)."
+                                  : "Not live-priced yet — this draft doesn't say its airports or date clearly; search the route in Search and Add the flight."}
+                              </span>
+                              {item.origin && item.dest && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || "")) ? (
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--accent"
+                                  onClick={() => requestLivePrice({
+                                    origin: item.origin, dest: item.dest, date: day._iso, cabin: item.cabin || null,
+                                    flightNos: (item.segments || []).map((sg: any) => sg.flightNo).filter(Boolean),
+                                    pax: item.paxMix || null,
+                                  })}>
+                                  Get live price
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}
                           {item.facts ? <StayFacts facts={item.facts} /> : null}
                           {item.alternatives && item.alternatives.length ? (
@@ -852,7 +915,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                               {item.alternatives.map((a: any, ai: number) => (
                                 <span key={ai} className="taw-itin-alt">
                                   {item.type === "flight" ? [a.carrier, a.flightNo].filter(Boolean).join(" ") || "Flight" : a.name || "Hotel"}
-                                  {a.price ? <em>{inr(a.price)}</em> : null}
+                                  {item.type === "flight" ? (
+                                    // Cabin, times, bag and refundability; the price is the searched fare
+                                    // alone, so it reads "from" next to a flight priced with add-ons.
+                                    <small className="taw-itin-alt-facts">
+                                      {[a.depTime ? a.depTime + (a.arrTime ? "–" + a.arrTime : "") : null, item.cabin ? String(item.cabin).replace(/_/g, " ") : null,
+                                        a.baggageKg ? a.baggageKg + " kg" : null, a.refundable == null ? null : a.refundable ? "refundable" : "non-ref",
+                                        item.pricing ? "no add-ons" : null].filter(Boolean).join(" · ")}
+                                    </small>
+                                  ) : null}
+                                  {a.price ? <em>{item.type === "flight" && item.pricing ? "from " : ""}{inr(a.price)}</em> : null}
                                   <button
                                     type="button"
                                     aria-label="Remove this swap option"

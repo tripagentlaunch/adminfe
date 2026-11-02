@@ -379,6 +379,10 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
   // never re-registered — always reads the LATEST in-flight status instead
   // of the value captured when the effect first ran.
   const busyRef = useRef(false);
+  // Mirrors `stage` for the same reason: the onChange listener is registered
+  // once, so it can't see the current stage through its closure.
+  const stageRef = useRef("checking");
+  stageRef.current = stage;
 
   function resolve() {
     if (busyRef.current) {
@@ -448,6 +452,11 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
     onChange((tok: any) => {
       console.log(DEBUG_TAG, "onChange fired, token ->", maskJwt(tok));
       if (tok) {
+        // supabase-js re-emits SIGNED_IN / TOKEN_REFRESHED whenever the tab
+        // regains focus. Re-resolving would flip stage to "resolving" and
+        // unmount the whole workbench (losing open modals and form state),
+        // so only resolve when we're not already signed in.
+        if (stageRef.current === "ready") return;
         resolve();
       } else {
         (window as any).TA_ROLE = null;

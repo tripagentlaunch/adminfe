@@ -59,6 +59,8 @@ const STAGES = [
   { key: "building", label: "Building Itinerary", icon: "compass", tone: "info", action: "console", actionLabel: "Continue itinerary" },
   { key: "sent", label: "Sent to Proposal", icon: "send", tone: "gold", action: "composer", actionLabel: "Open proposal" },
   { key: "accepted", label: "Accepted", icon: "check", tone: "success", action: "book", actionLabel: "Book trip" },
+  // Money received on the trip's booking order (from any screen): it's booked, not a proposal any more.
+  { key: "paid", label: "Paid", icon: "check", tone: "success", action: "order", actionLabel: "Open order" },
   { key: "revision_requested", label: "Revision Requested", icon: "refresh", tone: "warn", action: "console", actionLabel: "Revise itinerary" },
   { key: "rejected", label: "Rejected", icon: "x", tone: "danger", action: "composer", actionLabel: "Open proposal" },
 ] as const;
@@ -115,7 +117,17 @@ export default function PipelinePage() {
       const persistedProposal = persisted && persisted.proposal;
       const hasItinerary = !!itinerariesByEnquiry[e.id] || !!(persisted && persisted.itinerary_generated_at);
       const outcome = proposalEntry ? proposalEntry.outcome : persistedProposal && persistedProposal.outcome;
-      const stage = outcome ? (outcome === "awaiting" ? "sent" : outcome) : hasItinerary ? "building" : "new";
+      // Paid wins over everything: money on the trip's order, or the itinerary locked by a payment.
+      const booking = persisted && persisted.booking;
+      const locked = itinerariesByEnquiry[e.id]?.locked;
+      const paid = !!((booking && booking.paid > 0) || locked);
+      const stage = paid ? "paid" : outcome ? (outcome === "awaiting" ? "sent" : outcome) : hasItinerary ? "building" : "new";
+      const paidText = paid
+        ? [booking?.all_paid || locked?.all_paid ? "Fully paid" : "Part paid",
+           booking ? `₹${Math.round(booking.paid).toLocaleString("en-IN")}` : locked?.paid_amount ? `₹${Math.round(locked.paid_amount).toLocaleString("en-IN")}` : null,
+          ].filter(Boolean).join(" · ")
+        : null;
+      const orderNumber = (booking?.orders || [])[0] || locked?.order_number || null;
       const member = e.member_id ? membersById[e.member_id] : null;
       const intent = e.ask || {};
       let dests = intent.destinations || intent.destination || [];
@@ -126,7 +138,7 @@ export default function PipelinePage() {
         proposalEntry?.sentAt ||
         (persistedProposal ? new Date(persistedProposal.sent_at).getTime() : 0) ||
         (e.created_at ? new Date(e.created_at).getTime() : 0);
-      return { enquiry: e, member, proposalEntry, stage, name: member ? member.name : "New lead", destText, pax, updatedAt };
+      return { enquiry: e, member, proposalEntry, stage, paidText, orderNumber, name: member ? member.name : "New lead", destText, pax, updatedAt };
     });
   }, [enquiries, membersById, itinerariesByEnquiry, proposalQueue, pipelineStatusByEnquiry]);
 
@@ -155,7 +167,9 @@ export default function PipelinePage() {
   // to Console to actually revise the itinerary, not Proposal Composer.
   function openRow(row: (typeof allRows)[number]) {
     const stageDef = STAGE_BY_KEY[row.stage];
-    if (stageDef.action === "book") {
+    if (stageDef.action === "order") {
+      router.push(row.orderNumber ? `/orders?q=${encodeURIComponent(row.orderNumber)}` : "/orders");
+    } else if (stageDef.action === "book") {
       // Accepted: straight to New Booking (live fares), tied to this enquiry.
       router.push(bookingHandoffUrl({ enquiry: row.enquiry, member: row.member, itinerary: itinerariesByEnquiry[row.enquiry.id] || row.proposalEntry?.data }));
     } else if (stageDef.action === "composer" && !row.proposalEntry) {
@@ -222,6 +236,7 @@ export default function PipelinePage() {
                                 <Icon name={stageDef.icon} size={10} />
                                 {stageDef.label}
                               </span>
+                              {row.paidText ? <small className="taw-pipeline-paid">{row.paidText}{row.orderNumber ? ` · ${row.orderNumber}` : ""}</small> : null}
                             </td>
                             <td style={{ fontWeight: 600 }}>{row.name}</td>
                             <td>{row.destText || "—"}</td>

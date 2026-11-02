@@ -31,10 +31,10 @@ export function occToTripsure(rooms: RoomOcc[]) {
   }));
 }
 
-/** Rooms for an enquiry's travellers: under-12s are children, 2 adults per room. */
+/** Rooms for an enquiry's travellers: under-18s are children, 2 adults per room. */
 export function occFromPersons(persons: any[] | undefined): RoomOcc[] {
   const ages = (persons || []).map((p: any) => (p && p.age != null && p.age !== "" ? Number(p.age) : null));
-  const childAges = ages.filter((a): a is number => a != null && a < 12);
+  const childAges = ages.filter((a): a is number => a != null && a < 18);
   const adults = Math.max(1, ages.length - childAges.length);
   const roomCount = Math.min(MAX_ROOMS, Math.max(1, Math.ceil(adults / 2)));
   const rooms: RoomOcc[] = Array.from({ length: roomCount }, () => ({ adults: 0, childAges: [] }));

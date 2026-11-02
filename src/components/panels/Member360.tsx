@@ -68,7 +68,7 @@ function dateFlexChipClass(tag: string) {
 export function Member360(props: any) {
   const m = props.member;
   const enquiry = props.enquiry;
-  const { itinerariesByEnquiry, generatingItinerary } = useWorkbench();
+  const { itinerariesByEnquiry, generatingItinerary, pipelineStatusByEnquiry } = useWorkbench();
 
   // Hero photo — one Pexels stock photo for the destination, via adminbe's
   // GET /enquiries/destination-photo. Any failure / no key / no result leaves
@@ -179,6 +179,8 @@ export function Member360(props: any) {
     } catch (e) { /* keep the raw code */ }
   }
   const itineraryStarted = !!(enquiry && itinerariesByEnquiry[enquiry.id]);
+  // Paid on its booking order (any screen) or locked by a payment: the trip is booked.
+  const tripPaid = !!(enquiry && ((pipelineStatusByEnquiry?.[enquiry.id]?.booking?.paid || 0) > 0 || itinerariesByEnquiry[enquiry.id]?.locked));
   const itineraryGenerating = !!(enquiry && generatingItinerary[enquiry.id]);
   const enquiryClosed = !!(enquiry && enquiry.status === "closed");
   // Quick Note: the AI-written conversation summary (enquiries.message, set
@@ -322,7 +324,7 @@ export function Member360(props: any) {
                 <>
                   <span style={heroPill}>{enquiryClosed ? "Closed" : "Active"}</span>
                   <span style={heroPill}>
-                    {itineraryGenerating ? "Generating" : itineraryStarted ? "In Progress" : "Not Started"}
+                    {tripPaid ? "Paid" : itineraryGenerating ? "Generating" : itineraryStarted ? "In Progress" : "Not Started"}
                   </span>
                 </>
               ) : null}

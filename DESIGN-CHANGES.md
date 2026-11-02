@@ -21,6 +21,18 @@ New entries go at the **top**. Use this template:
 
 ---
 
+## 2026-11-02 — Flight add-ons per traveller (seats, meals, baggage)
+
+**What changed:** The seats / meals / baggage picker allowed one of each per segment, for the lead traveller only, so a 9-traveller booking could get one seat and one meal. It now has a travellers row (Adult 1 (lead) … Child N). Each traveller picks their own seat, meal and bag. Meals and bags have "Add for all N", picking moves on to the next traveller, a seat held by another traveller shows as taken, and infants take no add-ons. Used by both New booking (Orders) and the Console's "Price for the itinerary" drawer. In the Console, add-on labels name the traveller ("Veg meal · Adult 2").
+**Files touched:** src/components/orders/FlightExtras.tsx, FlightQuoteDrawer.tsx, NewBookingModal.tsx, src/components/panels/FlightDesk.tsx, src/styles/orders-workspace.css
+**Data/API status:**
+- Real (already wired): `POST /booking-orders/flight-itinerary/{id}/confirm` segments now carry `pax_index` (1 = lead, then adults, then children). There is one entry per segment and traveller. Console pricing extras carry `pax`.
+- Needs backend attention: none. Needs the matching adminbe change, pushed together: it validates per traveller and sends each passenger's own `ssr` to TripSure's Update Itinerary (guide 6.7).
+**Env vars added/changed:** none
+**Backend action needed:** None beyond deploying the adminbe commit of the same date.
+
+---
+
 ## 2026-10-27 — End-to-end QA run (enquiry → itinerary → proposal): fixes
 
 **What changed:** A QA run done as a real advisor on dev: a new enquiry from scratch, then Delhi ⇄ Goa for 2 adults + 1 child (8), 10–14 Dec, a 5★ stay 4 nights with distances from Calangute Beach, then the Proposal Composer and PDF. Fixed along the way:
