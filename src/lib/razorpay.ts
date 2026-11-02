@@ -54,6 +54,11 @@ function loadScript(): Promise<void> {
   return loadingPromise;
 }
 
+/** Starts downloading Checkout now (a customer opening the payment link), so Pay now doesn't wait for the script. */
+export function preloadRazorpay(): void {
+  if (typeof window !== 'undefined') loadScript().catch(() => {});
+}
+
 export async function openRazorpayCheckout(opts: RazorpayOpenOptions): Promise<void> {
   await loadScript();
   if (!window.Razorpay) throw new Error('Razorpay unavailable');

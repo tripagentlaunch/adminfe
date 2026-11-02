@@ -36,6 +36,7 @@ import { useRouter } from "next/navigation";
 import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { payHeldOrder } from "../../lib/proposalPayment";
+import { preloadRazorpay } from "../../lib/razorpay";
 import { PayTimer } from "./PayTimer";
 import { ProposalPayModal } from "./ProposalPayModal";
 import { ProposalFlightPayModal, type FlightPayQuote } from "./ProposalFlightPayModal";
@@ -613,6 +614,8 @@ export function ProposalPreviewPage({
       })
       .catch((e: any) => { want(false); setCheck({ status: "error", message: errText(e) }); });
   }
+  // Checkout's script is fetched while the customer reads, not after Pay now.
+  useEffect(() => { if (payToken) preloadRazorpay(); }, [payToken]);
   useEffect(() => {
     if (!payToken) return;
     if (payOpen && !autoOpened.current) { autoOpened.current = true; want(true); }
