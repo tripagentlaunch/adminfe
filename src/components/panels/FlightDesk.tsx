@@ -1293,6 +1293,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
           key={active.offer.id}
           offer={active.offer}
           startTab={active.tab}
+          pax={pax}
           paxNote={"for " + paxText(pax)}
           onAdd={(p) => addPriced(active.offer, p)}
           onClose={() => { setQuote(null); if (onAutoPickDone) onAutoPickDone(); }}

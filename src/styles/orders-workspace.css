@@ -745,6 +745,11 @@
 .fi-seg em{font-style:normal;font-size:11.5px;font-weight:600;color:var(--taupe);background:var(--bone);border-radius:999px;padding:2px 8px;}
 .fi-seg em.got{background:var(--success-bg);color:var(--success-ink);}
 .fi-seg.on{border-color:var(--gold);background:var(--gold-bg);box-shadow:0 0 0 1px var(--gold);}
+/* Travellers row under the segments: green once that traveller has this add-on. */
+.fi-pax{margin-top:6px;}
+.fi-pax .fi-seg{font-weight:500;font-size:13px;color:var(--taupe);}
+.fi-pax .fi-seg.got{color:var(--ink);border-color:var(--success-ink);background:var(--success-bg);}
+.fi-pax .fi-seg.got.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold);}
 
 @media (max-width:760px){
   .fi-body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);}

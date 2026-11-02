@@ -17,7 +17,7 @@ import { NATIONALITIES } from "./TravellersForm";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
-import { EXTRAS_TABS, FlightExtrasPicker, NO_PICK, extrasCounts, extrasDrawerTabs, extrasSum, firstExtrasTab, type ExtrasTab, type SegSel } from "./FlightExtras";
+import { EXTRAS_TABS, FlightExtrasPicker, emptySel, extrasCounts, extrasDrawerTabs, extrasSum, firstExtrasTab, paxSlots, selSegments, withPick, type ExtrasSel, type ExtrasTab } from "./FlightExtras";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
@@ -268,7 +268,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
   // ── Step 4: seats & baggage ───────────────────────────────────────────────
   // Select locks the fare as a hidden DRAFT, then real options come from SSR.
-  const [sel, setSel] = useState<SegSel[]>([]);
+  const [sel, setSel] = useState<ExtrasSel>([]);
   const [ssr, setSsr] = useState<any | null>(null);
   const [draft, setDraft] = useState<{ itineraryId: string; tripsureId: string } | null>(null);
   const draftRef = useRef<{ itineraryId: string; tripsureId: string } | null>(null);
@@ -399,7 +399,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setSsr(catalog);
       setSelectedOffer(offer);
       setSelectedReturn(returnOffer || null);
-      setSel((segments.length ? segments : [null]).map(() => NO_PICK));
+      setSel(emptySel(segments.length, paxSlots(form.adults, form.children).length));
       setSeatSeg(0);
       // Open on the first tab the airline actually offers something for (Air India often has meals only).
       setDrawerTab(firstExtrasTab(catalog, segments[0], offer.detail));
@@ -471,14 +471,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   function confirmItinerary() {
     const d = draftRef.current;
     if (!d) { setErr("This fare is no longer held — go back and select it again."); return; }
-    const segments = sel
-      .map((p, i) => ({
-        segment_order: i + 1,
-        seat: p.seat ? { code: p.seat.code, label: p.seat.label, price: p.seat.price } : null,
-        baggage: p.baggage ? { code: p.baggage.code, label: p.baggage.label, price: p.baggage.price } : null,
-        meal: p.meal ? { code: p.meal.code, label: p.meal.label, price: p.meal.price } : null,
-      }))
-      .filter((x) => x.seat || x.baggage || x.meal);
+    // One entry per segment and traveller: each traveller's add-ons go on their own passenger.
+    const segments = selSegments(sel);
     setCreating(true);
     setErr(null);
     // Server re-verifies every price against Tripsure SSR (409 on mismatch).
@@ -1208,9 +1202,11 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   detail={d}
                   tab={tab as ExtrasTab}
                   sel={sel}
+                  pax={paxSlots(form.adults, form.children)}
+                  infants={form.infants}
                   seg={seatSeg}
                   onSeg={setSeatSeg}
-                  onPick={(i, kind, v) => setSel((prev) => prev.map((p, j) => (j === i ? { ...p, [kind]: v } : p)))}
+                  onPick={(i, j, kind, v) => setSel((prev) => withPick(prev, i, j, kind, v))}
                   busy={busy}
                   asked={preset?.requests && (requestChips(preset.requests).length || preset.requests.note)
                     ? [...requestChips(preset.requests), preset.requests.note].filter(Boolean).join(" · ") : null}
