@@ -19,6 +19,10 @@ import {
 import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
 import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
 import { HotelLocationMap } from "../panels/HotelLocationMap";
+import {
+  DEFAULT_CHILD_AGE, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, defaultRooms, guestsPill, overCapacity, roomGuestsPayload, roomLines, roomParty, roomsKey, roomsProblem, totals, tripsureRooms,
+  type RoomGuests,
+} from "../../lib/hotelRooms";
 
 type Customer = { member_id: string | null; name: string; email: string; phone?: string };
 type Sub = "search" | "results" | "rooms" | "guest" | "locked";
@@ -93,6 +97,10 @@ function splitPrice(rb: any, total: number) {
   if (base == null && tax == null) return null;
   return { base: base ?? total - (tax || 0), tax: tax ?? total - (base || 0), total };
 }
+
+// What one room costs for one night, from the stay total (which already covers every room and night and
+// includes taxes). With several rooms it is the average: rooms with different guests can be priced apart.
+const perRoomNight = (total: number, nights: number, rooms: number) => Math.round(total / Math.max(1, nights) / Math.max(1, rooms));
 
 function PriceBreakdown({ price, nights, rooms }: { price: { base: number; tax: number; total: number } | null; nights: number; rooms: number }) {
   if (!price) return null;
@@ -175,15 +183,25 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   onError: (msg: string | null) => void;
 }) {
   const [sub, setSub] = useState<Sub>("search");
-  const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16), rooms: 1, adults: 2, children: 0, childAges: [] as number[] });
+  const [form, setForm] = useState({ city: "", checkIn: todayISO(14), checkOut: todayISO(16) });
   const set = (k: string, v: any) => setForm((f) => ({ ...f, [k]: v }));
-  // children change together with their ages (one age per child, 0-17; new ones start at 5)
-  const setChildren = (n: number) => setForm((f) => ({ ...f, children: n, childAges: Array.from({ length: n }, (_, i) => f.childAges[i] ?? 5) }));
-  const setAge = (i: number, age: number) => setForm((f) => ({ ...f, childAges: f.childAges.map((a, j) => (j === i ? age : a)) }));
+  // Who sleeps in which room. Tripsure prices and locks occupancy PER ROOM, so each room carries its own
+  // adults and children (with ages); the totals below are derived from it, never the other way round.
+  const [roomsCfg, setRoomsCfg] = useState<RoomGuests[]>(defaultRooms);
+  const tot = totals(roomsCfg);
+  const nRooms = roomsCfg.length;
+  const editRoom = (i: number, fn: (r: RoomGuests) => RoomGuests) => setRoomsCfg((rs) => rs.map((r, j) => (j === i ? fn(r) : r)));
+  const addRoom = () => setRoomsCfg((rs) => (rs.length >= MAX_ROOMS ? rs : rs.concat([{ adults: 2, childAges: [] }])));
+  const removeRoom = (i: number) => setRoomsCfg((rs) => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i)));
+  const setRoomAdults = (i: number, n: number) => editRoom(i, (r) => ({ ...r, adults: Math.max(1, Math.min(MAX_ADULTS_PER_ROOM, n)) }));
+  const addChild = (i: number) => editRoom(i, (r) => (r.childAges.length >= MAX_CHILDREN_PER_ROOM ? r : { ...r, childAges: r.childAges.concat([DEFAULT_CHILD_AGE]) }));
+  const dropChild = (i: number) => editRoom(i, (r) => ({ ...r, childAges: r.childAges.slice(0, -1) }));
+  const setAge = (i: number, k: number, age: number) => editRoom(i, (r) => ({ ...r, childAges: r.childAges.map((a, j) => (j === k ? age : a)) }));
   // Dates of the search that minted `session` (docKey/token). The form can be edited
   // after "Change search" without re-searching, so recording a stay must use these.
   const [searched, setSearched] = useState<{ checkIn: string; checkOut: string } | null>(null);
   const [location, setLocation] = useState<any>(null);
+  const [intl, setIntl] = useState(false); // the searched place is outside India (from the suggestion's country, not assumed)
   const [busy, setBusy] = useState(false);
   const [panel, setPanel] = useState<null | "dates" | "guests">(null); // inline calendar / guests panel
 
@@ -252,9 +270,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const stopMore = () => { if (moreRef.current) moreRef.current.stop(); moreRef.current = null; setMoreInfo(null); };
   useEffect(() => () => { if (moreRef.current) moreRef.current.stop(); }, []);
   const offers = useMemo(
-    () => hotels.map((h) => mapTripSureHotel(h, { international: false, nights, rooms: form.rooms, docKey: h._session && h._session.docKey, token: h._session && h._session.token })),
+    () => hotels.map((h) => mapTripSureHotel(h, { international: intl, nights, rooms: nRooms, docKey: h._session && h._session.docKey, token: h._session && h._session.token })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [hotels, nights, form.rooms]
+    [hotels, nights, nRooms, intl]
   );
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
   const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
@@ -279,6 +297,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     if (!form.city.trim()) { onError("Enter a city or destination."); return; }
     if (!form.checkOut) { setPanel("dates"); onError("Pick a check-out date."); return; }
     if (!(nights >= 1)) { onError("Check-out must be after check-in."); return; }
+    const bad = roomsProblem(roomsCfg);
+    if (bad) { setPanel("guests"); onError(bad); return; }
     newHotelJourney(); // one trace id for this search, through to the room that gets booked
     setBusy(true);
     const withLoc = location
@@ -291,22 +311,15 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     withLoc
       .then((top: any): Promise<any> | any => {
         const countryCode = top.country || "IN";
-        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, form.rooms, form.adults, form.childAges.join(",")]);
+        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg)]);
         searchKeyRef.current = key;
         const kept = keptSearch(key);
         if (kept) return { kept };
         return hotelListingStart({
           checkIn: form.checkIn,
           checkOut: form.checkOut,
-          // children are dealt out room by room, the same way the server does when it locks the room
-          rooms: Array.from({ length: form.rooms }, (_, i) => {
-            const ages = form.childAges.filter((_a, j) => j % form.rooms === i);
-            return {
-              numberOfAdults: String(Math.max(1, Math.ceil(form.adults / form.rooms))),
-              numberOfChildren: String(ages.length),
-              childrenAge: ages.join(","),
-            };
-          }),
+          // exactly who is in each room: this is what the price is for, and the room is locked with the same list
+          rooms: tripsureRooms(roomsCfg),
           city: top.city || top.name,
           locationSuggestion: { id: String(top.id), name: top.name, type: top.type, lat: top.coordinates.lat, lon: top.coordinates.lon },
           state: resolveState(top),
@@ -323,11 +336,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
         stopMore();
         setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
         if (out.kept) {
-          setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setHotels(out.kept.hotels); setSub("results");
+          setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setIntl(!!out.kept.international); setHotels(out.kept.hotels); setSub("results");
           return;
         }
         const { r, countryCode, top } = out;
         setPlaces(placesFromSuggestion(top));
+        const international = String(countryCode).toUpperCase() !== "IN";
+        setIntl(international);
         const first = (r.hotels || []).map((h: any) => ({ ...h, _session: { docKey: r.docKey, token: r.token } }));
         setSession({ docKey: r.docKey, token: r.token });
         const when = { checkIn: form.checkIn, checkOut: form.checkOut };
@@ -345,13 +360,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             onDone: (all) => {
               if (moreRef.current === handle) moreRef.current = null;
               setMoreInfo(null);
-              keepSearch(searchKeyRef.current, { hotels: all, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
+              keepSearch(searchKeyRef.current, { hotels: all, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top), international });
             },
             onFail: (all) => { if (moreRef.current === handle) moreRef.current = null; setMoreInfo({ loaded: all.length, failed: true }); },
           });
           moreRef.current = handle;
         } else {
-          keepSearch(searchKeyRef.current, { hotels: first, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top) });
+          keepSearch(searchKeyRef.current, { hotels: first, session: { docKey: r.docKey, token: r.token }, searched: when, places: placesFromSuggestion(top), international });
         }
       })
       .catch((e: any) => onError(errText(e)))
@@ -463,10 +478,11 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
       },
       check_in: (searched || form).checkIn,
       check_out: (searched || form).checkOut,
-      rooms: form.rooms,
-      adults: form.adults,
-      children: form.children,
-      children_ages: form.childAges,
+      rooms: nRooms,
+      adults: tot.adults,
+      children: tot.children,
+      children_ages: tot.childAges,
+      room_guests: roomGuestsPayload(roomsCfg), // who sleeps where: the lock sends exactly this
       journey_id: currentHotelJourney(),
     })
       .then((r: any) => {
@@ -523,16 +539,18 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   if (sub === "search") {
-    const stepper = (label: string, k: "rooms" | "adults" | "children", min: number, max: number) => (
+    // One small +/- control (rooms of the guests panel below).
+    const stepper = (label: string, value: number, min: number, max: number, change: (n: number) => void) => (
       <div className="ow-gstep">
         <span>{label}</span>
         <div className="ow-step">
-          <button type="button" disabled={form[k] <= min} aria-label={`Fewer ${label}`} onClick={() => (k === "children" ? setChildren(form[k] - 1) : set(k, form[k] - 1))}><Icon name="minus" size={13} /></button>
-          <b>{form[k]}</b>
-          <button type="button" disabled={form[k] >= max} aria-label={`More ${label}`} onClick={() => (k === "children" ? setChildren(form[k] + 1) : set(k, form[k] + 1))}><Icon name="plus" size={13} /></button>
+          <button type="button" disabled={value <= min} aria-label={`Fewer ${label}`} onClick={() => change(value - 1)}><Icon name="minus" size={13} /></button>
+          <b>{value}</b>
+          <button type="button" disabled={value >= max} aria-label={`More ${label}`} onClick={() => change(value + 1)}><Icon name="plus" size={13} /></button>
         </div>
       </div>
     );
+    const problem = roomsProblem(roomsCfg);
     return (
       <>
         <div className="ow-sbar ow-sbar--hotel">
@@ -589,7 +607,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             <button type="button" className="ow-pillbtn" aria-expanded={panel === "guests"}
               onClick={() => setPanel(panel === "guests" ? null : "guests")}>
               <Icon name="people" size={14} />
-              <span>{form.adults} Guest{form.adults === 1 ? "" : "s"}{form.children ? ` + ${form.children} child${form.children === 1 ? "" : "ren"}` : ""} · {form.rooms} Room{form.rooms === 1 ? "" : "s"}</span>
+              <span>{guestsPill(roomsCfg)}</span>
             </button>
           </div>
 
@@ -607,22 +625,34 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           />
         ) : null}
         {panel === "guests" ? (
-          <div className="ow-gpanel">
-            {stepper("Rooms", "rooms", 1, 9)}
-            {stepper("Adults 18+ (total)", "adults", 1, 36)}
-            {stepper("Children 0-17 (total)", "children", 0, 18)}
-            {form.children > 0 ? (
-              <div className="ow-gstep" style={{ flexWrap: "wrap", gap: 8 }}>
-                <span style={{ width: "100%" }}>Age of each child on the day of travel</span>
-                {form.childAges.map((age, i) => (
-                  <select key={i} className="taw-input" aria-label={`Age of child ${i + 1}`} value={age} style={{ width: 92 }}
-                    onChange={(e) => setAge(i, Number(e.target.value))}>
-                    {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : `${a} yr${a === 1 ? "" : "s"}`}</option>)}
-                  </select>
-                ))}
+          <div className="ow-gpanel ow-rooms" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+            {roomsCfg.map((r, i) => (
+              <div className="ow-room" key={i} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div className="ow-gstep" style={{ justifyContent: "space-between" }}>
+                  <b>Room {i + 1}</b>
+                  {nRooms > 1 ? <button type="button" className="ow-link" onClick={() => removeRoom(i)} aria-label={`Remove room ${i + 1}`}>Remove</button> : null}
+                </div>
+                {stepper("Adults 18+", r.adults, 1, MAX_ADULTS_PER_ROOM, (n) => setRoomAdults(i, n))}
+                {stepper("Children 0-17", r.childAges.length, 0, MAX_CHILDREN_PER_ROOM, (n) => (n > r.childAges.length ? addChild(i) : dropChild(i)))}
+                {r.childAges.length > 0 ? (
+                  <div className="ow-gstep" style={{ flexWrap: "wrap", gap: 8 }}>
+                    <span style={{ width: "100%" }}>Age of each child on the day of travel</span>
+                    {r.childAges.map((age, k) => (
+                      <select key={k} className="taw-input" aria-label={`Room ${i + 1}, age of child ${k + 1}`} value={age} style={{ width: 92 }}
+                        onChange={(e) => setAge(i, k, Number(e.target.value))}>
+                        {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : `${a} yr${a === 1 ? "" : "s"}`}</option>)}
+                      </select>
+                    ))}
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPanel(null)}>Done</button>
+            ))}
+            <div className="ow-gstep" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+              <button type="button" className="taw-btn taw-btn--sm" onClick={addRoom} disabled={nRooms >= MAX_ROOMS}><Icon name="plus" size={13} /> Add another room</button>
+              <span className="ow-sub">{tot.adults} adult{tot.adults === 1 ? "" : "s"}{tot.children ? `, ${tot.children} child${tot.children === 1 ? "" : "ren"}` : ""} in {nRooms} room{nRooms === 1 ? "" : "s"}</span>
+              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => setPanel(null)} disabled={!!problem}>Done</button>
+            </div>
+            {problem ? <div className="ow-sub" role="alert" style={{ color: "var(--danger, #b00020)", whiteSpace: "normal" }}>{problem}</div> : null}
           </div>
         ) : null}
 
@@ -635,7 +665,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   if (sub === "results") {
-    const nightsTxt = `${nights >= 1 ? nights : 1} night${nights === 1 ? "" : "s"}, ${form.rooms} room${form.rooms === 1 ? "" : "s"}`;
+    const nightsTxt = `${nights >= 1 ? nights : 1} night${nights === 1 ? "" : "s"}, ${nRooms} room${nRooms === 1 ? "" : "s"}`;
     const chip = (on: boolean, label: string, toggle: () => void, icon?: string) => (
       <button type="button" className={`ow-fchip${on ? " on" : ""}`} aria-pressed={on} onClick={toggle}>
         {icon ? <Icon name={icon} size={13} /> : null}{label}
@@ -741,6 +771,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                           <>
                             <b>{inr(Number(best.totalPrice))}</b><em>onwards</em>
                             <small>{nightsTxt}</small>
+                            <small>{inr(perRoomNight(Number(best.totalPrice), nights, nRooms))} {nRooms > 1 ? "avg per room, per night" : "per night"} · incl. taxes</small>
                           </>
                         ) : <small>Price on selection</small>}
                       </div>
@@ -827,7 +858,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             </div>
           </div>
         ) : null}
-        <PriceBreakdown price={added.price} nights={nights} rooms={form.rooms} />
+        <PriceBreakdown price={added.price} nights={nights} rooms={nRooms} />
         <div className="ow-modal-foot">
           <button type="button" className="taw-btn" onClick={keepWithoutLock} disabled={adding} title="The room stays on the order but can't be confirmed until it is locked">
             Skip (lock later by searching again)
@@ -900,7 +931,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   if (!amenities.length) (info.facilities || listInfo.facilities || []).forEach((x: string) => amenities.push(x));
   const amenList = Array.from(new Set(amenities));
   const checkIn = info.checkIn, checkOut = info.checkOut;
-  const nightsTxt = `${nights >= 1 ? nights : 1} night${nights === 1 ? "" : "s"}, ${form.rooms} room${form.rooms === 1 ? "" : "s"}`;
+  const nightsTxt = `${nights >= 1 ? nights : 1} night${nights === 1 ? "" : "s"}, ${nRooms} room${nRooms === 1 ? "" : "s"}`;
   const share = () => {
     const txt = [name, [listInfo.address || info.address, listInfo.city || info.city].filter(Boolean).join(", "), `${fmtPill(form.checkIn)} → ${fmtPill(form.checkOut)}`].filter(Boolean).join("\n");
     (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(() => { setShared(true); setTimeout(() => setShared(false), 1800); }, () => onError("Couldn't copy to the clipboard."));
@@ -922,7 +953,8 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
     const freeRule = rules.find((r) => r.valueType === "Amount" && Number(r.value) === 0 && r.end);
     const freeUntil = live.refundable ? (freeRule && freeRule.end) || opt.freeUntil : null;
     const changed = live.changeInPrice || Math.round(live.total) !== Math.round(live.listed);
-    const guestsTxt = `${form.rooms} room${form.rooms === 1 ? "" : "s"} · ${form.adults} adult${form.adults === 1 ? "" : "s"}${form.children ? ` · ${form.children} child${form.children === 1 ? "" : "ren"}` : ""}`;
+    const guestsTxt = `${nRooms} room${nRooms === 1 ? "" : "s"} · ${tot.adults} adult${tot.adults === 1 ? "" : "s"}${tot.children ? ` · ${tot.children} child${tot.children === 1 ? "" : "ren"}` : ""}`;
+    const tight = overCapacity(roomsCfg, opt.sleeps || live.sleeps);
     // The live check often sends no check-in lines (Four Seasons does not); fall back to the
     // hotel's own "know before you go" / must-read rules from the details call.
     const rulesList: string[] = ((live.instructions || []).length ? live.instructions : know).flatMap((t: string) => {
@@ -972,6 +1004,7 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             {opt.images[0] ? <span className="ow-rv-rpic"><HotelImage src={opt.images[0]} alt="" thumb /></span> : null}
             <div className="ow-rv-lines">
               <span className="ow-sub">{guestsTxt}</span>
+              {roomLines(roomsCfg).map((l) => <span key={l.label} className="ow-sub">{l.label}: {l.text}</span>)}
               <b>{opt.title}</b>
               {opt.board ? <span className="ow-sub">{opt.board}{opt.inclusions ? ` · ${opt.inclusions}` : ""}</span> : null}
               {link("Room details", "room")}
@@ -992,7 +1025,12 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
             {changed ? `Price changed from ${inr(live.listed)} to ${inr(live.total)}. ` : ""}{live.changes && live.changes.length ? `${live.changes.join("; ")}. ` : ""}Tell the customer before continuing.
           </div>
         ) : null}
-        <PriceBreakdown price={live.price} nights={nights} rooms={form.rooms} />
+        {tight.length ? (
+          <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+            This room sleeps {opt.sleeps || live.sleeps}, but {tight.map((i) => `Room ${i + 1} has ${roomParty(roomsCfg[i])} guests`).join("; ")}. Check the extra-guest rules with the hotel before continuing.
+          </div>
+        ) : null}
+        <PriceBreakdown price={live.price} nights={nights} rooms={nRooms} />
         <div className="ow-rp-foot">
           <span><b>{inr(live.total)}</b> <small>{guestsTxt} · Incl. taxes &amp; fees</small></span>
           <span style={{ display: "inline-flex", gap: 8 }}>
@@ -1204,7 +1242,11 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
                       {r.inclusions ? <small>{r.inclusions}</small> : null}
                       <small className={r.refundable ? "ok" : "no"}>{r.refundable ? "Free cancellation" : "Non-refundable booking"}</small>
                     </span>
-                    <span className="ow-rate-pr"><b>{inr(shown)}</b><small>{nightsTxt}</small></span>
+                    <span className="ow-rate-pr">
+                      <b>{inr(shown)}</b><small>{nightsTxt}</small>
+                      <small>{inr(perRoomNight(shown, nights, nRooms))} {nRooms > 1 ? "avg per room, per night" : "per night"}</small>
+                      {r.price && r.price.tax > 0 ? <small>incl. {inr(r.price.tax)} taxes &amp; fees</small> : null}
+                    </span>
                   </button>
                 );
               })}
@@ -1218,7 +1260,12 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               </div>
             ) : null}
             {chk.state === "err" ? <div className="taw-banner taw-banner--warn">{chk.msg}</div> : null}
-            <PriceBreakdown price={price} nights={nights} rooms={form.rooms} />
+            {overCapacity(roomsCfg, sel.sleeps).length ? (
+              <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+                This room sleeps {sel.sleeps}, but {overCapacity(roomsCfg, sel.sleeps).map((i) => `Room ${i + 1} has ${roomParty(roomsCfg[i])} guests`).join("; ")}. Pick a larger room, or change who is in each room.
+              </div>
+            ) : null}
+            <PriceBreakdown price={price} nights={nights} rooms={nRooms} />
           </div>
         </div>
         )}
@@ -1359,7 +1406,9 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
               {best ? <><b>{inr(Number(best.totalPrice))}</b><em>onwards</em></> : <b>—</b>}
             </div>
             <small>{nightsTxt}</small>
+            {best ? <small>{inr(perRoomNight(Number(best.totalPrice), nights, nRooms))} {nRooms > 1 ? "avg per room, per night" : "per night"} · incl. taxes</small> : null}
             <div className="ow-hd-dates"><Icon name="calendar" size={13} /> {fmtPill(form.checkIn)} → {fmtPill(form.checkOut)}</div>
+            {roomLines(roomsCfg).map((l) => <small key={l.label} className="ow-sub" style={{ display: "block" }}>{l.label}: {l.text}</small>)}
             <div className={`ow-hd-avail${!busy && !opts.length ? " none" : ""}`}>{availability}</div>
             <button type="button" className="ow-searchbtn" style={{ minHeight: 42, width: "100%" }} onClick={() => { setSelCode((c) => c || (cheapestOpt && cheapestOpt.code) || null); setRoomImg(0); setPicking(true); }} disabled={busy || !opts.length}>
               Select Room

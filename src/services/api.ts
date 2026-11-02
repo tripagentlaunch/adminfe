@@ -2108,6 +2108,9 @@ function bookingDiscardFlightItinerary(itineraryId) {
 // Server re-runs Tripsure priceCheck, then records booking_hotels. Attach
 // precedence: itinerary_id > order_id > neither (new order + itinerary).
 // No Tripsure booking, guests or payment.
+// payload.room_guests = [{adults, children_ages: []}, ...] says who sleeps in each room (Tripsure prices and
+// locks occupancy per room); rooms / adults / children / children_ages must agree with it. Without it the
+// server splits the totals the default way.
 function bookingAddHotelStay(payload) {
   return fastapiBookingCall("/booking-orders/hotel-stay", { method: "POST", body: payload });
 }
