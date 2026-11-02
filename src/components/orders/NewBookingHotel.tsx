@@ -913,6 +913,12 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   // Cancellation / breakfast come from the room options the details call returned;
   // the listing's flags are only a fallback while those are still loading.
   const cheapestOpt = opts.slice().sort((a, b) => a.total - b.total)[0];
+  // "Starts from": the lowest rate among the rooms actually offered for these dates and guests (what Tripsure's
+  // own hotel page shows), else the listing's cheapest while the rooms load. The listing alone is not enough:
+  // a hotel can come back from the listing without a price and still have rooms, which left this as "-".
+  const optTotals = opts.map((o) => o.total).filter((t) => t > 0);
+  const listed = best ? Number(best.totalPrice) : 0;
+  const startTotal: number | null = optTotals.length ? Math.min(...optTotals) : listed > 0 ? listed : null;
   const refundOpt = opts.filter((o) => o.refundable).sort((a, b) => a.total - b.total)[0];
   const policyOpt = refundOpt || cheapestOpt;
   const bfCount = opts.filter((o) => /breakfast/i.test(`${o.inclusions} ${o.board}`)).length;
@@ -1406,10 +1412,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
           <div className="ow-hd-box">
             <small>Starts from</small>
             <div className="ow-hd-price">
-              {best ? <><b>{inr(Number(best.totalPrice))}</b><em>onwards</em></> : <b>—</b>}
+              {startTotal != null ? <><b>{inr(startTotal)}</b><em>onwards</em></> : busy ? <small>Checking prices…</small> : <b>—</b>}
             </div>
-            <small>{nightsTxt}</small>
-            {best ? <small>{inr(perRoomNight(Number(best.totalPrice), nights, nRooms))} {nRooms > 1 ? "avg per room, per night" : "per night"} · incl. taxes</small> : null}
+            <small>{nightsTxt}{startTotal != null ? " · incl. taxes & fees" : ""}</small>
+            {startTotal != null ? <small>{inr(perRoomNight(startTotal, nights, nRooms))} {nRooms > 1 ? "avg per room, per night" : "per night"}</small> : null}
             <div className="ow-hd-dates"><Icon name="calendar" size={13} /> {fmtPill(form.checkIn)} → {fmtPill(form.checkOut)}</div>
             {roomLines(roomsCfg).map((l) => <small key={l.label} className="ow-sub" style={{ display: "block" }}>{l.label}: {l.text}</small>)}
             <div className={`ow-hd-avail${!busy && !opts.length ? " none" : ""}`}>{availability}</div>
