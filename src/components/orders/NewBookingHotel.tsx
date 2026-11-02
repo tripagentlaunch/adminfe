@@ -5,10 +5,9 @@
    is Tripsure's, not what this component displays. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, Field, Icon, Spinner } from "../ui";
-import { AutosuggestInput } from "../AutosuggestInput";
-import { rankLocationSuggestions } from "../../lib/locationSuggest";
-import { cachedLiveCities, citySuggest, instantCitySuggest } from "../../lib/citySuggest";
-import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
+import { cachedLiveCities } from "../../lib/citySuggest";
+import { fmtPill } from "./RangeCalendar";
+import { HotelSearchBar } from "./HotelSearchBar";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
@@ -21,7 +20,7 @@ import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
 import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
 import { HotelLocationMap } from "../panels/HotelLocationMap";
 import {
-  DEFAULT_CHILD_AGE, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, defaultRooms, guestsPill, overCapacity, roomGuestsPayload, roomLines, roomParty, roomsKey, roomsProblem, totals, tripsureRooms,
+  defaultRooms, overCapacity, roomGuestsPayload, roomLines, roomParty, roomsKey, roomsProblem, totals, tripsureRooms,
   type RoomGuests,
 } from "../../lib/hotelRooms";
 
@@ -168,11 +167,6 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-// Same as the Search desk's City field (lib/citySuggest.ts): the built-in city directory answers at once
-// (instantSuggestions below), Tripsure's live list replaces it only when it answers within 4s, and a slow
-// or down Tripsure is not asked again for a minute - so the box never sits on "Searching..." waiting for it.
-const citySuggestions = (q: string) => (q ? citySuggest(q, rankLocationSuggestions) : Promise.resolve([]));
-
 export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdded, onError }: {
   customer: Customer;
   /** Attach as a new itinerary on this order. */
@@ -191,20 +185,13 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   const [roomsCfg, setRoomsCfg] = useState<RoomGuests[]>(defaultRooms);
   const tot = totals(roomsCfg);
   const nRooms = roomsCfg.length;
-  const editRoom = (i: number, fn: (r: RoomGuests) => RoomGuests) => setRoomsCfg((rs) => rs.map((r, j) => (j === i ? fn(r) : r)));
-  const addRoom = () => setRoomsCfg((rs) => (rs.length >= MAX_ROOMS ? rs : rs.concat([{ adults: 2, childAges: [] }])));
-  const removeRoom = (i: number) => setRoomsCfg((rs) => (rs.length <= 1 ? rs : rs.filter((_, j) => j !== i)));
-  const setRoomAdults = (i: number, n: number) => editRoom(i, (r) => ({ ...r, adults: Math.max(1, Math.min(MAX_ADULTS_PER_ROOM, n)) }));
-  const addChild = (i: number) => editRoom(i, (r) => (r.childAges.length >= MAX_CHILDREN_PER_ROOM ? r : { ...r, childAges: r.childAges.concat([DEFAULT_CHILD_AGE]) }));
-  const dropChild = (i: number) => editRoom(i, (r) => ({ ...r, childAges: r.childAges.slice(0, -1) }));
-  const setAge = (i: number, k: number, age: number) => editRoom(i, (r) => ({ ...r, childAges: r.childAges.map((a, j) => (j === k ? age : a)) }));
+
   // Dates of the search that minted `session` (docKey/token). The form can be edited
   // after "Change search" without re-searching, so recording a stay must use these.
   const [searched, setSearched] = useState<{ checkIn: string; checkOut: string } | null>(null);
   const [location, setLocation] = useState<any>(null);
   const [intl, setIntl] = useState(false); // the searched place is outside India (from the suggestion's country, not assumed)
   const [busy, setBusy] = useState(false);
-  const [panel, setPanel] = useState<null | "dates" | "guests">(null); // inline calendar / guests panel
 
   const [session, setSession] = useState<{ docKey: string; token: string } | null>(null);
   const [hotels, setHotels] = useState<any[]>([]);
@@ -296,10 +283,10 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   function runSearch() {
     onError(null);
     if (!form.city.trim()) { onError("Enter a city or destination."); return; }
-    if (!form.checkOut) { setPanel("dates"); onError("Pick a check-out date."); return; }
+    if (!form.checkOut) { onError("Pick a check-out date."); return; }
     if (!(nights >= 1)) { onError("Check-out must be after check-in."); return; }
     const bad = roomsProblem(roomsCfg);
-    if (bad) { setPanel("guests"); onError(bad); return; }
+    if (bad) { onError(bad); return; }
     newHotelJourney(); // one trace id for this search, through to the room that gets booked
     setBusy(true);
     const withLoc = location
@@ -557,125 +544,15 @@ export function NewBookingHotel({ customer, orderId, itineraryId, onBack, onAdde
   }
 
   if (sub === "search") {
-    // One small +/- control (rooms of the guests panel below).
-    const stepper = (label: string, value: number, min: number, max: number, change: (n: number) => void) => (
-      <div className="ow-gstep">
-        <span>{label}</span>
-        <div className="ow-step">
-          <button type="button" disabled={value <= min} aria-label={`Fewer ${label}`} onClick={() => change(value - 1)}><Icon name="minus" size={13} /></button>
-          <b>{value}</b>
-          <button type="button" disabled={value >= max} aria-label={`More ${label}`} onClick={() => change(value + 1)}><Icon name="plus" size={13} /></button>
-        </div>
-      </div>
-    );
-    const problem = roomsProblem(roomsCfg);
     return (
       <>
-        <div className="ow-sbar ow-sbar--hotel">
-          <label className={`ow-pill ow-pill--field ow-sbar-where nb-dest${location ? " set" : ""}`}>
-            <span className="ow-pill-l"><Icon name="pin" size={12} /> Where to?</span>
-            <AutosuggestInput
-              className="ow-pill-input"
-              value={form.city}
-              onChange={(v: any) => { set("city", String(v)); setLocation(null); }}
-              // A directory city has no Tripsure location id behind it: leave `location` empty so Search resolves it live.
-              onSelect={(l: any) => { set("city", l.name); setLocation(l._isFallbackDefault ? null : l); }}
-              fetchSuggestions={citySuggestions}
-              instantSuggestions={(q: string) => (q ? instantCitySuggest(q, rankLocationSuggestions) : [])}
-              floating
-              renderSuggestion={(l: any) => (
-                <span className="ow-sug">
-                  <span className="ow-sug-ic"><Icon name="hotel" size={16} /></span>
-                  <span className="ow-sug-t">
-                    <b>{l.name}</b>
-                    <small>{[l.type, l.fullName && l.fullName !== l.name ? l.fullName : [l.state, l.country].filter(Boolean).join(", ")].filter(Boolean).join(" · ")}</small>
-                  </span>
-                </span>
-              )}
-              getKey={(l: any) => String(l.id)}
-              placeholder="City, area or hotel"
-            />
-            {/* Only once a place is picked, and in full: half a line reads worse than none. */}
-            {location ? (
-              <span className="ow-pill-s nb-place">
-                <b>{location.fullName || [location.name, location.state, location.country].filter(Boolean).join(", ")}</b>
-                {location.type ? ` · ${location.type}` : ""}
-              </span>
-            ) : null}
-          </label>
-
-          <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
-            <span className="ow-pill-l nb-start"><i className="nb-dot" /> Check-in</span>
-            <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
-              onClick={() => setPanel(panel === "dates" ? null : "dates")}>
-              <Icon name="calendar" size={14} />
-              <span>{fmtPill(form.checkIn)}</span>
-            </button>
-          </div>
-
-          <div className={`ow-pill ow-pill--btn ow-sbar-date${panel === "dates" ? " open" : ""}`}>
-            <span className="ow-pill-l nb-end"><i className="nb-dot" /> Check-out{nights >= 1 ? ` · ${nights} night${nights === 1 ? "" : "s"}` : ""}</span>
-            <button type="button" className="ow-pillbtn" aria-expanded={panel === "dates"}
-              onClick={() => setPanel(panel === "dates" ? null : "dates")}>
-              <Icon name="calendar" size={14} />
-              <span>{fmtPill(form.checkOut)}</span>
-            </button>
-          </div>
-
-          <div className={`ow-pill ow-pill--btn ow-sbar-guests${panel === "guests" ? " open" : ""}`}>
-            <span className="ow-pill-l">Guests &amp; rooms</span>
-            <button type="button" className="ow-pillbtn" aria-expanded={panel === "guests"}
-              onClick={() => setPanel(panel === "guests" ? null : "guests")}>
-              <Icon name="people" size={14} />
-              <span>{guestsPill(roomsCfg)}</span>
-            </button>
-          </div>
-
-          <button type="button" className="ow-searchbtn" onClick={runSearch} disabled={busy}>
-            <Icon name="search" size={15} />
-            {busy ? "Searching…" : "Search"}
-          </button>
-        </div>
-
-        {panel === "dates" ? (
-          <RangeCalendar
-            checkIn={form.checkIn} checkOut={form.checkOut} min={localTodayISO()}
-            onChange={(i, o) => setForm((f) => ({ ...f, checkIn: i, checkOut: o }))}
-            onDone={() => setPanel(null)}
-          />
-        ) : null}
-        {panel === "guests" ? (
-          <div className="ow-gpanel ow-rooms" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-            {roomsCfg.map((r, i) => (
-              <div className="ow-room" key={i} style={{ border: "1px solid var(--line)", borderRadius: 12, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div className="ow-gstep" style={{ justifyContent: "space-between" }}>
-                  <b>Room {i + 1}</b>
-                  {nRooms > 1 ? <button type="button" className="ow-link" onClick={() => removeRoom(i)} aria-label={`Remove room ${i + 1}`}>Remove</button> : null}
-                </div>
-                {stepper("Adults 18+", r.adults, 1, MAX_ADULTS_PER_ROOM, (n) => setRoomAdults(i, n))}
-                {stepper("Children 0-17", r.childAges.length, 0, MAX_CHILDREN_PER_ROOM, (n) => (n > r.childAges.length ? addChild(i) : dropChild(i)))}
-                {r.childAges.length > 0 ? (
-                  <div className="ow-gstep" style={{ flexWrap: "wrap", gap: 8 }}>
-                    <span style={{ width: "100%" }}>Age of each child on the day of travel</span>
-                    {r.childAges.map((age, k) => (
-                      <select key={k} className="taw-input" aria-label={`Room ${i + 1}, age of child ${k + 1}`} value={age} style={{ width: 92 }}
-                        onChange={(e) => setAge(i, k, Number(e.target.value))}>
-                        {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : `${a} yr${a === 1 ? "" : "s"}`}</option>)}
-                      </select>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            ))}
-            <div className="ow-gstep" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-              <button type="button" className="taw-btn taw-btn--sm" onClick={addRoom} disabled={nRooms >= MAX_ROOMS}><Icon name="plus" size={13} /> Add another room</button>
-              <span className="ow-sub">{tot.adults} adult{tot.adults === 1 ? "" : "s"}{tot.children ? `, ${tot.children} child${tot.children === 1 ? "" : "ren"}` : ""} in {nRooms} room{nRooms === 1 ? "" : "s"}</span>
-              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => setPanel(null)} disabled={!!problem}>Done</button>
-            </div>
-            {problem ? <div className="ow-sub" role="alert" style={{ color: "var(--danger, #b00020)", whiteSpace: "normal" }}>{problem}</div> : null}
-          </div>
-        ) : null}
-
+        <HotelSearchBar
+          city={form.city} onCity={(v) => set("city", v)}
+          location={location} onLocation={setLocation}
+          checkIn={form.checkIn} checkOut={form.checkOut} onDates={(i, o) => setForm((f) => ({ ...f, checkIn: i, checkOut: o }))}
+          rooms={roomsCfg} onRooms={setRoomsCfg}
+          busy={busy} onSearch={runSearch} onProblem={onError}
+        />
         <div className="ow-modal-foot">
           <button type="button" className="taw-btn" onClick={onBack}>Back</button>
           <span />

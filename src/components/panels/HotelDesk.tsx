@@ -10,18 +10,19 @@ import { cx } from "../../lib/cx";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
-import { citySuggest, instantCitySuggest } from "../../lib/citySuggest";
+import { HotelSearchBar } from "../orders/HotelSearchBar";
+import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { distanceText, straightKm, type DistOrigin, type Drive } from "../../lib/hotelDistance";
 import {
-  BED_OPTIONS, MAX_ADULTS_PER_ROOM, MAX_CHILDREN_PER_ROOM, MAX_ROOMS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
+  BED_OPTIONS, NO_HOTEL_REQUESTS, occFromPersons, occGuests, occText, occToTripsure,
   type HotelRequests, type RoomOcc,
 } from "../../lib/hotelOccupancy";
 import { addDaysIso, boundFromDateRange } from "../../lib/itineraryFromCart";
-import { Empty, Field, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
+import { Empty, Spinner, SkeletonResults, SkeletonRows, Icon, Dropdown, SleekScroll } from "../ui";
 import { buildMockHotelOffers } from "../../lib/mockHotelSearch";
 import { DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, isLuxury, activeFilterCount, filterHotels, hotelFacets, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView } from "../../lib/hotelListing";
 import { HotelMap, placesFromSuggestion } from "./HotelMap";
@@ -108,23 +109,6 @@ function cityLocationSuggestions(query: string) {
   // Instant from the built-in directory for 1 letter; live TripSure results win when they
   // answer within 2.5s, else the directory fills in (see lib/citySuggest.ts, same as flights).
   return citySuggest(query, rankLocationSuggestions);
-}
-
-// The live list mixes cities, areas, landmarks, airports and single hotels;
-// the type tag says which. Picking a hotel searches just that property.
-function renderCityLocationSuggestion(loc: any) {
-  const type = String(loc.type || "").toLowerCase();
-  const tag = type === "hotel" ? "Hotel" : type === "airport" ? "Airport" : type === "city" ? "City"
-    : type === "state" || type === "country" ? "Region" : type ? "Area" : "";
-  return (
-    <span className="taw-locsug">
-      <span>
-        {loc.name}
-        <small>{[loc.type && type !== "city" ? loc.city : null, loc.state, loc.country].filter(Boolean).join(", ")}</small>
-      </span>
-      {tag ? <em className={type === "hotel" ? "is-hotel" : ""}>{tag}</em> : null}
-    </span>
-  );
 }
 
 // Three swap options for a hotel, picked automatically: same star rating, closest
@@ -215,66 +199,6 @@ function DistanceFrom({ dist, hotels }: { dist: any; hotels: any[] }) {
       </div>
       {dist.busy ? <Spinner /> : null}
       {dist.err ? <div className="taw-dist-err">{dist.err}</div> : null}
-    </div>
-  );
-}
-
-function nightsLabel(checkIn: string, checkOut: string) {
-  const n = Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
-  if (!isFinite(n)) return null;
-  return <div className="taw-nights">{n > 0 ? n + " night" + (n === 1 ? "" : "s") : "Check-out must be after check-in"}</div>;
-}
-
-// Rooms & guests editor: per room, adults and children (each child's age —
-// TripSure prices children by age).
-function RoomsEditor({ value, onChange }: { value: RoomOcc[]; onChange: (r: RoomOcc[]) => void }) {
-  const setRoom = (i: number, r: RoomOcc) => onChange(value.map((x, j) => (j === i ? r : x)));
-  return (
-    <div className="taw-pax">
-      {value.map((r, i) => (
-        <div key={i} className="taw-room">
-          <div className="taw-pax-row">
-            <b>Room {i + 1}</b>
-            {value.length > 1 ? (
-              <button type="button" className="taw-linkbtn" onClick={() => onChange(value.filter((_, j) => j !== i))}>Remove</button>
-            ) : null}
-          </div>
-          <div className="taw-pax-row">
-            <span>Adults <small>18+ years</small></span>
-            <span className="taw-stepper">
-              <button type="button" aria-label="Fewer adults" disabled={r.adults <= 1} onClick={() => setRoom(i, { ...r, adults: r.adults - 1 })}><Icon name="minus" size={12} /></button>
-              <b>{r.adults}</b>
-              <button type="button" aria-label="More adults" disabled={r.adults >= MAX_ADULTS_PER_ROOM} onClick={() => setRoom(i, { ...r, adults: r.adults + 1 })}><Icon name="plus" size={12} /></button>
-            </span>
-          </div>
-          <div className="taw-pax-row">
-            <span>Children <small>under 18</small></span>
-            <span className="taw-stepper">
-              <button type="button" aria-label="Fewer children" disabled={!r.childAges.length} onClick={() => setRoom(i, { ...r, childAges: r.childAges.slice(0, -1) })}><Icon name="minus" size={12} /></button>
-              <b>{r.childAges.length}</b>
-              <button type="button" aria-label="More children" disabled={r.childAges.length >= MAX_CHILDREN_PER_ROOM} onClick={() => setRoom(i, { ...r, childAges: r.childAges.concat([8]) })}><Icon name="plus" size={12} /></button>
-            </span>
-          </div>
-          {r.childAges.length ? (
-            <div className="taw-childages">
-              {r.childAges.map((age, k) => (
-                <label key={k}>
-                  Child {k + 1} age
-                  <select className="taw-input" value={age} onChange={(e) => setRoom(i, { ...r, childAges: r.childAges.map((a, m) => (m === k ? Number(e.target.value) : a)) })}>
-                    {Array.from({ length: 18 }, (_, a) => <option key={a} value={a}>{a === 0 ? "Under 1" : a}</option>)}
-                  </select>
-                </label>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ))}
-      {value.length < MAX_ROOMS ? (
-        <button type="button" className="taw-linkbtn" style={{ justifySelf: "start", margin: "6px 0 2px" }}
-          onClick={() => onChange(value.concat([{ adults: 1, childAges: [] }]))}>
-          + Add room
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -930,7 +854,6 @@ export function HotelDesk(props: any) {
   });
   // Rooms & guests: the enquiry's travellers, else the itinerary flight's fare mix.
   const [occ, setOcc] = useState<RoomOcc[]>(() => saved?.occ || occFromPersons((ask && ask.persons && ask.persons.length ? ask.persons : props.tripDates && props.tripDates.persons) || undefined));
-  const [occOpen, setOccOpen] = useState(false);
   // Default searches keep only 5★ and 4★ hotels (5★ shown first); budget trips tick this.
   const [includeLower, setIncludeLower] = useState<boolean>(() => !!saved?.includeLower);
   const includeLowerRef = useRef(includeLower);
@@ -1173,7 +1096,6 @@ export function HotelDesk(props: any) {
     stopMore();
     setErr(null);
     setModifyOpen(false);
-    setOccOpen(false);
     distReq.current++;
     setDriveById({});
     setDistBusy(false);
@@ -1362,59 +1284,20 @@ export function HotelDesk(props: any) {
           {err}
         </div>
       ) : null}
-      <div className="taw-row taw-row-3" style={{ marginBottom: 11 }}>
-        <Field label="City, area or hotel" htmlFor="taw-ho-city">
-          <AutosuggestInput
-            value={form.city}
-            onChange={(v: any) => {
-              set("city", v);
-              setSelectedLocation(null);
-            }}
-            onSelect={(loc: any) => {
-              set("city", loc.name);
-              // A fallback default has no real TripSure location id behind
-              // it — leave selectedLocation null so runReal() falls through
-              // to its own live hotelAutosuggestV2() resolution at Search
-              // time, exactly as if the advisor had typed the city by hand.
-              setSelectedLocation(loc._isFallbackDefault ? null : loc);
-            }}
-            fetchSuggestions={cityLocationSuggestions}
-            instantSuggestions={(q: string) => (q ? instantCitySuggest(q, rankLocationSuggestions) : [])}
-            renderSuggestion={renderCityLocationSuggestion}
-            getKey={(loc: any) => loc.id}
-            showDefaultsOnFocus
-            placeholder="Dubai, Bandra or a hotel name"
-          />
-        </Field>
-        <Field label="Check-in" htmlFor="taw-ho-in">
-          <input className="taw-input" type="date" value={form.checkIn} onChange={(e) => set("checkIn", e.target.value)} />
-        </Field>
-        <Field label="Check-out" htmlFor="taw-ho-out">
-          <input className="taw-input" type="date" value={form.checkOut} onChange={(e) => set("checkOut", e.target.value)} />
-        </Field>
-      </div>
-      <div className="taw-row taw-row-2" style={{ marginBottom: 13 }}>
-        <div style={{ minWidth: 0 }}>
-          <Field label="Rooms & guests" htmlFor="taw-ho-occ">
-            <button type="button" className="taw-input taw-paxbtn" aria-expanded={occOpen} onClick={() => setOccOpen((v) => !v)}>
-              <Icon name="people" size={14} />
-              <span>{occText(occ)}</span>
-            </button>
-          </Field>
-        </div>
-        <div style={{ display: "flex", alignItems: "flex-end" }}>
-          <button className="taw-btn taw-btn--primary taw-btn--brown taw-btn--block" disabled={loading} onClick={() => run()}>
-            {loading ? <Spinner /> : <Icon name="search" size={16} />}
-            {loading ? "Searching…" : "Search Hotels"}
-          </button>
-        </div>
-      </div>
-      {occOpen ? <RoomsEditor value={occ} onChange={setOcc} /> : null}
-      <label className="taw-checkrow" style={{ marginBottom: 8 }}>
+      {/* The same search form as New Booking's hotel step (components/orders/HotelSearchBar). */}
+      <HotelSearchBar
+        city={form.city} onCity={(v) => set("city", v)}
+        location={selectedLocation} onLocation={setSelectedLocation}
+        checkIn={form.checkIn} checkOut={form.checkOut}
+        onDates={(i, o) => { touched.current.checkIn = true; touched.current.checkOut = true; setForm((f) => ({ ...f, checkIn: i, checkOut: o })); }}
+        rooms={occ} onRooms={setOcc}
+        busy={loading} onSearch={() => run()} onProblem={setErr}
+        fetchSuggestions={cityLocationSuggestions} showDefaultsOnFocus
+      />
+      <label className="taw-checkrow" style={{ margin: "12px 0 4px" }}>
         <input type="checkbox" checked={includeLower} onChange={(e) => setIncludeLower(e.target.checked)} />
         Include 3★ and below (budget stays) — otherwise only 5★ and 4★ hotels
       </label>
-      {nightsLabel(form.checkIn, form.checkOut)}
     </>
   );
 

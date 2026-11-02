@@ -572,12 +572,18 @@
 
 /* Hotel search, same pattern: destination on its own row (gold, like a flight's
    To), then check-in (green) / check-out (gold) / guests / search. */
-.nb-modal .ow-sbar--hotel{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
-.nb-modal .ow-sbar--hotel .ow-sbar-where{flex:1 1 100%;border-radius:14px;padding:10px 18px;min-height:76px;}
-.nb-modal .ow-sbar--hotel .ow-sbar-date{flex:1 1 150px;border-radius:14px;}
-.nb-modal .ow-sbar--hotel .ow-sbar-guests{flex:1.4 1 200px;border-radius:14px;}
-.nb-modal .ow-sbar--hotel .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
-.nb-modal .ow-sbar--hotel .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
+.nb-modal .ow-sbar--hotel,
+.hsb .ow-sbar--hotel{flex-wrap:wrap;border-radius:20px;padding:10px;gap:8px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-where,
+.hsb .ow-sbar--hotel .ow-sbar-where{flex:1 1 100%;border-radius:14px;padding:10px 18px;min-height:76px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-date,
+.hsb .ow-sbar--hotel .ow-sbar-date{flex:1 1 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-sbar-guests,
+.hsb .ow-sbar--hotel .ow-sbar-guests{flex:1.4 1 200px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-searchbtn,
+.hsb .ow-sbar--hotel .ow-searchbtn{flex:0 0 150px;border-radius:14px;}
+.nb-modal .ow-sbar--hotel .ow-pill-input .taw-input::placeholder,
+.hsb .ow-sbar--hotel .ow-pill-input .taw-input::placeholder{color:var(--muted-deco);font-weight:500;font-size:16px;letter-spacing:0;}
 .nb-dest .ow-pill-l{color:var(--gold-ink);display:inline-flex;align-items:center;gap:5px;}
 .nb-dest.set{background:var(--gold-bg);border-color:rgba(192,152,42,.4);}
 .nb-dest:focus-within{border-color:var(--gold);box-shadow:0 0 0 3px var(--gold-bg);}
