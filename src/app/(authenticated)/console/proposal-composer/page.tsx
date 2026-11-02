@@ -51,7 +51,8 @@ import { QuoteBuilder } from "../../../../components/panels/QuoteBuilder";
 import { bookingHandoffUrl } from "../../../../lib/bookingHandoff";
 import { useWorkbench } from "../../../../lib/workbenchContext";
 import type { ProposalOutcome, ProposalQueueEntry } from "../../../../lib/workbenchContext";
-import { cartFromItinerary } from "../../../../lib/itineraryFromCart";
+import { cartFromItinerary, tripDatesFor } from "../../../../lib/itineraryFromCart";
+import { SearchDesksPanel } from "../../../../components/panels/SearchDesksPanel";
 import { useQuotePricing } from "../../../../lib/useQuotePricing";
 import { useHotelWebsites } from "../../../../lib/useHotelWebsites";
 import { toast, errText } from "../../../../lib/advisorHelpers";
@@ -117,6 +118,7 @@ export default function ProposalComposerPage() {
   const {
     proposalQueue, selectedProposalEnqId, selectProposal, advisorId, currentAdvisor, enquiries, setProposalOutcome, swapProposalHotel, swapProposalFlight,
     itinerariesByEnquiry, selEnqId, member, membersById, sendItineraryToProposal,
+    addSearchItemToItinerary, addSwapOptionToItinerary, travellerProfile,
   } = useWorkbench();
   const router = useRouter();
   // What the composer works on: every sent proposal, plus the enquiry open in
@@ -408,6 +410,14 @@ export default function ProposalComposerPage() {
   }, [enquiryIdSel]);
   // A paid, still-locked trip: the customer's paid link is THE link — copied as it is, never re-published.
   const paidLock = selected?.data?.locked && !selected.data.locked.unlocked_at ? selected.data.locked : null;
+  // "Search & add": the workbench's own Search panel (Flights / Hotels / Visas desks) in a drawer, wired to
+  // THIS proposal's itinerary — what is added lands in the live itinerary, so the preview, the quote and the
+  // customer's web link (re-published on change) follow. Not on a paid, locked trip.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchEnq = selected ? enquiries.find((e: any) => e.id === selected.enquiryId) || { id: selected.enquiryId } : null;
+  const askReady = !!(selected && travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selected.enquiryId);
+  const searchEnqWithAsk = searchEnq ? { ...searchEnq, ask: { ...(askReady ? travellerProfile.enquiry.ask : (searchEnq as any).ask || {}) } } : null;
+  useEffect(() => { setSearchOpen(false); }, [selected?.enquiryId]);
   const linkToken = paidLock?.token || (link && link.enquiryId === enquiryIdSel ? link.token : null);
   const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/p/${linkToken}` : null;
 
@@ -618,6 +628,11 @@ export default function ProposalComposerPage() {
                   <Spinner /> pricing…
                 </span>
               ) : null}
+              {!paidLock ? (
+                <button className="taw-btn" onClick={() => setSearchOpen(true)} title="Search hotels, flights and visas and add them to this proposal">
+                  <Icon name="search" size={14} /> Search &amp; add
+                </button>
+              ) : null}
               <button className="taw-btn taw-btn--primary" onClick={createWebLink} disabled={creatingLink || !cart.length}>
                 <Icon name="send" size={14} />
                 {paidLock ? "Copy paid link" : creatingLink ? (linkToken ? "Updating link…" : "Creating link…") : linkToken ? "Copy web link" : "Web link"}
@@ -703,6 +718,29 @@ export default function ProposalComposerPage() {
           )
         )}
       </Card>
+      {searchOpen && selected && searchEnqWithAsk && !paidLock ? (
+        <div className="taw-searchdrawer" role="dialog" aria-label="Search and add to this proposal">
+          <div className="taw-searchdrawer-back" onClick={() => setSearchOpen(false)} />
+          <div className="taw-searchdrawer-panel">
+            <div className="taw-searchdrawer-head">
+              <b>Search &amp; add</b>
+              <span>{selected.member ? "for " + selected.member.name : ""}</span>
+              <button className="taw-btn taw-btn--sm" onClick={() => setSearchOpen(false)}>
+                <Icon name="x" size={13} /> Close
+              </button>
+            </div>
+            <SearchDesksPanel
+              key={selected.enquiryId + (askReady ? ":ask" : "")}
+              member={selected.member}
+              enquiry={searchEnqWithAsk}
+              tripDates={tripDatesFor(selected.data, searchEnqWithAsk.ask)}
+              advisorId={advisorId}
+              onAdd={(item: any) => addSearchItemToItinerary(selected.enquiryId, item, searchEnqWithAsk)}
+              onAddSwap={(item: any) => addSwapOptionToItinerary(selected.enquiryId, item)}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

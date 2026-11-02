@@ -1946,3 +1946,11 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-tara-plan:hover{border-color:var(--taupe);}
 .taw-tara-plan.is-active{border-color:var(--gold);background:var(--gold-bg);color:var(--gold-ink,#785c12);font-weight:600;cursor:default;}
 .taw-tara-plan:disabled{opacity:.6;}
+
+/* Proposal Composer "Search & add": the workbench's Search panel in a right-hand drawer. */
+.taw-searchdrawer{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;}
+.taw-searchdrawer-back{position:absolute;inset:0;background:rgba(20,16,10,.38);}
+.taw-searchdrawer-panel{position:relative;width:min(760px,96vw);height:100%;background:var(--bone,#f6f2ea);box-shadow:-12px 0 40px rgba(0,0,0,.18);display:flex;flex-direction:column;overflow:hidden;}
+.taw-searchdrawer-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line);}
+.taw-searchdrawer-head span{color:var(--muted);font-size:12px;margin-right:auto;}
+.taw-searchdrawer-panel > .taw-card{flex:1;min-height:0;margin:10px;overflow:auto;}
