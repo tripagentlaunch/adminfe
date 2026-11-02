@@ -413,11 +413,13 @@ export default function ProposalComposerPage() {
   // "Search & add": the workbench's own Search panel (Flights / Hotels / Visas desks) in a drawer, wired to
   // THIS proposal's itinerary — what is added lands in the live itinerary, so the preview, the quote and the
   // customer's web link (re-published on change) follow. Not on a paid, locked trip.
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Open for ONE proposal: picking another in the queue closes it, with no effect to reset it.
+  const [searchOpenFor, setSearchOpenFor] = useState<string | null>(null);
+  const searchOpen = !!selected && searchOpenFor === selected.enquiryId;
+  const setSearchOpen = (open: boolean) => setSearchOpenFor(open && selected ? selected.enquiryId : null);
   const searchEnq = selected ? enquiries.find((e: any) => e.id === selected.enquiryId) || { id: selected.enquiryId } : null;
   const askReady = !!(selected && travellerProfile && travellerProfile.enquiry && travellerProfile.enquiry.id === selected.enquiryId);
   const searchEnqWithAsk = searchEnq ? { ...searchEnq, ask: { ...(askReady ? travellerProfile.enquiry.ask : (searchEnq as any).ask || {}) } } : null;
-  useEffect(() => { setSearchOpen(false); }, [selected?.enquiryId]);
   const linkToken = paidLock?.token || (link && link.enquiryId === enquiryIdSel ? link.token : null);
   const linkUrl = linkToken && typeof window !== "undefined" ? `${window.location.origin}/p/${linkToken}` : null;
 
