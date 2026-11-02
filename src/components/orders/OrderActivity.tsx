@@ -10,7 +10,7 @@ import { fmtINR, type Fulfilment } from "../../lib/orderTypes";
 type Ev = { id: number; item_type: string | null; step: string; status: "ok" | "failed" | "unclear"; trace_id?: string | null; summary?: any; created_at: string };
 
 const STEP: Record<string, string> = {
-  lock: "Locked with TripSure", book: "Booking sent to TripSure", ticket: "Ticket issued", cancel: "Cancelled",
+  lock: "Locked with TripSure", fare_lock: "Fare lock for payment (TripSure Update Itinerary)", book: "Booking sent to TripSure", ticket: "Ticket issued", cancel: "Cancelled",
   payment_started: "Online payment started", payment_paid: "Online payment received", payment_recorded: "Payment recorded", refund_recorded: "Refund recorded",
 };
 const TONE: Record<string, string> = { ok: "success", failed: "danger", unclear: "warn" };
@@ -21,7 +21,7 @@ function detail(e: Ev): string {
   return [
     s.hotel, s.amount != null ? fmtINR(Number(s.amount)) : null, s.method, s.reference ? `ref ${s.reference}` : null,
     s.booking_ref ? `ref ${s.booking_ref}` : null, s.pnrs && s.pnrs.length ? `PNR ${s.pnrs.join(", ")}` : null,
-    s.supplier_status ? `supplier: ${s.supplier_status}` : null, s.razorpay_payment_id ? `txn ${s.razorpay_payment_id}` : s.razorpay_order_id ? `Razorpay order ${s.razorpay_order_id}` : null, s.error,
+    s.supplier_status ? `supplier: ${s.supplier_status}` : null, s.tripsure_message || s.tripsure_status ? `TripSure: ${[s.tripsure_status, s.tripsure_message].filter(Boolean).join(" · ")}` : null, s.razorpay_payment_id ? `txn ${s.razorpay_payment_id}` : s.razorpay_order_id ? `Razorpay order ${s.razorpay_order_id}` : null, s.error,
   ].filter(Boolean).join(" · ");
 }
 
@@ -45,7 +45,9 @@ export function OrderActivity({ orderId, f }: { orderId: string; f: Fulfilment }
   // Refetched whenever the fulfilment changes (every booking action returns a fresh one).
   useEffect(() => {
     let live = true;
-    bookingEvents(orderId)
+    // One retry: the first call can land on a server that is still waking up.
+    const load = () => bookingEvents(orderId);
+    load().catch(() => new Promise((ok) => setTimeout(ok, 1500)).then(load))
       .then((r: any) => live && (setEvents((r && r.events) || []), setFailed(false)))
       .catch(() => live && setFailed(true));
     return () => { live = false; };
