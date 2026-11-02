@@ -1032,7 +1032,7 @@ export function HotelDesk(props: any) {
     }));
   }, [tripStart, tripEnd]);
 
-  function runReal(signal?: AbortSignal) {
+  function runReal(signal?: AbortSignal, refresh?: boolean) {
     const city = form.city.trim();
     const checkIn = form.checkIn;
     const checkOut = form.checkOut;
@@ -1070,7 +1070,7 @@ export function HotelDesk(props: any) {
         fetchFromCache: false,
       };
 
-      return hotelListingStart(listingPayload, signal).then((listRes: any) => {
+      return hotelListingStart(listingPayload, signal, refresh).then((listRes: any) => {
         const ctx = {
           international: countryCode !== "IN",
           nights: nights,
@@ -1195,7 +1195,7 @@ export function HotelDesk(props: any) {
       }
       const search = startSearch();
       searchRef.current = search;
-      runReal(search.signal)
+      runReal(search.signal, !!force)
         .then((r: any) => {
           if (searchRef.current !== search) return;
           search.done();

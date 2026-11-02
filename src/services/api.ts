@@ -1651,8 +1651,10 @@ function hotelListingV2(payload, signal?: AbortSignal) {
 // hotelListingMore({token, nextResultsKey?, countryCode?}) — POST /hotels/listing/more: the hotels
 // that finished since the cursor; call again with the returned nextResultsKey while status is
 // "InProgress". Same hotel shape as hotelListingV2.
-function hotelListingStart(payload, signal?: AbortSignal) {
-  return fastapiHotelCall("/hotels/listing/start", { method: "POST", body: payload, signal: signal });
+// refresh: "Refresh prices" — a new TripSure search session instead of the backend's kept copy of
+// this search, whose room codes TripSure has expired (Confirm price then says "no longer available").
+function hotelListingStart(payload, signal?: AbortSignal, refresh?: boolean) {
+  return fastapiHotelCall("/hotels/listing/start" + (refresh ? "?refresh=true" : ""), { method: "POST", body: payload, signal: signal });
 }
 
 function hotelListingMore(payload, signal?: AbortSignal) {
