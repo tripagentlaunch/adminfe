@@ -14,6 +14,7 @@ import { pollPaymentSettlement, type PollHandle, type PaymentStatus } from "../.
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
 import { fmtINR, type Fulfilment, type FulfilmentItem, type Order } from "../../lib/orderTypes";
+import { priceCovers } from "../../lib/flightParty";
 import { TravellersForm } from "./TravellersForm";
 import { OrderActivity } from "./OrderActivity";
 
@@ -445,7 +446,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                     <div className="ow-ful-row">
                       <span className="ow-ful-item">
                         <Icon name={it.kind === "flight" ? "flight" : "hotel"} size={14} />
-                        <span><b>{it.title}</b><small>{it.label}{it.amount ? ` · ${fmtINR(it.amount)}` : ""}</small></span>
+                        <span><b>{it.title}</b><small>{it.label}{it.amount ? ` · ${fmtINR(it.amount)}` : ""}{it.kind === "flight" && it.party && it.amount ? ` ${priceCovers(it.amount, it.party, fmtINR)}` : ""}</small></span>
                       </span>
                       {pill(st.tone, st.label)}
                     </div>

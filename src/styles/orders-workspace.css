@@ -846,3 +846,12 @@
 .fi-pb-head{font-weight:600;padding-top:14px;}
 .fi-pb-total{border-bottom:0;border-top:2px solid var(--ink);margin-top:6px;padding-top:12px;font-size:16px;}
 .fi-pb-total b{font:600 20px var(--serif);}
+
+/* New booking results: the cheapest fare on each day around the searched one. */
+.nb-fares{display:flex;align-items:stretch;gap:6px;overflow-x:auto;padding:2px 0 8px;}
+.nb-fares-l{flex:none;align-self:center;font-size:11px;color:var(--taupe);max-width:96px;line-height:1.3;}
+.nb-fare{flex:none;display:flex;flex-direction:column;gap:2px;align-items:center;min-width:88px;padding:7px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bone,#fff);font:inherit;cursor:pointer;}
+.nb-fare span{font-size:11px;color:var(--taupe);}
+.nb-fare b{font-size:13px;}
+.nb-fare.on{border-color:var(--gold,#b08d3c);background:rgba(176,141,60,.12);}
+.nb-fare:disabled{opacity:.55;cursor:default;}

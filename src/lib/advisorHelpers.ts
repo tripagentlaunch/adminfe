@@ -189,10 +189,13 @@ function trimZero(n: number) {
 }
 
 // todayISO(offsetDays) — web/js/advisor.js line ~136.
+// The date in the ADVISOR'S timezone: toISOString() is UTC, which gave yesterday's date between 00:00 and 05:30 IST.
 export function todayISO(offsetDays?: any) {
   var dt = new Date();
   dt.setDate(dt.getDate() + (offsetDays || 0));
-  return dt.toISOString().slice(0, 10);
+  var m = String(dt.getMonth() + 1).padStart(2, "0");
+  var d = String(dt.getDate()).padStart(2, "0");
+  return dt.getFullYear() + "-" + m + "-" + d;
 }
 
 // uniqId() — web/js/advisor.js line ~142.

@@ -16,6 +16,7 @@
  * needed for those after all.
  * ===========================================================================*/
 
+import { partyText } from "./flightParty";
 import { computeCostRange } from "./tripCostRange";
 import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
@@ -378,7 +379,9 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // A flight priced live in the Console: its fare option, what the fare includes and the
         // add-ons picked (one line each), and the fare vs add-ons split of its price.
         fareLine: it.pricing ? [it.pricing.fareName && it.pricing.fareName !== "Searched fare" ? `${it.pricing.fareName} fare` : null, cabinWord(it.cabin),
-          it.pricing.checkinKg ? `${it.pricing.checkinKg} kg check-in` : null, it.pricing.refundable ? "Refundable" : "Non-refundable"].filter(Boolean).join(" · ") : null,
+          it.pricing.checkinKg ? `${it.pricing.checkinKg} kg check-in` : null, it.pricing.refundable ? "Refundable" : "Non-refundable",
+          // The fare is for the whole party searched; say who, so it never reads as one traveller's price.
+          it.paxMix ? `Priced for ${partyText(it.paxMix)}` : null].filter(Boolean).join(" · ") : null,
         extrasLine: it.pricing && (it.pricing.extras || []).length
           ? (it.pricing.extras as any[]).map((x: any) => (x.kind === "meal" ? `${x.label} (meal)` : x.label) + ((it.pricing.extras as any[]).some((y: any) => y.segment !== x.segment) ? ` · ${x.segment}` : "")).join(" · ")
           : it.pricing ? "No add-ons — seat assigned by the airline at check-in" : null,

@@ -4,12 +4,13 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
-  fastapiFlightSearch, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
+  fastapiFlightSearch, flightShop, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
   bookingGetOrder,
 } from "../../services/api";
 import { airportDistance, groupedAirportSuggest, nearbyAirports } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
 import { todayISO } from "../../lib/advisorHelpers";
+import { partyText, priceCovers, type Party } from "../../lib/flightParty";
 import { detailToOrder, durationLabel } from "../../lib/realOrders";
 import type { Order } from "../../lib/orderTypes";
 import { OrderFulfilment } from "./OrderFulfilment";
@@ -102,7 +103,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   const [form, setForm] = useState({
     from: preset?.from || "", to: preset?.to || "", fromCity: preset?.fromCity || "", toCity: preset?.toCity || "",
     fromName: "", toName: "",
-    date: preset?.date && preset.date >= todayISO() ? preset.date : todayISO(),
+    // Tomorrow, not today: TripSure only sells flights leaving a couple of hours from now, so today is often empty.
+    date: preset?.date && preset.date >= todayISO() ? preset.date : todayISO(1),
     returnDate: preset?.returnDate || "",
     adults: Math.min(9, Math.max(1, preset?.adults || 1)),
     children: Math.min(8, Math.max(0, preset?.children || 0)),
@@ -110,6 +112,11 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     cabin: "economy",
   });
   const paxTotal = form.adults + form.children + form.infants;
+  // What the results on screen were priced for. TripSure's fare is for exactly this party, so every price,
+  // note and the fare lock use THIS — never the form, which the advisor can edit after searching.
+  const [searched, setSearched] = useState<{ party: Party; date: string } | null>(null);
+  const party: Party = searched?.party || { adults: form.adults, children: form.children, infants: form.infants };
+  const covers = (total: number) => priceCovers(total, party, inr);
   // The guide's other search fields (6.2). Currency stays INR: the lock, payment and ticket
   // amounts all have to be in the same currency as the order.
   const [opts, setOpts] = useState({ nationality: "IN", maxStops: "ALL", refundable: false, prefer: "", exclude: "" });
@@ -141,6 +148,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     [allOffers, resultsRound, activeLeg],
   );
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
+  // The cheapest fare on each day around the searched one, for the same party and cabin (one-way only).
+  const [fareDays, setFareDays] = useState<{ key: string; cells: any[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Only the latest search may touch results/err: a slow earlier response must not land after a newer one.
   const searchSeq = useRef(0);
@@ -189,7 +198,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
   // `over` re-runs the same search with another cabin (the class chips on the results screen)
   // or another airport (the nearby-airport chips when a search finds nothing).
-  function runSearch(over?: { cabin?: string; from?: string; fromCity?: string; to?: string; toCity?: string }) {
+  function runSearch(over?: { cabin?: string; date?: string; from?: string; fromCity?: string; to?: string; toCity?: string }) {
     if (over) setForm((f) => ({ ...f, ...over }));
     const form2 = { ...form, ...(over || {}) };
     const cabinNow = form2.cabin;
@@ -198,16 +207,17 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setErr("Pick a From and To airport from the suggestions."); return;
     }
     if (form2.from === form2.to) { setErr("From and To must differ."); return; }
-    if (!form.date) { setErr("Pick a departure date."); return; }
+    if (!form2.date) { setErr("Pick a departure date."); return; }
+    if (form2.date < todayISO()) { setErr("That date has passed — pick today or a later date."); return; }
     const round = tripType === "round";
-    if (round && !form.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
-    if (round && form.returnDate < form.date) { setErr("The return can't be before the departure."); return; }
+    if (round && !form2.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
+    if (round && form2.returnDate < form2.date) { setErr("The return can't be before the departure."); return; }
     setSearching(true);
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
       originCode: form2.from, destCode: form2.to,
-      date: form.date, returnDate: round ? form.returnDate : undefined,
-      pax: form.adults, children: form.children, infants: form.infants, cabin: cabinNow,
+      date: form2.date, returnDate: round ? form2.returnDate : undefined,
+      pax: form2.adults, children: form2.children, infants: form2.infants, cabin: cabinNow,
       nationality: opts.nationality, currency: "INR", maxStops: opts.maxStops, refundable: opts.refundable,
       preferredAirlines: iataList(opts.prefer), excludedAirlines: iataList(opts.exclude),
     })
@@ -219,11 +229,27 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setActiveLeg("ONWARD");
         setPicked({ ONWARD: null, RETURN: null });
         setPartialErrors(r.errors || []);
+        setSearched({ party: { adults: form2.adults, children: form2.children, infants: form2.infants }, date: form2.date });
         setStep("results");
       })
       .catch((e: any) => { if (seq === searchSeq.current) setErr(errText(e)); })
       .finally(() => { if (seq === searchSeq.current) setSearching(false); });
   }
+
+  useEffect(() => {
+    if (step !== "results" || !searched || resultsRound) return;
+    const key = [form.from, form.to, searched.date, partyText(searched.party), form.cabin].join("|");
+    if (fareDays && fareDays.key === key) return;
+    let live = true;
+    flightShop({
+      action: "date_matrix", originCode: form.from, destCode: form.to, date: searched.date, mode: "nearby", cabin: form.cabin,
+      pax: searched.party.adults, children: searched.party.children, infants: searched.party.infants,
+    })
+      .then((r: any) => { if (live) setFareDays({ key, cells: (r && r.cells) || [] }); })
+      .catch(() => { if (live) setFareDays({ key, cells: [] }); }); // a missing strip never blocks the results
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, searched, resultsRound]);
 
   // ── Step 3: select fare ───────────────────────────────────────────────────
   const [selectedOffer, setSelectedOffer] = useState<any | null>(null);
@@ -378,7 +404,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         offer: onward.offer,
         snapshot: onward.snapshot,
         ...(back ? { return_offer: back.offer, return_snapshot: back.snapshot } : {}),
-        adults: form.adults, children: form.children, infants: form.infants,
+        adults: party.adults, children: party.children, infants: party.infants,
         cabin_class: form.cabin.toUpperCase(),
         origin_city: form.fromCity || null,
         destination_city: form.toCity || null,
@@ -807,7 +833,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
-                {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {visible.length} of {offers ? offers.length : 0} flights
+                {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(searched?.date || form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {partyText(party)} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
               <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
             </div>
@@ -822,6 +848,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 </button>
               ))}
             </div>
+            {!resultsRound && fareDays && fareDays.cells.length > 1 ? (
+              <div className="nb-fares" role="group" aria-label="Cheapest fare on each day">
+                <span className="nb-fares-l">Cheapest each day · {partyText(party)}</span>
+                {fareDays.cells.map((c: any) => (
+                  <button key={c.date} type="button" className={`nb-fare${c.date === searched?.date ? " on" : ""}`}
+                    disabled={searching || !!lockingId || !c.min_sell} onClick={() => c.date !== searched?.date && runSearch({ date: c.date })}>
+                    <span>{new Date(c.date + "T00:00:00").toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })}</span>
+                    <b>{c.min_sell ? inr(c.min_sell) : "—"}</b>
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {partialErrors.length ? (
               <div className="taw-banner taw-banner--info">Some suppliers failed — results may be partial.</div>
             ) : null}
@@ -846,7 +884,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
             {offers && offers.length === 0 ? (
               <>
-                <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : "Try another date or cabin."} />
+                <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : searched?.date === todayISO() ? "Airlines stop selling a flight a couple of hours before it leaves, so nothing may be left for today. Try tomorrow." : "Try another date or cabin."} />
+                {!resultsRound && searched?.date === todayISO() ? (
+                  <div className="nb-nearby"><button type="button" className="taw-btn taw-btn--primary" disabled={searching} onClick={() => runSearch({ date: todayISO(1) })}>Search tomorrow</button></div>
+                ) : null}
                 {!resultsRound ? (() => {
                   const near = [
                     ...nearbyAirports(form.to).map((x) => ({ ...x, side: "to" as const, of: form.to })),
@@ -975,7 +1016,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             </div>
                           </div>
                           <div className="ow-fcard-buy">
-                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") : "total"}</small></div>
+                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") + " · " : ""}{covers(o.base_net)}</small></div>
                             {resultsRound ? (
                               <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => selectOffer(o)} disabled={!!lockingId}>
                                 {picked[activeLeg]?.id === o.id ? "Selected ✓" : "Select"}
@@ -1009,7 +1050,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   onClose={() => setFareFor(null)}
                   busy={!!lockingId}
                   price={inr(fareFor.base_net + (fareSel?.delta || 0))}
-                  priceNote={`for ${paxTotal} traveller${paxTotal === 1 ? "" : "s"}${legName ? ` · ${legName} flight` : ""}`}
+                  priceNote={`${covers(fareFor.base_net + (fareSel?.delta || 0))}${legName ? ` · ${legName} flight` : ""}`}
                   actions={
                     <button type="button" className="taw-btn taw-btn--primary fi-next" disabled={!fareSel || !!lockingId}
                       onClick={() => fareSel && chooseFare(fareFor, fareSel)}>
@@ -1150,7 +1191,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               price={inr(fareTotal + extrasTotal)}
               priceNote={extrasTotal > 0
                 ? `${inr(fareTotal)} fare + ${inr(extrasTotal)} add-ons (${counts.text})`
-                : "Add-ons are optional"}
+                : `${covers(fareTotal)} · add-ons are optional`}
               actions={<>
                 <button type="button" className="taw-btn" onClick={backToResults} disabled={busy}>{leaving ? "Releasing…" : "Back"}</button>
                 <button type="button" className="taw-btn taw-btn--primary fi-next" onClick={confirmItinerary} disabled={busy || !draft}>

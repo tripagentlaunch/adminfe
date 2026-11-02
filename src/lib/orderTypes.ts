@@ -74,6 +74,8 @@ export interface FulfilmentItem {
   error?: string | null;
   booked_at?: string | null;
   amount?: number | null;
+  /** flight: who `amount` (the whole group's fare) was priced for. */
+  party?: { adults: number; children: number; infants: number } | null;
   can_book: boolean;
   blocked_reason?: string | null;
   /** hotel only: a confirmed room can be cancelled / has a tax invoice. */
