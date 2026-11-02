@@ -63,7 +63,7 @@ export function MockPaymentView() {
         {o.steps > 1 ? <div style={{ fontSize: 12, color: "#7a5b00", marginBottom: 4 }}>Payment {o.step} of {o.steps}</div> : null}
         {o.mock_reason ? (
           <div style={{ fontSize: 12, background: "#fff6e5", color: "#8a6400", borderRadius: 8, padding: "8px 10px", marginBottom: 10 }}>
-            TripSure didn&apos;t open a real payment, so this mock stands in: {o.mock_reason}
+            The real payment didn&apos;t open, so this test page stands in: {o.mock_reason}
           </div>
         ) : null}
         <div style={{ fontSize: 13, color: "#666" }}>{o.description || "Flights"}</div>
@@ -75,9 +75,8 @@ export function MockPaymentView() {
           {o.prefill ? <div><b>Customer</b> {[o.prefill.name, o.prefill.email, o.prefill.contact].filter(Boolean).join(" · ")}</div> : null}
           {o.notes ? <div><b>Notes</b> {Object.entries(o.notes).map(([k, v]) => `${k}: ${v}`).join(" · ")}</div> : null}
           <div style={{ color: "#888" }}>
-            On a live server TripSure&apos;s Payment Service creates this Razorpay order on its merchant (POST /api/payment/transactions,
-            booking_type {o.kind || "flight"}) and returns the key; Checkout opens with the name TripAgent and these fields, and
-            TripSure verifies the payment (POST /api/payment/verify).
+            On a live server this is a Razorpay order on TripAgent&apos;s account for the amount above; Checkout opens with the
+            name TripAgent and these fields, and the payment is verified on our server before anything is booked.
           </div>
         </div>
 

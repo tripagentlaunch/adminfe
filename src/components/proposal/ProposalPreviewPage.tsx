@@ -155,7 +155,7 @@ function DayPhoto({ query }: { query: string }) {
 const stopsText = (n: number) => (n === 0 ? "Non-stop" : `${n} stop${n > 1 ? "s" : ""}`);
 
 function EstimateBadge() {
-  return <span className="pv-chip pv-chip--estimate" title="From the AI's general knowledge — not a TripSure rate. Replace with a real search result before quoting.">AI estimate</span>;
+  return <span className="pv-chip pv-chip--estimate" title="From the AI's general knowledge — not a live rate. Replace with a real search result before quoting.">AI estimate</span>;
 }
 
 // A flight leg's chosen flight with its alternatives and Swap (generated itineraries only; a leg without
@@ -914,7 +914,7 @@ export function ProposalPreviewPage({
                             : ` Above the ${inr(data.costRange.budgetCap)} budget — swap to a lower option or confirm the budget with the traveller.`
                           : ""}
                         {data.costRange.unpriced.length ? ` Not yet priced, so left out: ${data.costRange.unpriced.join(", ")}.` : ""}
-                        {data.costRange.estimateLabels.length ? " Lines marked AI estimate are not TripSure rates." : ""}
+                        {data.costRange.estimateLabels.length ? " Lines marked AI estimate are not live rates." : ""}
                       </div>
                     </>
                   ) : null}
@@ -976,7 +976,7 @@ export function ProposalPreviewPage({
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
                           : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
                         {!paying && !(check.status === "checking" && wantPay) ? (
-                          <span className="pv-cta-amt">{inr(check.status === "ready" && check.data?.amount != null ? check.data.amount : flightQuote.amount)}</span>
+                          <span className="pv-cta-amt">{inr(check.status === "ready" && check.data ? (check.data.pay_amount ?? check.data.amount) : (flightQuote.pay_amount ?? flightQuote.amount))}</span>
                         ) : null}
                       </button>
                     ) : payToken && !data._locked && payQuote?.payable && !flightQuote?.payable ? (
@@ -1001,7 +1001,7 @@ export function ProposalPreviewPage({
                       {payErr ? payErr
                         : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
                         : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.amount)}` : ""} · secure payment by Razorpay
+                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment by Razorpay
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
@@ -1010,7 +1010,14 @@ export function ProposalPreviewPage({
                   ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
-                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && (check.data?.pays_trip_total ?? flightQuote.pays_trip_total) ? (
+                    // One payment for the whole trip (TripAgent's Razorpay): the fee and GST are in it.
+                    <div className="pv-actions-note">
+                      Pay now {inr(check.data?.pay_amount ?? flightQuote.pay_amount ?? 0)} is the whole trip in one payment
+                      {Number(check.data?.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <> — incl. TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} and GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</> : null}
+                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)} are settled with them</> : null}.
+                    </div>
+                  ) : payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
                     // The three parts that make the trip total: the airline / hotel amount paid now through
                     // TripSure, our service fee, and the GST on the trip.
                     <div className="pv-actions-note">

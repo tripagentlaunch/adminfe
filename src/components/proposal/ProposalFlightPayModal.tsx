@@ -38,6 +38,9 @@ export type FlightPayQuote = {
   /** Part of the trip total not paid online (items the advisor still confirms). */
   other?: number;
   fee?: number;
+  /** What Pay now charges: the whole trip (one payment on TripAgent's Razorpay), else the suppliers' part. */
+  pay_amount?: number;
+  pays_trip_total?: boolean;
 };
 
 type Pax = {
