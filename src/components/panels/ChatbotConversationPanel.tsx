@@ -151,6 +151,9 @@ interface HandoffState { code: string; mode: Mode; status: "ready" | "error"; we
 
 const NO_MESSAGES: ConvoMessage[] = [];
 const POLL_MS = 2000; // a customer's message shows within a couple of seconds
+const TARA_POLL_TIMEOUT_MS = 25000; // a stuck website-chat refresh is dropped and retried, not waited on for 45s
+const TARA_RECHECK_REAL_EVERY = 5; // a website-only chat looks for a WhatsApp thread every 5th refresh
+const STALE_BEFORE_WARNING_MS = 20000; // "the connection is slow" only once nothing has refreshed for this long
 // Tara starts a reply this long after the customer's message (chatbot-be's TARA_REPLY_DELAY_SECONDS):
 // the time the advisor has to press "I'll reply" first.
 const TARA_DELAY_S = 5;
@@ -376,6 +379,7 @@ export function ChatbotConversationPanel({ member }: any) {
     let again = false; // the last poll was cut short by the server: go again straight away
     let tick = 0;
     let fails = 0; // consecutive failed refreshes: one slow poll is retried quietly, not shown as an error
+    let lastOkAt = Date.now(); // the last refresh that worked: the warning is only true once the screen is really out of date
 
     // First load / no real thread yet: the newest page of the real WhatsApp thread,
     // falling back to the Tara/chatbot-be view if it's empty. Usage still comes from
@@ -432,18 +436,42 @@ export function ChatbotConversationPanel({ member }: any) {
       });
     }
 
-    function load() {
+    // A website-only chat (no WhatsApp thread) has no "only what is newer" read, so each refresh is the whole Tara
+    // conversation. Refresh it every other tick (4s) with a limit of its own, and look for a WhatsApp thread
+    // only now and then, instead of re-reading both in full every 2s.
+    function pollTara(): Promise<void> {
+      if (tick % TARA_RECHECK_REAL_EVERY === 0) return fullLoad(); // also notices a WhatsApp thread that has started
+      return getChatbotConversation(code, { timeoutMs: TARA_POLL_TIMEOUT_MS }).then((data: any) => {
+        if (cancelled) return;
+        const next = Array.isArray(data && data.messages) ? data.messages : [];
+        setConvo((prev) => {
+          if (prev.code !== code || prev.source !== "tara") return prev;
+          const a = prev.messages[prev.messages.length - 1], b = next[next.length - 1];
+          const same = prev.messages.length === next.length && (a && a.content) === (b && b.content) && (a && a.at) === (b && b.at);
+          const nextUsage = data && data.usage ? data.usage : prev.usage;
+          if (same && prev.error === null && nextUsage === prev.usage) return prev;
+          if (same) return { ...prev, error: null, usage: nextUsage };
+          return { ...prev, error: null, usage: nextUsage, messages: next.map((m: any, i: number) => ({ ...m, id: "t-" + i })) };
+        });
+      });
+    }
+
+    function load(force?: boolean) {
       if (inFlight) return;
+      const held = convoRef.current.code === code ? convoRef.current : null;
+      if (!force && held && held.loaded && held.source === "tara" && tick % 2 === 1) { tick += 1; return; }
       inFlight = true;
       tick += 1;
-      const snap = convoRef.current.code === code ? convoRef.current : null;
+      const snap = held;
       const newest = snap && snap.loaded && snap.source === "real" ? newestCursor(snap.messages) : null;
-      (newest ? poll(newest, !!(snap && snap.usage)) : fullLoad())
-        .then(() => { fails = 0; })
+      (newest ? poll(newest, !!(snap && snap.usage)) : snap && snap.loaded && snap.source === "tara" ? pollTara() : fullLoad())
+        .then(() => { fails = 0; lastOkAt = Date.now(); })
         .catch((err: any) => {
           if (cancelled) return;
           fails += 1;
-          if (fails < 2 && snap && snap.loaded) return; // the next poll is 2s away: only a second failure in a row is worth showing
+          // Only worth showing once it has failed twice in a row AND nothing has refreshed for 20s: a stall that
+          // the next poll recovers from is not a warning, and a stale screen is.
+          if (snap && snap.loaded && (fails < 2 || Date.now() - lastOkAt < STALE_BEFORE_WARNING_MS)) return;
           // Keep whatever is already on screen for this traveller; just flag the failure.
           setConvo((prev) => ({
             ...(prev.code === code ? prev : emptyConvo(code)),
@@ -456,7 +484,7 @@ export function ChatbotConversationPanel({ member }: any) {
           if (again && !cancelled) { again = false; load(); }
         });
     }
-    reloadRef.current = load;
+    reloadRef.current = () => load(true);
     load();
     const interval = setInterval(() => { if (!document.hidden) load(); }, POLL_MS); // live feel, but not in a background tab
     const onVisible = () => { if (!document.hidden) load(); };
