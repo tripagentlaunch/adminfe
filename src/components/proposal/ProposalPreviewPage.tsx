@@ -1017,6 +1017,7 @@ export function ProposalPreviewPage({
                         : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
                         : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
                         : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
+                            {Number(check.data?.addons_by_advisor || 0) > 0 ? " · your seats, meals and bags are included — your advisor confirms them with the airline right after booking" : ""}
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={startPay}>Try again</button></>

@@ -12,6 +12,7 @@ type Ev = { id: number; item_type: string | null; step: string; status: "ok" | "
 const STEP: Record<string, string> = {
   lock: "Locked with TripSure", fare_lock: "Fare lock for payment (TripSure Update Itinerary)", book: "Booking sent to TripSure", ticket: "Ticket issued", cancel: "Cancelled",
   payment_started: "Online payment started", payment_paid: "Online payment received", payment_recorded: "Payment recorded", refund_recorded: "Refund recorded",
+  addons_to_arrange: "Seats / meals / bags to arrange with the airline (paid by the customer, left out by TripSure)",
 };
 const TONE: Record<string, string> = { ok: "success", failed: "danger", unclear: "warn" };
 const KIND: Record<string, string> = { flight: "Flight", hotel: "Hotel", payment: "Payment", order: "Order", visa: "Visa" };
@@ -19,7 +20,8 @@ const KIND: Record<string, string> = { flight: "Flight", hotel: "Hotel", payment
 function detail(e: Ev): string {
   const s = e.summary || {};
   return [
-    s.hotel, s.amount != null ? fmtINR(Number(s.amount)) : null, s.method, s.reference ? `ref ${s.reference}` : null,
+    s.addons && s.addons.length ? s.addons.map((a: any) => `${a.kind} ${a.label || a.code} · traveller ${a.pax_index} (${fmtINR(Number(a.price || 0))})`).join(", ") : null,
+    s.note, s.hotel, s.amount != null ? fmtINR(Number(s.amount)) : null, s.method, s.reference ? `ref ${s.reference}` : null,
     s.booking_ref ? `ref ${s.booking_ref}` : null, s.pnrs && s.pnrs.length ? `PNR ${s.pnrs.join(", ")}` : null,
     s.supplier_status ? `supplier: ${s.supplier_status}` : null, s.tripsure_message || s.tripsure_status ? `TripSure: ${[s.tripsure_status, s.tripsure_message].filter(Boolean).join(" · ")}` : null, s.razorpay_payment_id ? `txn ${s.razorpay_payment_id}` : s.razorpay_order_id ? `Razorpay order ${s.razorpay_order_id}` : null, s.error,
   ].filter(Boolean).join(" · ");
