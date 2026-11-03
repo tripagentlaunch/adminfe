@@ -114,10 +114,14 @@ background:var(--champagne);border:1px solid var(--line2);}
    still rendered at its own CONTENT height regardless (measured 922px
    in a 607px track) because nothing let them shrink below that. */
 .taw-cols-3>*{min-height:0;}
-/* Console zoomed out (2026-11-02, direct request) — the Itinerary Builder and Search columns
-   render at 86% so several days and several flight cards are in view at once. Desktop only;
-   the stacked layout below 1100px keeps full size. */
-@media(min-width:1101px){.taw-console-cols{zoom:.86;}}
+/* Console zoomed out (2026-11-02, direct request; builder smaller still 2026-11-03) — the
+   Itinerary Builder renders at 78% (passengers, totals and several days in view at once) and
+   Search at 86% (several flight cards). Desktop only; the stacked layout below 1100px keeps full
+   size. Each column is a direct child of the grid (ColumnSlot renders a fragment). */
+@media(min-width:1101px){
+  .taw-console-cols>.taw-itin-card{zoom:.78;}
+  .taw-console-cols>.taw-card:not(.taw-itin-card){zoom:.86;}
+}
 .taw-cols-q{grid-template-columns:1fr 420px;}
 
 /* Proposal PDF preview (2026-09-08) — same min-height:0 flex-chain pattern
