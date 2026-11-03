@@ -578,22 +578,23 @@ export function ProposalPreviewPage({
   const autoOpened = useRef(false);
   const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
   const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
-  // As soon as the link is opened, every payable item is re-checked live and held on the server
-  // (refresh): Pay now then goes straight to payment, or a changed price is shown first. The
-  // short details form only appears when we don't hold the traveller's name, email or mobile.
+  // The live price check runs when the customer presses Pay now (2026-11-03, direct request), not
+  // when the link opens: every payable item is re-checked and held on the server (refresh — for a
+  // flight that is TripSure's Update Itinerary with the passengers and add-ons), then payment
+  // opens, or a changed price is shown first. Each press checks again. The short details form only
+  // appears when we don't hold the traveller's name, email or mobile.
   const router = useRouter();
   const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "needs_passengers" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
   // "Payment 1 of 2 · Flight BLR → DEL" while TripSure's payments are taken booking by booking.
   const [payStep, setPayStep] = useState<{ step: number; steps: number; label: string } | null>(null);
   const [changeSeen, setChangeSeen] = useState(false);
-  // Pay now pressed while the check was still running (or opened with ?pay=open): pay as soon as it is ready.
+  // Pay now pressed (or opened with ?pay=open): pay as soon as the check is ready.
   const [wantPay, setWantPay] = useState(false);
   const wantPayRef = useRef(false);
   const want = (v: boolean) => { wantPayRef.current = v; setWantPay(v); };
   const [paying, setPaying] = useState(false);
   const [payErr, setPayErr] = useState<string | null>(null);
-  // The automatic check runs once per page view (the effect below can fire again as the URL
-  // flags settle); "Check again" and an ended hold run it on purpose.
+  // The quotes load once per page view (the effect below can fire again as the URL flags settle).
   const checkStarted = useRef(false);
   function runCheck() {
     if (!payToken) return;
@@ -625,22 +626,29 @@ export function ProposalPreviewPage({
     proposalFlightPayQuote(payToken)
       .then((q: any) => {
         setFlightQuote(q);
-        if (q && q.payable && payment !== "success") {
-          runCheck();
-        }
+        // ?pay=open is a Pay now press: check, then pay.
+        if (q && q.payable && payment !== "success" && wantPayRef.current) runCheck();
       })
-      .catch(() => setFlightQuote(null));
+      .catch(() => { want(false); setFlightQuote(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payToken, payOpen]);
 
-  // After a swap on the link: the new quote, then the live check and hold for the trip as chosen.
+  // After a swap on the link: the new quote. An earlier check was for the old flights, so it is
+  // cleared; Pay now checks the trip as chosen.
   useEffect(() => {
     if (!payToken || !choiceVersion) return;
     proposalFlightPayQuote(payToken).then((q: any) => setFlightQuote(q)).catch(() => setFlightQuote(null));
-    runCheck();
+    setCheck({ status: "idle" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choiceVersion]);
 
+  // The Pay now button: a fresh live check every press, then payment (or the price-change popup).
+  function startPay() {
+    if (!payToken || paying || check.status === "checking") return;
+    setPayErr(null);
+    want(true);
+    runCheck();
+  }
   async function payNow(current = check) {
     if (!payToken) return;
     if (current.status === "checking") { want(true); return; }
@@ -652,8 +660,8 @@ export function ProposalPreviewPage({
       const out = await payHeldOrder(payToken, current.data, (url) => router.push(url), setPayStep);
       if (out.kind === "paid") setCheck({ status: "paid", data: { order_number: out.orderNumber } });
     } catch (e: any) {
-      // The hold ended while the page sat open: check again for a fresh price and hold.
-      if (e && e.status === 410) runCheck();
+      // The hold ended while the page sat open: check again for a fresh price and hold, then pay.
+      if (e && e.status === 410) { want(true); runCheck(); }
       else setPayErr(errText(e));
     } finally {
       setPaying(false);
@@ -978,7 +986,7 @@ export function ProposalPreviewPage({
                       See the day-by-day plan
                     </button>
                     {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
-                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || check.status === "needs_passengers" || paying}
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={startPay} disabled={check.status === "checking" || paying}
                         aria-busy={check.status === "checking" || paying}>
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
                           : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
@@ -1008,14 +1016,14 @@ export function ProposalPreviewPage({
                       {payErr ? payErr
                         : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
                         : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment by Razorpay
+                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
-                        : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
-                        : "Secure payment by Razorpay"}
+                        : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={startPay}>Try again</button></>
+                        : "Secure payment · prices are re-checked with the airline and hotel when you press Pay now"}
                     </div>
                   ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
-                    <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
+                    <div className="pv-actions-note">Secure payment · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
                   {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && (check.data?.pays_trip_total ?? flightQuote.pays_trip_total) ? (
                     // One payment for the whole trip (TripAgent's Razorpay): the fee and GST are in it.
@@ -1044,7 +1052,7 @@ export function ProposalPreviewPage({
                       onRerun={runCheck} busy={check.status === "checking"} />
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
-                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
+                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={() => setCheck({ status: "idle" })} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
                   ) : null}
                 </>
               ) : null}

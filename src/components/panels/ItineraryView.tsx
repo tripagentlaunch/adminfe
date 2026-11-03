@@ -466,6 +466,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
 
   return (
     <div className="taw-itin">
+      {/* One scroll for the whole builder (2026-11-02, direct request): the summary, alerts and
+          passengers scroll away with the plan instead of pinning it into a strip at the bottom; the
+          category tabs stick to the top so the filter is always at hand. */}
+      <SleekScroll className="taw-itin-days-scroll">
+      <div className="taw-itin-body">
       <div className="taw-itin-summary">
         <div className="taw-itin-summary-head">
           <div>
@@ -603,7 +608,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           filter to match ("All" shows every item, unfiltered — the
           original combined view). Trip-wide totals/bar above stay
           unaffected — those are deliberately whole-trip, not per-tab. */}
-      <div className="taw-leg-switch">
+      <div className="taw-leg-switch taw-itin-tabs">
         <button className={cx("taw-leg-tab", category === "all" && "is-active")} onClick={() => setCategory("all")}>
           All
         </button>
@@ -618,12 +623,6 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         </button>
       </div>
 
-      {/* SleekScroll (2026-09-04, direct request) — only THIS, the day/
-          visa list below the tabs, scrolls now; the summary, alerts
-          banner, and tabs above stay fixed in view (see
-          .taw-itin-card .taw-card-b's own comment for the flex chain
-          this depends on). */}
-      <SleekScroll className="taw-itin-days-scroll">
       {/* .taw-itin-days (2026-09-03) — a plain divider-separated
           section (each .taw-itin-day gets a border-bottom, no more
           individual card box), not another gapped list; see the CSS
@@ -973,6 +972,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         );
       });
       })() : null}
+      </div>
       </div>
       </SleekScroll>
 

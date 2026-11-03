@@ -157,7 +157,7 @@ export function ProposalPayModal({ token, stay, gatewayConfigured, prefill, onCl
               </button>
             </div>
             <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
-              Secured by Razorpay. Your PAN, if entered, is sent to the hotel supplier only and never stored.
+              Secure payment. Your PAN, if entered, is sent to the hotel supplier only and never stored.
             </p>
           </>
         )}

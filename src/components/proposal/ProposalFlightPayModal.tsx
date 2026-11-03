@@ -223,7 +223,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                   </button>
                 </div>
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
-                  Secured by Razorpay. Price includes taxes and fees; it is re-checked with the airline{stays.length ? " and the hotel" : ""} when you press Pay.
+                  Secure payment. Price includes taxes and fees; it is re-checked with the airline{stays.length ? " and the hotel" : ""} when you press Pay.
                 </p>
               </>
             )}

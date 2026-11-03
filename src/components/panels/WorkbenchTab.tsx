@@ -526,7 +526,7 @@ export function WorkbenchTab(props: any) {
       document.body,
     ) : null}
     {/* Drag the handle between the columns to widen the Itinerary Builder or Search (saved per browser). */}
-    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3">
+    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3 taw-console-cols">
       <Card
         className="taw-itin-card"
         title="Itinerary Builder"
