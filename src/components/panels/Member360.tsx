@@ -36,7 +36,6 @@ import { useWorkbench } from "../../lib/workbenchContext";
 import { fmtDate } from "../../lib/advisorHelpers";
 import { buildTripFields, emptyLabel } from "../../lib/tripFields";
 import { tripPaxLabel } from "../../lib/itineraryFromCart";
-import { detailOf, EMPTY_NOTE, isWebsiteQuery } from "../../lib/enquiryDetail";
 
 // 2026-09-02: was "Mr"/"Ms" — changed to a bare gender letter per direct
 // feedback. Keeping the lookup (rather than printing m.gender directly)
@@ -69,16 +68,7 @@ function dateFlexChipClass(tag: string) {
 export function Member360(props: any) {
   const m = props.member;
   const enquiry = props.enquiry;
-  const { itinerariesByEnquiry, generatingItinerary, pipelineStatusByEnquiry, enquiries, pickEnquiry, membersById, reloadInbox } = useWorkbench();
-  // This traveller's queries from the website's Plan a trip form, newest first (2026-11-04,
-  // direct request): when each was raised, and what it asked for.
-  const memberId = (enquiry && enquiry.member_id) || (m && m.id);
-  const websiteQueries = (enquiries || [])
-    .filter((e: any) => memberId && e.member_id === memberId && isWebsiteQuery(e))
-    .sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  // The Queue list is read once on load: refresh it when a profile opens, so a query sent
-  // a moment ago shows up here.
-  useEffect(() => { if (memberId) reloadInbox().catch(() => {}); }, [memberId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { itinerariesByEnquiry, generatingItinerary, pipelineStatusByEnquiry } = useWorkbench();
 
   // Hero photo — one Pexels stock photo for the destination, via adminbe's
   // GET /enquiries/destination-photo. Any failure / no key / no result leaves
@@ -488,43 +478,6 @@ export function Member360(props: any) {
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="taw-m360-sec" style={{ borderTop: "1px solid #EDE7D9", paddingTop: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-          <Icon name="inbox" size={15} style={{ color: "#B8945F" }} />
-          <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
-            Website queries
-          </span>
-          {websiteQueries.length ? <span style={{ fontSize: 12, color: "#8A8070" }}>{websiteQueries.length}</span> : null}
-        </div>
-        {websiteQueries.length ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {websiteQueries.map((q: any) => {
-              const d = detailOf(q.detail);
-              const raised = q.created_at ? new Date(q.created_at) : null;
-              const facts = [d.destination, d.travel_window, d.travelers_count ? `${d.travelers_count} traveller${d.travelers_count === "1" ? "" : "s"}` : null,
-                d.budget_total ? `Budget ${d.budget_total}` : null].filter(Boolean);
-              const note = q.message && q.message !== EMPTY_NOTE ? q.message : d.special_requests;
-              const current = enquiry && enquiry.id === q.id;
-              return (
-                <button key={q.id} type="button" onClick={() => !current && pickEnquiry(q, membersById[q.member_id])}
-                  title={current ? "This query is open" : "Open this query"}
-                  style={{ textAlign: "left", width: "100%", padding: "9px 11px", borderRadius: 8, cursor: current ? "default" : "pointer",
-                    border: "1px solid " + (current ? "#D9C29A" : "#EDE7D9"), background: current ? "#FBF6EC" : "#FFFEFB", fontFamily: "inherit" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, color: "#8A8070" }}>
-                    <span>Raised {raised ? raised.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
-                    <span>{current ? "Open now" : (q.status || "open")}</span>
-                  </div>
-                  <div style={{ fontSize: 13.5, color: "#231C13", marginTop: 3 }}>{facts.length ? facts.join(" · ") : "No trip details given"}</div>
-                  {note ? <div style={{ fontSize: 12.5, color: "#5C5446", marginTop: 3, fontStyle: "italic" }}>“{note}”</div> : null}
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div style={{ fontSize: 13, color: "#8A8070", padding: "4px 0" }}>No queries from the website&apos;s Plan a trip form yet.</div>
-        )}
       </div>
     </div>
   );

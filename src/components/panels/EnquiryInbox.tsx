@@ -8,7 +8,22 @@
 import { cx } from "../../lib/cx";
 import { enqSla } from "../../lib/advisorHelpers";
 import { Empty, Icon, SleekScroll } from "../ui";
-import { detailOf, EMPTY_NOTE, isWebsiteQuery } from "../../lib/enquiryDetail";
+
+// An enquiry's `detail` as fields: an object (Tara / WhatsApp, and the website form from
+// 2026-11-03), or the website form's older labeled text ("Destination: …\nDates: …").
+const TEXT_KEYS: Record<string, string> = { destination: "destination", dates: "travel_window", travellers: "travelers_count", budget: "budget_total" };
+function detailOf(raw: any): Record<string, any> {
+  if (raw && typeof raw === "object") return raw;
+  const out: Record<string, any> = {};
+  if (typeof raw !== "string") return out;
+  raw.split("\n").forEach((line) => {
+    const i = line.indexOf(":");
+    const key = i > 0 ? TEXT_KEYS[line.slice(0, i).trim().toLowerCase()] : null;
+    if (key && line.slice(i + 1).trim()) out[key] = line.slice(i + 1).trim();
+  });
+  if (Object.keys(out).length) out.source = "website_enquiry_form";
+  return out;
+}
 
 export function EnquiryInbox(props: any) {
   const { enquiries, membersById, loading, selectedId } = props;
@@ -75,7 +90,7 @@ export function EnquiryInbox(props: any) {
         const hours = createdMs ? Math.floor(Math.max(0, Date.now() - createdMs) / 3600000) : null;
         const pax = e.ask && e.ask.persons ? e.ask.persons.length : /^\d+$/.test(String(det.travelers_count || "")) ? Number(det.travelers_count) : null;
         // Sent from the website's Plan a trip (/enquire) form.
-        const fromForm = isWebsiteQuery(e);
+        const fromForm = e.channel === "web" && (det.source === "website_enquiry_form" || !!e.detail);
         const bookings = (services || []).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(" + ");
         const destText = (dests || []).slice(0, 2).join(", ");
         // "Departure day" — the enquiry data model only carries a month
@@ -115,7 +130,7 @@ export function EnquiryInbox(props: any) {
               {bookings}
             </div>
             <div className="taw-enq-depart">{departs}{det.budget_total ? " · " + det.budget_total : ""}</div>
-            {fromForm && e.message && e.message !== EMPTY_NOTE ? (
+            {fromForm && e.message && e.message !== "New trip enquiry submitted via the website." ? (
               <div className="taw-enq-depart" style={{ fontStyle: "italic" }}>“{e.message}”</div>
             ) : null}
           </button>
