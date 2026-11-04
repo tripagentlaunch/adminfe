@@ -13,8 +13,12 @@ export function humanize(key: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
+/** A presigned storage link carries its own login (X-Amz-Signature): never print it on a page or a PDF. */
+const isSignedLink = (s: string) => /X-Amz-(Signature|Credential|Security-Token)=/i.test(s);
+
 export function fmtValue(key: string, v: unknown): string {
   if (v == null || v === "") return "—";
+  if (typeof v === "string" && isSignedLink(v)) return "Temporary download link (hidden)";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "number") return MONEY.test(key) ? "₹" + v.toLocaleString("en-IN", { maximumFractionDigits: 2 }) : String(v);
   if (typeof v === "string") {
@@ -47,6 +51,11 @@ export function findHtml(data: unknown): string | null {
 }
 export function findLink(data: unknown): string | null {
   return deepFind(data, (s) => /^https?:\/\//i.test(s.trim()) && !/\s/.test(s.trim()));
+}
+
+/** A temporary storage link in the answer that has no web address in front of it, so it can't be opened as is. */
+export function findHostlessLink(data: unknown): string | null {
+  return deepFind(data, (s) => s.trim().startsWith("/") && !s.trim().startsWith("//") && isSignedLink(s));
 }
 
 export function pdfBlob(b64: string): Blob {
