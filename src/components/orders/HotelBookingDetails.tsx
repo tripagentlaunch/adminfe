@@ -5,8 +5,10 @@
    with Tripsure so a slow or unclear Book Room outcome can be reconciled, and shows the trace id
    to quote to Tripsure support (guide section 9).
 
-   The guide gives no response schema for this call, so the panel reads the fields it knows by
-   several likely names and lists whatever else is a plain value. Nothing here writes anything. */
+   Fields follow Tripsure's real answer (hotels Postman collection, "Booking Details"): bookingStatus,
+   bookingReferenceNumber, hotelConfirmationNumber, providerConfirmationNumber, the cancellation numbers,
+   checkInDate / checkOutDate, guests[], and additionalDetails { hotel, rates[], totalRate }. Older guesses are
+   kept as fallbacks, and any other plain value is still listed. Nothing here writes anything. */
 
 import { useEffect, useState } from "react";
 import { bookingHotelTripsureBooking } from "../../services/api";
@@ -34,11 +36,16 @@ function describeStatus(raw: string): { label: string; tone: "success" | "info" 
 const KNOWN: Record<string, string[]> = {
   status: ["status", "bookingStatus", "booking_status", "orderStatus", "state"],
   hotel: ["hotelName", "hotel_name", "propertyName"],
-  confirmation: ["confirmationNumber", "confirmationNo", "hotelConfirmationNumber", "bookingReference", "supplierReference", "pnr"],
-  checkIn: ["checkIn", "checkInDate"],
-  checkOut: ["checkOut", "checkOutDate"],
+  confirmation: ["hotelConfirmationNumber", "confirmationNumber", "confirmationNo", "bookingReference", "supplierReference", "pnr"],
+  // checkInDate / checkOutDate are the dates; "checkIn" / "checkOut" are timing sentences (shown separately).
+  checkIn: ["checkInDate"],
+  checkOut: ["checkOutDate"],
   amount: ["totalAmount", "bookingAmount", "amount", "total", "totalRate"],
   policy: ["cancellationPolicy", "cancellation"],
+  providerConf: ["providerConfirmationNumber"],
+  reference: ["bookingReferenceNumber"],
+  hotelCancel: ["hotelCancellationNumber"],
+  providerCancel: ["providerCancellationNumber"],
 };
 
 function pick(o: any, keys: string[]): any {
@@ -55,7 +62,7 @@ function unwrap(d: any): any {
   return o;
 }
 
-const SHOWN = new Set(Object.values(KNOWN).flat());
+const SHOWN = new Set([...Object.values(KNOWN).flat(), "checkIn", "checkOut", "bookingId", "hotelId"]);
 const SKIP_LIKE = /(token|key|password|secret|pan|gst|email|mobile|phone)/i;
 
 function fmtDate(v: any): string {
@@ -88,13 +95,30 @@ export function HotelBookingDetails({ item, onRefreshed }: { item: FulfilmentIte
   const o = unwrap(state.data);
   const rawStatus = pick(o, KNOWN.status);
   const st = rawStatus != null ? describeStatus(String(rawStatus)) : null;
-  const hotel = pick(o, KNOWN.hotel);
+  const ad = o.additionalDetails && typeof o.additionalDetails === "object" ? o.additionalDetails : {};
+  const hotelInfo = ad.hotel && typeof ad.hotel === "object" ? ad.hotel : {};
+  const rates: any[] = Array.isArray(ad.rates) ? ad.rates : [];
+  const rate = rates[0] || {};
+  const guests: any[] = Array.isArray(o.guests) ? o.guests : [];
+  const requests: any[] = Array.isArray(o.specialRequests) ? o.specialRequests : [];
+  const hotel = pick(hotelInfo, ["name"]) ?? pick(o, KNOWN.hotel);
+  const stars = Number(hotelInfo.starRating);
+  const addr = pick(hotelInfo.contact?.address, ["line1"]);
   const conf = pick(o, KNOWN.confirmation);
+  const providerConf = pick(o, KNOWN.providerConf);
+  const reference = pick(o, KNOWN.reference);
+  const hotelCancel = pick(o, KNOWN.hotelCancel);
+  const providerCancel = pick(o, KNOWN.providerCancel);
+  const timeIn = typeof o.checkIn === "string" ? o.checkIn : "";
+  const timeOut = typeof o.checkOut === "string" ? o.checkOut : "";
+  const currency = String(rate.currency || "INR");
+  const money = (n: number) => (currency === "INR" ? fmtINR(n) : `${currency} ${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`);
+  const refundability = rate.refundability ? String(rate.refundability) : typeof rate.refundable === "boolean" ? (rate.refundable ? "Refundable" : "Non-refundable") : "";
   const cin = pick(o, KNOWN.checkIn);
   const cout = pick(o, KNOWN.checkOut);
-  const amount = Number(pick(o, KNOWN.amount));
+  const amount = Number(pick(o, KNOWN.amount) ?? pick(ad, ["totalRate"]) ?? rate.totalRate);
   const policy = pick(o, KNOWN.policy);
-  const schedule = collectPolicies(o);
+  const schedule = [...collectPolicies(o), ...rates.flatMap((r) => collectPolicies(r))].filter((l, i, a) => a.indexOf(l) === i);
   const rest = Object.entries(o)
     .filter(([k, v]) => !SHOWN.has(k) && !SKIP_LIKE.test(k) && v != null && v !== "" && typeof v !== "object")
     .slice(0, 12);
@@ -104,7 +128,7 @@ export function HotelBookingDetails({ item, onRefreshed }: { item: FulfilmentIte
       <div className="ow-ts-head">
         <b>Tripsure booking</b>
         {st ? <span className={`ow-ts-st ${st.tone === "success" ? "confirmed" : st.tone === "danger" ? "booking_failed" : ""}`}>{st.label}</span> : null}
-        {Number.isFinite(amount) && amount > 0 ? <span>{fmtINR(amount)}</span> : null}
+        {Number.isFinite(amount) && amount > 0 ? <span>{money(amount)}</span> : null}
         <button type="button" className="taw-btn taw-btn--sm" disabled={state.busy} onClick={load} style={{ marginLeft: "auto" }}>
           {state.busy ? "Reading…" : "Refresh"}
         </button>
@@ -116,10 +140,35 @@ export function HotelBookingDetails({ item, onRefreshed }: { item: FulfilmentIte
 
       {state.data ? (
         <>
-          {hotel ? <div className="ow-ts-row"><span>Hotel</span><span>{String(hotel)}</span></div> : null}
+          {hotel ? <div className="ow-ts-row"><span>Hotel</span><span>{String(hotel)}{stars > 0 ? ` · ${stars}★` : ""}</span></div> : null}
+          {addr ? <div className="ow-ts-row"><span>Address</span><span>{String(addr)}</span></div> : null}
           {cin || cout ? <div className="ow-ts-row"><span>Stay</span><span>{cin ? fmtDate(cin) : "—"} → {cout ? fmtDate(cout) : "—"}</span></div> : null}
+          {timeIn ? <div className="ow-ts-row"><span>Check-in</span><span>{timeIn}</span></div> : null}
+          {timeOut ? <div className="ow-ts-row"><span>Check-out</span><span>{timeOut}</span></div> : null}
           {conf ? <div className="ow-ts-row"><span>Hotel confirmation</span><b>{String(conf)}</b></div> : null}
+          {providerConf ? <div className="ow-ts-row"><span>Supplier confirmation</span><span>{String(providerConf)}</span></div> : null}
+          {reference ? <div className="ow-ts-row"><span>Tripsure booking ref</span><span>{String(reference)}</span></div> : null}
           {item.booking_ref ? <div className="ow-ts-row"><span>Tripsure reference</span><span>{item.booking_ref}</span></div> : null}
+          {hotelCancel ? <div className="ow-ts-row"><span>Hotel cancellation no.</span><b>{String(hotelCancel)}</b></div> : null}
+          {providerCancel ? <div className="ow-ts-row"><span>Supplier cancellation no.</span><span>{String(providerCancel)}</span></div> : null}
+          {refundability ? (
+            <div className="ow-ts-row"><span>Rate</span><span>{refundability}{rate.onlineCancellable === false ? " · not cancellable online" : ""}{rate.payAtHotel ? " · pay at hotel" : ""}</span></div>
+          ) : null}
+          {guests.length ? (
+            <div className="ow-ts-row" style={{ alignItems: "flex-start" }}>
+              <span>Guests</span>
+              <span style={{ textAlign: "right" }}>
+                {guests.map((g, i) => (
+                  <div key={i}>
+                    {[g.title, g.firstName, g.lastName].filter(Boolean).join(" ") || "Guest"}
+                    {g.guestType ? ` · ${g.guestType}${Number(g.age) > 0 ? ` (${g.age})` : ""}` : ""}
+                    {g.isLeadGuest ? " · lead" : ""}
+                  </div>
+                ))}
+              </span>
+            </div>
+          ) : null}
+          {requests.length ? <div className="ow-ts-row"><span>Special requests</span><span>{requests.map((r) => (typeof r === "string" ? r : r?.text || r?.request || JSON.stringify(r))).join(", ")}</span></div> : null}
           {rest.map(([k, v]) => (
             <div key={k} className="ow-ts-row"><span>{k.replace(/([A-Z])/g, " $1").replace(/_/g, " ").toLowerCase()}</span><span>{String(v)}</span></div>
           ))}
