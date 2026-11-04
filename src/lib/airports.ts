@@ -260,3 +260,18 @@ export function searchAirports(query: string, limit = 8): Airport[] {
     .slice(0, limit)
     .map((x) => x.a);
 }
+
+
+/** The country code of an airport in the built-in list, or null when it isn't there. */
+export function airportCountry(code: string): string | null {
+  const c = String(code || "").toUpperCase();
+  const a = AIRPORTS.find((x) => x.airport_code === c);
+  return a ? a.country_code : null;
+}
+
+/** Is this route international (not both ends in India)? null when an airport isn't in the built-in list: the server decides then. */
+export function tripIsInternational(from: string, to: string): boolean | null {
+  const a = airportCountry(from), b = airportCountry(to);
+  if (!a || !b) return null;
+  return !(a === "IN" && b === "IN");
+}

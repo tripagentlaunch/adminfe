@@ -10,47 +10,18 @@ import { bookingSaveTravellers } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
 import type { Order, PaxType } from "../../lib/orderTypes";
+import {
+  TITLES, blank, splitName, travellerPayload, rowsForParty, ageOn, travellerProblems, type TravellerRow,
+} from "../../lib/travellerRules";
+export { TITLES, blank, splitName, travellerPayload, rowsForParty, ageOn, travellerProblems };
+export type { TravellerRow };
+type Row = TravellerRow;
 
-type Row = {
-  id?: string;
-  pax_type: PaxType;
-  title: string;
-  first_name: string;
-  last_name: string;
-  gender: "male" | "female";
-  date_of_birth: string;
-  is_lead: boolean;
-  email: string;
-  phone: string;
-  nationality: string;
-  passport_number: string;
-  passport_expiry: string;
-  passport_last4?: string | null;
-  pan: string;
-  has_pan?: boolean;
-};
 
-const TITLES: Record<PaxType, { t: string; g: "male" | "female" }[]> = {
-  adult: [{ t: "Mr", g: "male" }, { t: "Mrs", g: "female" }, { t: "Ms", g: "female" }, { t: "Dr", g: "male" }],
-  child: [{ t: "Mstr", g: "male" }, { t: "Miss", g: "female" }],
-  infant: [{ t: "Mstr", g: "male" }, { t: "Miss", g: "female" }],
-};
 // Airlines: adult 12+, child 2-11. A hotel-only order follows the hotel's rule instead: adult 18+, child 2-17.
-const TYPE_LABEL: Record<PaxType, string> = { adult: "Adult (12+)", child: "Child (2-11)", infant: "Infant (under 2)" };
+export const TYPE_LABEL: Record<PaxType, string> = { adult: "Adult (12+)", child: "Child (2-11)", infant: "Infant (under 2)" };
 const HOTEL_TYPE_LABEL: Record<PaxType, string> = { adult: "Adult (18+)", child: "Child (2-17)", infant: "Infant (under 2)" };
 
-function blank(pax_type: PaxType, is_lead = false): Row {
-  const first = TITLES[pax_type][0];
-  return {
-    pax_type, title: first.t, gender: first.g, first_name: "", last_name: "", date_of_birth: "", is_lead,
-    email: "", phone: "", nationality: "IN", passport_number: "", passport_expiry: "", pan: "",
-  };
-}
-
-function splitName(name: string): [string, string] {
-  const parts = (name || "").trim().split(/\s+/);
-  return parts.length > 1 ? [parts.slice(0, -1).join(" "), parts[parts.length - 1]] : [parts[0] || "", ""];
-}
 
 function initialRows(order: Order): Row[] {
   const f = order.fulfilment!;
@@ -99,6 +70,7 @@ function initialRows(order: Order): Row[] {
   return rows;
 }
 
+
 // Nationality choices (ISO 3166 alpha-2), most common first; any other code can be typed.
 export const NATIONALITIES: [string, string][] = [
   ["IN", "India"], ["US", "United States"], ["GB", "United Kingdom"], ["AE", "United Arab Emirates"], ["CA", "Canada"],
@@ -111,7 +83,7 @@ export const NATIONALITIES: [string, string][] = [
 // Soft passport check against the trip: a passport that lapses before the trip ends can't
 // be used (the server refuses it for international trips); many countries also ask for
 // 6 months' validity beyond the stay. Advice only — the advisor decides.
-function passportNote(expiry: string, travelEnd?: string | null): { tone: "bad" | "warn" | "ok"; text: string } | null {
+export function passportNote(expiry: string, travelEnd?: string | null): { tone: "bad" | "warn" | "ok"; text: string } | null {
   if (!expiry) return null;
   const exp = Date.parse(expiry + "T00:00:00Z");
   if (!Number.isFinite(exp)) return null;
@@ -127,6 +99,102 @@ function passportNote(expiry: string, travelEnd?: string | null): { tone: "bad" 
     return { tone: "ok", text: `Valid to ${fmt} — 6+ months past the trip.` };
   }
   return exp < Date.now() ? { tone: "bad", text: `Expired on ${fmt}.` } : { tone: "ok", text: `Valid to ${fmt}.` };
+}
+
+// ── Shared with the New booking wizard (Travellers step) ─────────────────────────────────────
+
+/** One traveller's fields: the card both the New booking wizard and the order page show. */
+export function TravellerCard({ row: r, index: i, intl, typeLabel, travelEnd, canRemove, onRemove, onChange, onMakeLead, idPrefix = "tf", saved, onPickSaved }: {
+  row: Row; index: number; intl: boolean; typeLabel: Record<PaxType, string>; travelEnd?: string | null;
+  canRemove?: boolean; onRemove?: () => void; onChange: (patch: Partial<Row>) => void; onMakeLead: () => void; idPrefix?: string;
+  /** The customer's saved travellers not already used on another card, and what to do when one is picked. */
+  saved?: { id: string; label: string }[]; onPickSaved?: (id: string) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
+  const id = (k: string) => `${idPrefix}-${k}-${i}`;
+  return (
+    <div className="ow-tf-pax">
+      <div className="ow-tf-pax-head">
+        <b>Traveller {i + 1} · {typeLabel[r.pax_type]}</b>
+        <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {r.pax_type === "adult" ? (
+            <label className="ow-tf-lead">
+              <input type="radio" name={`${idPrefix}-lead`} checked={r.is_lead} onChange={onMakeLead} /> Lead traveller
+            </label>
+          ) : null}
+          {canRemove ? <button type="button" className="taw-btn taw-btn--sm" onClick={onRemove}>Remove</button> : null}
+        </span>
+      </div>
+      {saved && saved.length && onPickSaved ? (
+        <label className="ow-tf-saved">
+          <span>Fill in from a saved traveller</span>
+          <select className="taw-input" aria-label="Fill in from a saved traveller" value={r.profile_id || ""}
+            onChange={(e) => { if (e.target.value) onPickSaved(e.target.value); }}>
+            <option value="">{r.profile_id ? "Saved traveller used" : "Choose…"}</option>
+            {saved.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        </label>
+      ) : null}
+      <div className="ow-tf-grid">
+        <Field label="Title" htmlFor={id("title")}>
+          <select id={id("title")} className="taw-input" value={r.title} onChange={(e) => {
+            const t = TITLES[r.pax_type].find((x) => x.t === e.target.value);
+            onChange({ title: e.target.value, ...(t && e.target.value !== "Dr" ? { gender: t.g } : {}) });
+          }}>
+            {TITLES[r.pax_type].map((x) => <option key={x.t} value={x.t}>{x.t}</option>)}
+          </select>
+        </Field>
+        <Field label="First & middle name" htmlFor={id("fn")}>
+          <input id={id("fn")} className="taw-input" autoComplete="off" value={r.first_name} onChange={(e) => onChange({ first_name: e.target.value })} />
+        </Field>
+        <Field label="Last name" htmlFor={id("ln")}>
+          <input id={id("ln")} className="taw-input" autoComplete="off" value={r.last_name} onChange={(e) => onChange({ last_name: e.target.value })} />
+        </Field>
+        <Field label="Gender" htmlFor={id("g")}>
+          <select id={id("g")} className="taw-input" value={r.gender} onChange={(e) => onChange({ gender: e.target.value as Row["gender"] })}>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+          </select>
+        </Field>
+        <Field label={r.pax_type !== "adult" || intl ? "Date of birth" : "Date of birth (optional)"} htmlFor={id("dob")}>
+          <input id={id("dob")} className="taw-input" type="date" max={today} value={r.date_of_birth} onChange={(e) => onChange({ date_of_birth: e.target.value })} />
+        </Field>
+        {r.is_lead ? (
+          <>
+            <Field label="Email" htmlFor={id("em")}>
+              <input id={id("em")} className="taw-input" type="email" value={r.email} onChange={(e) => onChange({ email: e.target.value })} />
+            </Field>
+            <Field label="Mobile" htmlFor={id("ph")}>
+              <input id={id("ph")} className="taw-input" inputMode="tel" placeholder="98xxxxxxxx" value={r.phone} onChange={(e) => onChange({ phone: e.target.value })} />
+            </Field>
+          </>
+        ) : null}
+        {/* Nationality and passport on every trip (kept on file for next time); required for international. */}
+        <Field label="Nationality" htmlFor={id("nat")}>
+          <select id={id("nat")} className="taw-input" value={r.nationality || "IN"} onChange={(e) => onChange({ nationality: e.target.value })}>
+            {(NATIONALITIES.some(([c]) => c === r.nationality) || !r.nationality ? NATIONALITIES : [[r.nationality, r.nationality] as [string, string], ...NATIONALITIES])
+              .map(([c, name]) => <option key={c} value={c}>{name} ({c})</option>)}
+          </select>
+        </Field>
+        <Field label={r.passport_last4 ? `Passport (•••• ${r.passport_last4} on file)` : intl ? "Passport number" : "Passport number (optional)"} htmlFor={id("pp")}>
+          <input id={id("pp")} className="taw-input" autoComplete="off" maxLength={9} placeholder={r.passport_last4 ? "Leave blank to keep" : "e.g. Z1234567"} value={r.passport_number}
+            onChange={(e) => onChange({ passport_number: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} />
+        </Field>
+        <Field label={intl ? "Passport expiry" : "Passport expiry (optional)"} htmlFor={id("px")}>
+          <input id={id("px")} className="taw-input" type="date" value={r.passport_expiry} onChange={(e) => onChange({ passport_expiry: e.target.value })} />
+        </Field>
+        {(() => {
+          const note = passportNote(r.passport_expiry, travelEnd);
+          return note ? <div className={`ow-tf-pp ${note.tone}`} role={note.tone === "bad" ? "alert" : undefined}>{note.text}</div> : null;
+        })()}
+        {r.is_lead ? (
+          <Field label={r.has_pan ? "PAN (on file — leave blank to keep)" : "PAN (if the fare or hotel rate asks for it)"} htmlFor={id("pan")}>
+            <input id={id("pan")} className="taw-input" maxLength={10} placeholder="ABCDE1234F" value={r.pan} onChange={(e) => onChange({ pan: e.target.value.toUpperCase() })} />
+          </Field>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function TravellersForm({ order, onClose, onSaved }: { order: Order; onClose: () => void; onSaved: () => void }) {
@@ -162,22 +230,7 @@ export function TravellersForm({ order, onClose, onSaved }: { order: Order; onCl
     setSaving(true);
     setErr(null);
     bookingSaveTravellers(order.dbId, {
-      travellers: rows.map((r) => ({
-        id: r.id || null,
-        title: r.title,
-        first_name: r.first_name.trim(),
-        last_name: r.last_name.trim(),
-        gender: r.gender,
-        pax_type: r.pax_type,
-        date_of_birth: r.date_of_birth || null,
-        is_lead: r.is_lead,
-        email: r.email.trim() || null,
-        phone: r.phone.replace(/\D/g, "") || null,
-        nationality: (r.nationality || "").trim().toUpperCase() || null,
-        passport_number: r.passport_number.trim().toUpperCase() || null,
-        passport_expiry: r.passport_expiry || null,
-        pan: r.pan.trim().toUpperCase() || null,
-      })),
+      travellers: rows.map(travellerPayload),
       customer_phone: rows.find((r) => r.is_lead)?.phone.replace(/\D/g, "") || null,
       gst_number: gst.open ? gst.number.trim().toUpperCase() || null : null,
       gst_company_name: gst.open ? gst.company.trim() || null : null,
@@ -206,79 +259,9 @@ export function TravellersForm({ order, onClose, onSaved }: { order: Order; onCl
 
         <div className="ow-tf">
           {rows.map((r, i) => (
-            <div className="ow-tf-pax" key={r.id || `new-${i}`}>
-              <div className="ow-tf-pax-head">
-                <b>Traveller {i + 1} · {typeLabel[r.pax_type]}</b>
-                <span style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  {r.pax_type === "adult" ? (
-                    <label className="ow-tf-lead">
-                      <input type="radio" name="lead" checked={r.is_lead} onChange={() => setLead(i)} /> Lead traveller
-                    </label>
-                  ) : null}
-                  {!fixedMix && rows.length > 1 ? (
-                    <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>Remove</button>
-                  ) : null}
-                </span>
-              </div>
-              <div className="ow-tf-grid">
-                <Field label="Title" htmlFor={`tf-title-${i}`}>
-                  <select className="taw-input" value={r.title} onChange={(e) => {
-                    const t = TITLES[r.pax_type].find((x) => x.t === e.target.value);
-                    setRow(i, { title: e.target.value, ...(t && e.target.value !== "Dr" ? { gender: t.g } : {}) });
-                  }}>
-                    {TITLES[r.pax_type].map((x) => <option key={x.t} value={x.t}>{x.t}</option>)}
-                  </select>
-                </Field>
-                <Field label="First & middle name" htmlFor={`tf-fn-${i}`}>
-                  <input className="taw-input" autoComplete="off" value={r.first_name} onChange={(e) => setRow(i, { first_name: e.target.value })} />
-                </Field>
-                <Field label="Last name" htmlFor={`tf-ln-${i}`}>
-                  <input className="taw-input" autoComplete="off" value={r.last_name} onChange={(e) => setRow(i, { last_name: e.target.value })} />
-                </Field>
-                <Field label="Gender" htmlFor={`tf-g-${i}`}>
-                  <select className="taw-input" value={r.gender} onChange={(e) => setRow(i, { gender: e.target.value as Row["gender"] })}>
-                    <option value="male">Male</option>
-                    <option value="female">Female</option>
-                  </select>
-                </Field>
-                <Field label={r.pax_type !== "adult" || intl ? "Date of birth" : "Date of birth (optional)"} htmlFor={`tf-dob-${i}`}>
-                  <input className="taw-input" type="date" max={today} value={r.date_of_birth} onChange={(e) => setRow(i, { date_of_birth: e.target.value })} />
-                </Field>
-                {r.is_lead ? (
-                  <>
-                    <Field label="Email" htmlFor={`tf-em-${i}`}>
-                      <input className="taw-input" type="email" value={r.email} onChange={(e) => setRow(i, { email: e.target.value })} />
-                    </Field>
-                    <Field label="Mobile" htmlFor={`tf-ph-${i}`}>
-                      <input className="taw-input" inputMode="tel" placeholder="98xxxxxxxx" value={r.phone} onChange={(e) => setRow(i, { phone: e.target.value })} />
-                    </Field>
-                  </>
-                ) : null}
-                {/* Nationality and passport on every trip (kept on file for next time); required for international. */}
-                <Field label="Nationality" htmlFor={`tf-nat-${i}`}>
-                  <select id={`tf-nat-${i}`} className="taw-input" value={r.nationality || "IN"} onChange={(e) => setRow(i, { nationality: e.target.value })}>
-                    {(NATIONALITIES.some(([c]) => c === r.nationality) || !r.nationality ? NATIONALITIES : [[r.nationality, r.nationality] as [string, string], ...NATIONALITIES])
-                      .map(([c, name]) => <option key={c} value={c}>{name} ({c})</option>)}
-                  </select>
-                </Field>
-                <Field label={r.passport_last4 ? `Passport (•••• ${r.passport_last4} on file)` : intl ? "Passport number" : "Passport number (optional)"} htmlFor={`tf-pp-${i}`}>
-                  <input id={`tf-pp-${i}`} className="taw-input" autoComplete="off" maxLength={9} placeholder={r.passport_last4 ? "Leave blank to keep" : "e.g. Z1234567"} value={r.passport_number}
-                    onChange={(e) => setRow(i, { passport_number: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} />
-                </Field>
-                <Field label={intl ? "Passport expiry" : "Passport expiry (optional)"} htmlFor={`tf-px-${i}`}>
-                  <input id={`tf-px-${i}`} className="taw-input" type="date" value={r.passport_expiry} onChange={(e) => setRow(i, { passport_expiry: e.target.value })} />
-                </Field>
-                {(() => {
-                  const note = passportNote(r.passport_expiry, order.travelEnd);
-                  return note ? <div className={`ow-tf-pp ${note.tone}`} role={note.tone === "bad" ? "alert" : undefined}>{note.text}</div> : null;
-                })()}
-                {r.is_lead ? (
-                  <Field label={r.has_pan ? "PAN (on file — leave blank to keep)" : "PAN (if the fare or hotel rate asks for it)"} htmlFor={`tf-pan-${i}`}>
-                    <input className="taw-input" maxLength={10} placeholder="ABCDE1234F" value={r.pan} onChange={(e) => setRow(i, { pan: e.target.value.toUpperCase() })} />
-                  </Field>
-                ) : null}
-              </div>
-            </div>
+            <TravellerCard key={r.id || `new-${i}`} row={r} index={i} intl={intl} typeLabel={typeLabel} travelEnd={order.travelEnd}
+              canRemove={!fixedMix && rows.length > 1} onRemove={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+              onChange={(patch) => setRow(i, patch)} onMakeLead={() => setLead(i)} />
           ))}
 
           {!fixedMix ? (

@@ -11,6 +11,9 @@ type Ev = { id: number; item_type: string | null; step: string; status: "ok" | "
 
 const STEP: Record<string, string> = {
   lock: "Locked with TripSure", fare_lock: "Fare lock for payment (TripSure Update Itinerary)", book: "Booking sent to TripSure", ticket: "Ticket issued", cancel: "Cancelled",
+  flight_cancel_quote: "Refund quote for a flight cancellation", flight_cancel_requested: "Flight cancellation sent to TripSure", flight_cancelled: "Flight cancelled with TripSure",
+  flight_cancel_failed: "TripSure could not cancel the flight", flight_change_requested: "Flight date change sent to TripSure", flight_changed: "Flight date changed by TripSure",
+  flight_change_failed: "TripSure could not change the flight date", ticketing_overdue: "Paid but not ticketed: needs attention",
   payment_started: "Online payment started", payment_paid: "Online payment received", payment_recorded: "Payment recorded", refund_recorded: "Refund recorded",
   addons_to_arrange: "Seats / meals / bags to arrange with the airline (paid by the customer, left out by TripSure)",
 };

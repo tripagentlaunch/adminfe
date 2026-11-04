@@ -7,16 +7,20 @@ import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
   bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
-  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
+  bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
 import { pollPaymentSettlement, type PollHandle, type PaymentStatus } from "../../lib/pollPaymentSettlement";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
-import { fmtINR, type Fulfilment, type FulfilmentItem, type Order } from "../../lib/orderTypes";
+import { fmtINR, type Fulfilment, type FulfilmentItem, type Order, type PaymentRow } from "../../lib/orderTypes";
+import { FlightServicingModal } from "./FlightServicingModal";
 import { priceCovers } from "../../lib/flightParty";
 import { TravellersForm } from "./TravellersForm";
 import { OrderActivity } from "./OrderActivity";
+import { HotelBookingDetails } from "./HotelBookingDetails";
+import { HotelInvoiceView } from "./HotelInvoiceView";
+import { policyLines } from "../../lib/hotelPolicy";
 
 const STAGE: Record<Fulfilment["stage"], { label: string; tone: string }> = {
   empty: { label: "Nothing to book", tone: "warn" },
@@ -76,6 +80,8 @@ function loadCheckout(): Promise<boolean> {
 type Pending = { item: FulfilmentItem; acceptFare?: boolean } | null;
 type CancelQuote = {
   booking_amount: number | null; cancellation_charges: number | null; refund_amount: number | null; discount: number | null;
+  /** Tripsure's cancellation schedule; the guide doesn't fix its shape, so each entry is a sentence or an object. */
+  policies?: unknown[];
 };
 type Cancelling = { item: FulfilmentItem; quote: CancelQuote | null } | null;
 
@@ -100,6 +106,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const pollRef = useRef<PollHandle | null>(null);
   useEffect(() => () => pollRef.current?.cancel(), []);
   const [refundOpen, setRefundOpen] = useState<{ amount: number } | null>(null); // opened after a cancel, pre-filled with Tripsure's refund
+  const [servicing, setServicing] = useState<FulfilmentItem | null>(null); // a ticketed flight being cancelled / its date changed
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
   // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
   const [tsOrder, setTsOrder] = useState<Record<string, { busy?: boolean; err?: string; data?: any }>>({});
@@ -110,6 +117,26 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
       .then((d: any) => setTsOrder((m) => ({ ...m, [id]: { data: d } })))
       .catch((e: any) => setTsOrder((m) => ({ ...m, [id]: { err: errText(e) } })));
   }
+
+  // Tripsure's booking record for a hotel (guide 6.7), opened per room on demand.
+  const [hotelOpen, setHotelOpen] = useState<Record<string, boolean>>({});
+  // A tax invoice Tripsure sent as data (not a file): shown in the app instead of downloaded.
+  const [invoiceView, setInvoiceView] = useState<{ item: FulfilmentItem; data: unknown } | null>(null);
+
+  // Book Room can be slow (guide 6.6): a room left "Confirming" / "Supplier confirming" is re-read
+  // from Tripsure every 20s for up to 4 minutes. This only reads (check-status), it never books again.
+  const inFlight = (f?.items || []).filter((i) => i.kind === "hotel" && (i.status === "booking" || i.status === "pending")).map((i) => i.id).join(",");
+  useEffect(() => {
+    if (!inFlight) return;
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (tries > 12) { clearInterval(timer); return; }
+      Promise.all(inFlight.split(",").map((id) => bookingCheckHotel(id).catch(() => null))).then(() => onChanged());
+    }, 20000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inFlight]);
 
   if (!f) return null;
   const stage = STAGE[f.stage] || STAGE.ready;
@@ -247,11 +274,11 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     }
   }
 
-  async function downloadInvoice(item: FulfilmentItem) {
+  async function downloadInvoice(item: FulfilmentItem, regenerate = false) {
     setBusy(item.id);
     setErr(null);
     try {
-      const r: any = await bookingHotelInvoice(item.id);
+      const r: any = await bookingHotelInvoice(item.id, regenerate);
       if (r.blob) {
         const href = URL.createObjectURL(r.blob);
         const a = document.createElement("a");
@@ -264,8 +291,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
       } else if (r.url) {
         window.open(r.url, "_blank", "noopener");
       } else {
-        toast("TripSure sent the invoice in a format that can't be downloaded here — see the console", "warn");
-        console.warn("hotel tax invoice response", r.data);
+        setInvoiceView({ item, data: r.data });
       }
     } catch (e) {
       setErr(errText(e));
@@ -423,8 +449,14 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                 <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRefundOpen({ amount: 0 })}>Record refund to customer</button>
               </div>
             ) : null}
+            {servicing ? (
+              <FlightServicingModal itemId={servicing.id} title={servicing.title}
+                onClose={() => { setServicing(null); onChanged(); }} onChanged={onChanged}
+                onRefund={(amount) => setRefundOpen({ amount })} onCollect={() => setPayOpen(true)} />
+            ) : null}
             {refundOpen ? (
               <RefundForm order={order} returnable={Math.round((f.payment.paid - (f.payment.refunded || 0)) * 100) / 100} suggested={refundOpen.amount}
+                payments={f.payment.payments}
                 onClose={() => setRefundOpen(null)} onSaved={() => { setRefundOpen(null); onChanged(); }} />
             ) : null}
             {payOpen ? <PaymentForm order={order} due={f.payment.due} onClose={() => setPayOpen(false)} onSaved={() => { setPayOpen(false); onChanged(); }} /> : null}
@@ -459,6 +491,12 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                       </div>
                     ) : null}
                     {it.error && !done ? <div className="ow-ful-err">{it.error}</div> : null}
+                    {it.hold && !done ? (
+                      <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                        TripSure placed a hold with the airline{it.hold.pnr ? <> (PNR <b>{it.hold.pnr}</b>)</> : null}
+                        {it.hold.last_ticket_date ? <>; it lapses on <b>{String(it.hold.last_ticket_date).replace("T", " ").slice(0, 16)}</b> unless ticketed</> : null}.
+                      </div>
+                    ) : null}
                     {!done && it.blocked_reason && it.status !== "check_required" ? (
                       <div className="ow-sub" style={{ whiteSpace: "normal" }}>{it.blocked_reason}</div>
                     ) : null}
@@ -486,6 +524,9 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           {tsOrder[it.id]?.busy ? "Loading…" : tsOrder[it.id] ? "Hide TripSure order" : "TripSure order"}
                         </button>
                       ) : null}
+                      {it.kind === "flight" && it.can_service ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => setServicing(it)}>Cancel or change</button>
+                      ) : null}
                       {it.kind === "flight" && it.status === "check_required" ? (
                         <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy}
                           onClick={() => simple(it.id, () => bookingCheckFlight(it.id), "Status updated from TripSure")}>
@@ -493,8 +534,20 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         </button>
                       ) : null}
                       {it.kind === "hotel" && it.can_invoice ? (
-                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => downloadInvoice(it)}>
-                          {busy === it.id ? "Working…" : "Tax invoice"}
+                        <>
+                          <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => downloadInvoice(it)}>
+                            {busy === it.id ? "Working…" : "Tax invoice"}
+                          </button>
+                          <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} title="Ask Tripsure to rebuild the invoice instead of sending its saved copy"
+                            onClick={() => downloadInvoice(it, true)}>
+                            Regenerate invoice
+                          </button>
+                        </>
+                      ) : null}
+                      {it.kind === "hotel" && ["booking", "pending", "confirmed", "check_required", "failed", "cancelled"].includes(it.status) ? (
+                        <button type="button" className="taw-btn taw-btn--sm" aria-expanded={!!hotelOpen[it.id]}
+                          onClick={() => setHotelOpen((m) => ({ ...m, [it.id]: !m[it.id] }))}>
+                          {hotelOpen[it.id] ? "Hide booking details" : "Booking details"}
                         </button>
                       ) : null}
                       {it.kind === "hotel" && it.can_cancel ? (
@@ -515,6 +568,14 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         This fare needs: {it.documents_required.map((d) => (d === "pan" ? "PAN" : d === "gst" ? "GST details" : "passports")).join(", ")}.
                       </div>
                     ) : null}
+                    {it.kind === "hotel" && (it.status === "booking" || it.status === "pending" || it.status === "check_required") ? (
+                      <div className="ow-sub" style={{ whiteSpace: "normal", marginTop: 4 }}>
+                        {it.status === "check_required"
+                          ? "Tripsure's answer wasn't clear. Don't confirm this room again — it could create a duplicate booking. Use Booking details or Check status to see what Tripsure has."
+                          : "Tripsure is still confirming this room. Don't confirm it again; the status refreshes by itself, or press Check status."}
+                      </div>
+                    ) : null}
+                    {it.kind === "hotel" && hotelOpen[it.id] ? <HotelBookingDetails item={it} onRefreshed={onChanged} /> : null}
                     {tsOrder[it.id] && !tsOrder[it.id].busy ? (
                       <div className="ow-ts">
                         {tsOrder[it.id].err ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>{tsOrder[it.id].err}</div> : (() => {
@@ -565,6 +626,14 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           <li>Cancellation charges: <b>{fmtINR(cancelling.quote.cancellation_charges ?? 0)}</b></li>
                           <li>Refund: <b>{fmtINR(cancelling.quote.refund_amount ?? 0)}</b></li>
                         </ul>
+                        {policyLines(cancelling.quote.policies).length ? (
+                          <details className="ow-room-pol">
+                            <summary>Tripsure&apos;s cancellation schedule</summary>
+                            <ul className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0" }}>
+                              {policyLines(cancelling.quote.policies).map((l, i) => <li key={i}>{l}</li>)}
+                            </ul>
+                          </details>
+                        ) : null}
                         <div className="ow-sub" style={{ whiteSpace: "normal" }}>
                           This can&apos;t be undone. Any refund to the customer is handled outside this screen.
                         </div>
@@ -603,6 +672,13 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
 
       <OrderActivity orderId={order.id} f={f} />
 
+      {invoiceView ? (
+        <HotelInvoiceView data={invoiceView.data} title={invoiceView.item.title} reference={invoiceView.item.booking_ref || invoiceView.item.confirmation_number || ""}
+          busy={busy === invoiceView.item.id}
+          onClose={() => setInvoiceView(null)}
+          onRegenerate={() => { const it = invoiceView.item; setInvoiceView(null); downloadInvoice(it, true); }} />
+      ) : null}
+
       {travOpen ? (
         <TravellersForm order={order} onClose={() => setTravOpen(false)} onSaved={() => { setTravOpen(false); onChanged(); }} />
       ) : null}
@@ -632,8 +708,29 @@ function ConfirmBox({ item, busy, onCancel, onConfirm }: { item: FulfilmentItem;
 }
 
 // Money paid back to the customer outside the portal. TripSure's cancellation quote pre-fills the amount.
-function RefundForm({ order, returnable, suggested, onClose, onSaved }: { order: Order; returnable: number; suggested: number; onClose: () => void; onSaved: () => void }) {
+function RefundForm({ order, returnable, suggested, payments, onClose, onSaved }: {
+  order: Order; returnable: number; suggested: number; payments?: PaymentRow[]; onClose: () => void; onSaved: () => void;
+}) {
   const first = suggested > 0 ? Math.min(suggested, returnable) : returnable;
+  // Payments taken online on TripAgent's Razorpay can be refunded straight back to the customer's card / UPI.
+  const online = (payments || []).filter((p) => p.can_refund_online && (p.refundable_left || 0) > 0);
+  const [how, setHow] = useState<"online" | "manual">(online.length ? "online" : "manual");
+  const [payId, setPayId] = useState(online[0]?.id || "");
+  const chosen = online.find((p) => p.id === payId) || online[0];
+  const onlineMax = chosen ? Math.min(chosen.refundable_left || 0, returnable) : 0;
+  const [onlineAmt, setOnlineAmt] = useState(String(Math.round(Math.min(first, onlineMax || first) * 100) / 100));
+  const [sure, setSure] = useState(false);
+  const onlineNum = Number(onlineAmt);
+  const onlineOk = !!chosen && onlineNum >= 1 && onlineNum <= onlineMax + 0.005 && sure;
+  function refundOnline() {
+    if (!chosen) return;
+    setSaving(true);
+    setErr(null);
+    bookingRefundOnline(order.dbId, { payment_id: chosen.id, amount: onlineNum })
+      .then(() => { toast(`${fmtINR(onlineNum)} refunded to the customer`, "success"); onSaved(); })
+      .catch((e: any) => setErr(errText(e)))
+      .finally(() => setSaving(false));
+  }
   const [form, setForm] = useState({ amount: String(Math.round(first * 100) / 100), method: "upi", reference: "", refunded_on: new Date().toISOString().slice(0, 10), note: "" });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -655,6 +752,46 @@ function RefundForm({ order, returnable, suggested, onClose, onSaved }: { order:
 
   return (
     <div className="ow-ful-form">
+      {online.length ? (
+        <div className="ow-tabs" role="tablist" aria-label="How the customer is paid back">
+          <button type="button" role="tab" aria-selected={how === "online"} className={"ow-tab" + (how === "online" ? " is-active" : "")} onClick={() => setHow("online")}>Refund through Razorpay</button>
+          <button type="button" role="tab" aria-selected={how === "manual"} className={"ow-tab" + (how === "manual" ? " is-active" : "")} onClick={() => setHow("manual")}>I paid them back myself</button>
+        </div>
+      ) : null}
+      {how === "online" && chosen ? (
+        <>
+          <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
+            The customer is paid back now, on the card / UPI they paid with, through TripAgent&apos;s Razorpay (it usually reaches them in 5–7 working days).
+            Up to {fmtINR(onlineMax)} can be refunded this way.
+          </div>
+          {err ? <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal" }}>{err}</div> : null}
+          {online.length > 1 ? (
+            <Field label="Payment to refund" htmlFor="ref-online-pay">
+              <select className="taw-input" value={chosen.id} onChange={(e) => { setPayId(e.target.value); setSure(false); }}>
+                {online.map((p) => <option key={p.id} value={p.id}>{fmtINR(p.amount)}{p.paid_at ? ` · ${String(p.paid_at).slice(0, 10)}` : ""} · {fmtINR(p.refundable_left || 0)} left</option>)}
+              </select>
+            </Field>
+          ) : (
+            <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+              Payment of {fmtINR(chosen.amount)}{chosen.paid_at ? ` on ${String(chosen.paid_at).slice(0, 10)}` : ""} · {fmtINR(chosen.refundable_left || 0)} left to refund
+            </div>
+          )}
+          <Field label="Amount to refund" htmlFor="ref-online-amt">
+            <input className="taw-input" inputMode="decimal" value={onlineAmt} onChange={(e) => { setOnlineAmt(e.target.value.replace(/[^\d.]/g, "")); setSure(false); }} />
+          </Field>
+          <label className="ow-tf-lead">
+            <input type="checkbox" checked={sure} onChange={(e) => setSure(e.target.checked)} />
+            Refund {fmtINR(onlineNum || 0)} to the customer now. This can&apos;t be undone.
+          </label>
+          <div className="ow-ful-acts">
+            <button type="button" className="taw-btn taw-btn--sm" onClick={onClose} disabled={saving}>Not now</button>
+            <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={refundOnline} disabled={!onlineOk || saving}>
+              {saving ? "Refunding…" : `Refund ${fmtINR(onlineNum || 0)}`}
+            </button>
+          </div>
+        </>
+      ) : (
+      <>
       <div className="taw-banner taw-banner--info" style={{ whiteSpace: "normal" }}>
         Record the money you have paid back to the customer (up to {fmtINR(returnable)} still returnable). This only keeps the record; the transfer itself is made outside this screen.
       </div>
@@ -684,6 +821,8 @@ function RefundForm({ order, returnable, suggested, onClose, onSaved }: { order:
           {saving ? "Saving…" : "Record refund"}
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }

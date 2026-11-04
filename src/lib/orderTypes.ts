@@ -81,12 +81,20 @@ export interface FulfilmentItem {
   /** hotel only: a confirmed room can be cancelled / has a tax invoice. */
   can_cancel?: boolean;
   can_invoice?: boolean;
+  /** flight only: a hold TripSure placed with the airline that is not ticketed yet (PNR kept until the last ticketing date). */
+  hold?: { pnr?: string | null; last_ticket_date?: string | null; booking_id?: string | null } | null;
+  /** flight only: a ticketed flight can be cancelled / its date changed (cancellation and reschedule with TripSure). */
+  can_service?: boolean;
   /** flight only: documents the fare needs (Create Itinerary conditions): passport / pan / gst. */
   documents_required?: string[];
   /** flight only: the journey's x-trace-id, quoted to TripSure support. */
   trace_id?: string | null;
 }
-export interface PaymentRow { id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null }
+export interface PaymentRow {
+  id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null;
+  /** Taken online on TripAgent's Razorpay and not refunded in full: it can be refunded to the customer's card / UPI from here. */
+  can_refund_online?: boolean; refundable_left?: number;
+}
 export interface Fulfilment {
   order_id: string;
   schema_ready: boolean;

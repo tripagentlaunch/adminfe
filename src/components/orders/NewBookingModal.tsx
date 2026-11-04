@@ -5,7 +5,7 @@ import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
   fastapiFlightSearch, flightShop, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
-  bookingGetOrder,
+  bookingGetOrder, bookingMemberTravellers, bookingSaveTravellers,
 } from "../../services/api";
 import { airportDistance, groupedAirportSuggest, nearbyAirports } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
@@ -14,7 +14,10 @@ import { partyText, priceCovers, type Party } from "../../lib/flightParty";
 import { detailToOrder, durationLabel } from "../../lib/realOrders";
 import type { Order } from "../../lib/orderTypes";
 import { OrderFulfilment } from "./OrderFulfilment";
-import { NATIONALITIES } from "./TravellersForm";
+import { NATIONALITIES, TYPE_LABEL, TravellerCard, rowsForParty, travellerPayload, travellerProblems, type TravellerRow } from "./TravellersForm";
+import { tripIsInternational } from "../../lib/airports";
+import { fillFromSaved, type SavedTraveller } from "../../lib/travellerRules";
+import { connectionWarnings } from "../../lib/connectionWarnings";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
@@ -33,7 +36,7 @@ export type BookingPreset = {
   /** What the customer asked for in the Console (extra bag / seat / meal); shown while choosing extras. */
   requests?: FlightRequests;
 };
-type Step = "customer" | "search" | "results" | "seats" | "flightDone" | "hotel";
+type Step = "customer" | "search" | "travellers" | "results" | "seats" | "flightDone" | "hotel";
 
 const CABINS = [
   { key: "economy", label: "Economy" },
@@ -112,6 +115,31 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     cabin: "economy",
   });
   const paxTotal = form.adults + form.children + form.infants;
+  // ── Travellers (asked right after Search, while the fares load) ───────────
+  // One card per passenger in the searched party. Kept here until the fare is locked and the order exists, then
+  // saved to it in one go (see confirmItinerary), so the Book step opens with the travellers already done.
+  const [tRows, setTRows] = useState<TravellerRow[]>([]);
+  const [tSkipped, setTSkipped] = useState(false);
+  // The trip the travellers are for: its dates (ages and passport validity are checked against them) and whether
+  // it is international (null: an airport isn't in the built-in list, so the server decides).
+  const [tTrip, setTTrip] = useState<{ start: string; end: string; intl: boolean | null }>({ start: "", end: "", intl: null });
+  const [travErr, setTravErr] = useState<string | null>(null);
+  // Why the fare search on the Travellers step failed (TripSure didn't answer, ...). The advisor stays on the step:
+  // the details can still be filled in, and "Try again" searches the same trip once more.
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  // The customer's saved travellers (db/158), to fill a card from, and whether to keep these on their profile afterwards.
+  const [savedTrav, setSavedTrav] = useState<SavedTraveller[]>([]);
+  const [remember, setRemember] = useState(true);
+  const memberId = customer?.member_id || null;
+  useEffect(() => {
+    if (step !== "travellers" || !memberId) return;
+    let live = true;
+    bookingMemberTravellers(memberId)
+      .then((r: any) => { if (live && r && r.available) setSavedTrav(r.travellers || []); })
+      .catch(() => { /* saved travellers are a convenience: the form works without them */ });
+    return () => { live = false; };
+  }, [step, memberId]);
+  const [travSaved, setTravSaved] = useState(0);
   // What the results on screen were priced for. TripSure's fare is for exactly this party, so every price,
   // note and the fare lock use THIS — never the form, which the advisor can edit after searching.
   const [searched, setSearched] = useState<{ party: Party; date: string } | null>(null);
@@ -212,6 +240,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     const round = tripType === "round";
     if (round && !form2.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
     if (round && form2.returnDate < form2.date) { setErr("The return can't be before the departure."); return; }
+    // The first search from the Search screen goes straight to the Travellers step: the advisor fills in who is
+    // travelling while the fares load, instead of after the fare is locked and TripSure's hold is running down.
+    const toTravellers = step === "search" && !addToOrder;
+    const inTravellers = toTravellers || step === "travellers"; // a (re)try from the Travellers step keeps its errors on that step
+    if (inTravellers) setSearchErr(null);
+    if (toTravellers) {
+      setTRows((prev) => rowsForParty(prev, { adult: form2.adults, child: form2.children, infant: form2.infants },
+        { name: customer?.name, email: customer?.email, phone: customer?.phone }));
+      setTSkipped(false);
+      setTTrip({ start: form2.date, end: round ? form2.returnDate : form2.date, intl: tripIsInternational(form2.from, form2.to) });
+      setStep("travellers");
+    }
     setSearching(true);
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
@@ -230,9 +270,15 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setPicked({ ONWARD: null, RETURN: null });
         setPartialErrors(r.errors || []);
         setSearched({ party: { adults: form2.adults, children: form2.children, infants: form2.infants }, date: form2.date });
-        setStep("results");
+        setSearchErr(null);
+        setStep((s) => (s === "travellers" ? s : "results")); // on the Travellers step the advisor moves on themselves
       })
-      .catch((e: any) => { if (seq === searchSeq.current) setErr(errText(e)); })
+      .catch((e: any) => {
+        if (seq !== searchSeq.current) return;
+        // From the Travellers step the error is shown there and the advisor stays put: the travellers can still
+        // be filled in, and "Try again" repeats the search. Anywhere else it is the modal's banner, as before.
+        if (inTravellers) setSearchErr(errText(e)); else setErr(errText(e));
+      })
       .finally(() => { if (seq === searchSeq.current) setSearching(false); });
   }
 
@@ -521,10 +567,25 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setDraftBoth(null); // confirmed: no longer discardable
         setLock({ orderId: r.order_id, itineraryId: d.itineraryId });
         setStep("flightDone");
-        // Straight on to travellers, payment and the ticket in the same panel, while TripSure
-        // still holds the fare.
+        // Straight on to payment and the ticket in the same panel, while TripSure still holds the fare.
         setDrawerTab("book");
-        loadBookOrder(r.order_id);
+        // The travellers typed in after the search go onto the new order first, so the Book step opens with them done.
+        // If the server refuses them (the full rules run there) the order is still made: the reason is shown and
+        // they can be corrected in the Book step.
+        setTravErr(null);
+        setTravSaved(0);
+        if (tRows.length && !tSkipped) {
+          bookingSaveTravellers(r.order_id, {
+            travellers: tRows.map(travellerPayload),
+            customer_phone: tRows.find((x) => x.is_lead)?.phone.replace(/\D/g, "") || null,
+            remember: remember && !!memberId,
+          })
+            .then(() => setTravSaved(tRows.length))
+            .catch((e: any) => setTravErr(errText(e)))
+            .finally(() => loadBookOrder(r.order_id));
+        } else {
+          loadBookOrder(r.order_id);
+        }
       })
       .catch((e: any) => setErr(errText(e)))
       .finally(() => setCreating(false));
@@ -543,12 +604,25 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const STEPS = ["Customer", "Search", "Choose fare", "Extras", "Book"];
-  const stepIdx =
-    step === "customer" ? 0 :
-    step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
-    step === "results" ? 2 :
-    step === "seats" ? 3 : 4;
+  // Adding a flight to an existing order has its travellers already: no Travellers step there.
+  const withTravellers = !addToOrder;
+  const STEPS = withTravellers ? ["Customer", "Search", "Travellers", "Choose fare", "Extras", "Book"] : ["Customer", "Search", "Choose fare", "Extras", "Book"];
+  const stepIdx = withTravellers
+    ? (step === "customer" ? 0 :
+       step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
+       step === "travellers" ? 2 :
+       step === "results" ? 3 :
+       step === "seats" ? 4 : 5)
+    : (step === "customer" ? 0 :
+       step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
+       step === "results" ? 2 :
+       step === "seats" ? 3 : 4);
+  // Extras are per passenger: with the travellers known, name them ("Priya Shah (lead)") instead of "Adult 1".
+  const extraSlots = paxSlots(form.adults, form.children).map((slot, i) => {
+    const r = tSkipped ? null : tRows.filter((x) => x.pax_type !== "infant")[i];
+    const nm = r ? `${r.first_name} ${r.last_name}`.trim() : "";
+    return nm ? { ...slot, label: r!.is_lead && tRows.length > 1 ? `${nm} (lead)` : nm } : slot;
+  });
   const title = step === "hotel" && hotelBack !== "search" ? "Add hotel" : addToOrder ? "Add to order" : "New booking";
   const blocked = creating || leaving || !!lockingId;
   // Once a fare is locked, closing should refresh the orders list (same as Escape).
@@ -842,14 +916,89 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           </>
         ) : null}
 
-        {/* ── Step 3: Results ── */}
+        {/* ── Step 3: Travellers (filled in while the fares load) ── */}
+        {step === "travellers" ? (() => {
+          const needIntl = tTrip.intl === true;
+          const problems = travellerProblems(tRows, { intl: needIntl, start: tTrip.start, end: tTrip.end });
+          const mix = { adults: tRows.filter((r) => r.pax_type === "adult").length, children: tRows.filter((r) => r.pax_type === "child").length, infants: tRows.filter((r) => r.pax_type === "infant").length };
+          const found = allOffers ? allOffers.length : 0;
+          const fareReady = !searching && !searchErr && !!searched;
+          return (
+            <>
+              <div className="nb-trav">
+                <div className="nb-trav-head">
+                  <div>
+                    <h3>Who is travelling?</h3>
+                    <p>{partyText(mix)} · names exactly as on the {needIntl ? "passport" : "government ID"}. Add them now: the fare is only held for a short while once you choose it.</p>
+                  </div>
+                  <span className={`nb-trav-search${searching ? " busy" : ""}`} role="status">
+                    {searching ? <><Spinner /> Finding fares…</> : searchErr ? "Fares not loaded" : found ? <><Icon name="check" size={13} /> {found} flight{found === 1 ? "" : "s"} found</> : "No flights found"}
+                  </span>
+                </div>
+                {searchErr ? (
+                  <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal", display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+                    <span>The fares could not be loaded: {searchErr} Your travellers are kept: fill them in, then try again.</span>
+                    <button type="button" className="taw-btn taw-btn--sm" disabled={searching} onClick={() => runSearch()}>Try again</button>
+                  </div>
+                ) : null}
+                {needIntl ? (
+                  <div className="taw-banner" style={{ whiteSpace: "normal" }}>
+                    International trip: date of birth, passport number and passport expiry are needed for everyone.
+                  </div>
+                ) : tTrip.intl === null ? (
+                  <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                    If this route turns out to be international, the passport details will be asked for when the booking is saved.
+                  </div>
+                ) : null}
+                <div className="ow-tf">
+                  {tRows.map((r, i) => (
+                    <TravellerCard key={i} row={r} index={i} intl={needIntl} typeLabel={TYPE_LABEL} travelEnd={tTrip.end} idPrefix="nbt"
+                      saved={savedTrav.filter((sv) => !tRows.some((x, j) => j !== i && x.profile_id === sv.id)).map((sv) => ({
+                        id: sv.id, label: `${sv.first_name} ${sv.last_name}${sv.relation ? ` (${sv.relation})` : ""}${sv.passport_last4 ? ` · passport ••${sv.passport_last4}` : ""}` }))}
+                      onPickSaved={(pid) => { const sv = savedTrav.find((x) => x.id === pid); if (sv) setTRows((rs) => rs.map((x, j) => (j === i ? { ...x, ...fillFromSaved(x, sv) } : x))); }}
+                      onChange={(patch) => setTRows((rs) => rs.map((x, j) => (j === i ? { ...x, ...patch } : x)))}
+                      onMakeLead={() => setTRows((rs) => rs.map((x, j) => ({ ...x, is_lead: j === i })))} />
+                  ))}
+                </div>
+                {memberId ? (
+                  <label className="nb-trav-remember">
+                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                    Remember these travellers on {customer?.name || "the customer"}&apos;s profile for next time
+                  </label>
+                ) : null}
+              </div>
+              <div className="ow-modal-foot">
+                <button type="button" className="taw-btn"
+                  onClick={() => { searchSeq.current += 1; setSearching(false); setSearchErr(null); setErr(null); setStep("search"); }}>Back</button>
+                <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <span className="ow-sub" style={{ whiteSpace: "normal", textAlign: "right" }}>
+                    {problems.length ? `Still needed: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}` : "Everyone is filled in."}
+                  </span>
+                  <button type="button" className="taw-btn" disabled={!fareReady} title="Add the travellers after the fare is chosen instead"
+                    onClick={() => { setTSkipped(true); setErr(null); setStep("results"); }}>Skip for now</button>
+                  <button type="button" className="taw-btn taw-btn--primary" disabled={!fareReady || problems.length > 0}
+                    onClick={() => { setErr(null); setStep("results"); }}>{searching ? "Finding fares…" : searchErr ? "Fares not loaded" : "Continue to fares"}</button>
+                </span>
+              </div>
+            </>
+          );
+        })() : null}
+
+        {/* ── Step 4: Results ── */}
         {step === "results" || step === "seats" || step === "flightDone" ? (
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
                 {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(searched?.date || form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {partyText(party)} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
-              <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
+              <span style={{ display: "flex", gap: 6 }}>
+                {step === "results" && withTravellers && tRows.length ? (
+                  <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setTSkipped(false); setStep("travellers"); }}>
+                    {tSkipped ? "Add travellers" : `Travellers (${tRows.length})`}
+                  </button>
+                ) : null}
+                <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
+              </span>
             </div>
             <div className="nb-cabins" role="radiogroup" aria-label="Cabin class">
               <span className="nb-cabins-l">Cabin</span>
@@ -1008,6 +1157,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                       const d = o.detail;
                       const raw = (getTripsureFlightOffer(o.id) || {}).raw || {};
                       const first = (raw.segments || [])[0] || {};
+                      const connWarn = connectionWarnings(raw.segments || [], tripIsInternational(form.from, form.to) === true);
                       return (
                         <div className={`ow-fcard${resultsRound && picked[activeLeg]?.id === o.id ? " picked" : ""}`} key={o.id}>
                           <div className="ow-fcard-air">
@@ -1045,6 +1195,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             <span className="taw-chip taw-chip--dom">{d.cabin}</span>
                             {d.refundable === true ? <span className="ow-tag ok">Refundable</span> : d.refundable === false ? <span className="ow-tag">Non-refundable</span> : null}
                             {d.baggageKg ? <span className="ow-tag">{d.baggageKg} kg bag</span> : null}
+                            {connWarn.map((w) => <span key={w.code} className={"ow-tag " + (w.severity === "warn" ? "warn" : "info")} title={w.text}>{w.short}</span>)}
                           </div>
                           {(alsoOf.get(o.id) || []).map((x: any) => (
                             <button key={x.id} type="button" className="taw-linkbtn taw-res-also" onClick={() => selectOffer(x)} disabled={!!lockingId}
@@ -1144,6 +1295,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     </div>
                   </div>
                   {expiryNote()}
+                  {travSaved ? (
+                    <div className="taw-banner" style={{ whiteSpace: "normal" }}>
+                      <Icon name="check" size={13} /> {travSaved} traveller{travSaved === 1 ? "" : "s"} saved to the order from the Travellers step.
+                    </div>
+                  ) : null}
+                  {travErr ? (
+                    <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
+                      The travellers could not be saved yet: {travErr} Correct them below under Travellers.
+                    </div>
+                  ) : null}
                   {bookErr ? (
                     <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
                       Couldn&apos;t load the order ({bookErr}).{" "}
@@ -1263,7 +1424,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   detail={d}
                   tab={tab as ExtrasTab}
                   sel={sel}
-                  pax={paxSlots(form.adults, form.children)}
+                  pax={extraSlots}
                   infants={form.infants}
                   seg={seatSeg}
                   onSeg={setSeatSeg}

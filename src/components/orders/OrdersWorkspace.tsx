@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dropdown, Empty, Icon } from "../ui";
 import { OrderDetail } from "./OrderDetail";
 import { NewBookingModal, type BookingPreset } from "./NewBookingModal";
+import { TicketingWatchPanel } from "./TicketingWatchPanel";
 import { bookingGetOrder, bookingListOrders } from "../../services/api";
 import { detailToOrder, summaryToOrder } from "../../lib/realOrders";
 import { statusClass } from "./orderUi";
@@ -176,6 +177,8 @@ export function OrdersWorkspace() {
           <button type="button" className="taw-btn taw-btn--primary taw-btn--block" onClick={() => setShowNew(true)}>
             <Icon name="plus" size={15} /> New Booking
           </button>
+          {/* Orders where the customer has paid but the ticket / hotel room is not done: nothing shown while all is well. */}
+          <TicketingWatchPanel onOpenOrder={(orderNumber) => { setTab("all"); setQuery(""); setSelectedId(orderNumber); }} />
           {liveError && (
             <div className="taw-banner taw-banner--danger" style={{ margin: "6px 0 0" }}>
               {liveError}

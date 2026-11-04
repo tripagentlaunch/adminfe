@@ -276,7 +276,10 @@ export function ChatbotConversationPanel({ member }: any) {
     return () => { cancelled = true; };
   }, [baseCode, memberKey, memberId, memberAltId, memberPhone, memberWaPhone, memberEmail]);
   const code = baseCode || (fallback.key === memberKey ? fallback.code : "");
-  const digits = waDigits(member && member.phone);
+  const digits = waDigits(member && (member.phone || member.wa_phone));
+  // Read by the thread loaders below without restarting them when it changes.
+  const phoneRef = useRef("");
+  useEffect(() => { phoneRef.current = digits; }, [digits]); // declared before the loaders, so it is set before their first read
   const waLink = digits ? "https://wa.me/" + digits : null;
   // The customer's own Tara chat on the website, opened signed in as them: the chatbot signs a member in from the
   // access code in the #fragment (never sent to a server), so the advisor sees the same conversation the customer does.
@@ -386,7 +389,7 @@ export function ChatbotConversationPanel({ member }: any) {
     // chatbot-be. A failure is kept distinct from "empty" so an outage never reads as
     // "no conversation".
     function fullLoad(): Promise<void> {
-      const realP = getRealWhatsAppMessages(code, { limit: PAGE_SIZE })
+      const realP = getRealWhatsAppMessages(code, { limit: PAGE_SIZE, phone: phoneRef.current })
         .then((d: any) => (d && Array.isArray(d.messages) ? d : { messages: [] }))
         .catch((e: any) => ({ __err: e }));
       return Promise.all([getChatbotConversation(code).catch((e: any) => ({ __err: e })), realP])
@@ -420,7 +423,7 @@ export function ChatbotConversationPanel({ member }: any) {
     function poll(newest: string, hadUsage: boolean): Promise<void> {
       const wantUsage = hadUsage && tick % USAGE_EVERY === 0;
       return Promise.all([
-        getRealWhatsAppMessages(code, { after: newest, timeoutMs: 12000 }),
+        getRealWhatsAppMessages(code, { after: newest, timeoutMs: 12000, phone: phoneRef.current }),
         wantUsage ? getChatbotConversation(code).catch(() => null) : Promise.resolve(null),
       ]).then(([r, conv]: any[]) => {
         if (cancelled) return;
@@ -505,7 +508,7 @@ export function ChatbotConversationPanel({ member }: any) {
     if (olderBusyRef.current === code) return;
     olderBusyRef.current = code;
     setConvo((prev) => (prev.code === code ? { ...prev, olderLoading: true, olderError: null } : prev));
-    getRealWhatsAppMessages(code, { limit: PAGE_SIZE, before: snap.nextBefore })
+    getRealWhatsAppMessages(code, { limit: PAGE_SIZE, before: snap.nextBefore, phone: phoneRef.current })
       .then((r: any) => {
         setConvo((prev) => {
           if (prev.code !== code) return prev;

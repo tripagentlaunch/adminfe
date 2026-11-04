@@ -3,6 +3,8 @@
    price-check -> "Confirm & add hotel" (POST /booking-orders/hotel-stay).
    The server re-runs priceCheck itself, so the price stored in booking_hotels
    is Tripsure's, not what this component displays. */
+import { HotelApiStatus } from "./HotelApiStatus";
+import { GuestNationality } from "./GuestNationality";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Empty, Field, Icon, Spinner } from "../ui";
 import { cachedLiveCities } from "../../lib/citySuggest";
@@ -216,10 +218,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [adding, setAdding] = useState(false);
 
   // Stage A: the recorded row + the handles needed to lock it.
-  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
+  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; passportRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
     mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
+    passportNumber: "", passportExpiry: "", passportCountry: "",
     streetAddress1: "", city: "", state: "", postalCode: "",
     gstNumber: "", gstName: "", gstAddress: "", gstState: "", gstCity: "", gstPincode: "",
   });
@@ -268,6 +271,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
   const [moreInfo, setMoreInfo] = useState<{ loaded: number; failed?: boolean } | null>(null);
   const moreRef = useRef<MoreHandle | null>(null);
+  const [nationality, setNationality] = useState("IN"); // who is travelling: sent as the listing's nationalityCode
   const searchKeyRef = useRef("");
   const sentinel = useRef<HTMLDivElement | null>(null);
   const stopMore = () => { if (moreRef.current) moreRef.current.stop(); moreRef.current = null; setMoreInfo(null); };
@@ -314,7 +318,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     withLoc
       .then((top: any): Promise<any> | any => {
         const countryCode = top.country || "IN";
-        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg)]);
+        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg), nationality]);
         searchKeyRef.current = key;
         const kept = keptSearch(key);
         if (kept) return { kept };
@@ -328,7 +332,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           state: resolveState(top),
           countryName: top.country || "IN",
           circularSearch: false,
-          nationalityCode: "IN",
+          nationalityCode: nationality,
           countryCode,
           partnerCall: true,
           currency: "INR",
@@ -424,6 +428,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           roomTypeCode: rate.roomType && rate.roomType.roomTypeCode, roomTypeId: rate.roomType && rate.roomType.roomTypeId,
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
+          passportRequired: !!(r.passportRequired || (rate.roomType && rate.roomType.isPassportMandatory)),
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
           rules: ((rate.cancellationRules || [])[0] || {}).rules || [],
           policyText: typeof rate.cancellation === "string" ? rate.cancellation : "",
@@ -433,6 +438,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           refundable: rate.roomType && rate.roomType.refundable != null ? !!rate.roomType.refundable : opt.refundable,
           // what the live check says that the room list didn't (guide: show the customer any change)
           changes: [
+            // guide 6.4: the hotel's name can differ between Details and Price Check; the customer must see it
+            (() => {
+              const liveName = String(r.hotelName || (r.hotelInfo && r.hotelInfo.hotelName) || "").trim();
+              const wasName = String(((details && details.hotelInfo && details.hotelInfo.hotelName) || (hotel && hotel.hotelInfo && hotel.hotelInfo.name)) || "").trim();
+              return liveName && wasName && liveName.toLowerCase() !== wasName.toLowerCase() ? `Hotel is now named "${liveName}" (was "${wasName}")` : null;
+            })(),
             rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
             rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
               ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
@@ -511,6 +522,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         setAdded({
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(fresh || checks[opt.code] || {}).panRequired,
           addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
+          passportRequired: !!(fresh || checks[opt.code] || {}).passportRequired,
           handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
           price: (fresh || checks[opt.code] || {}).price || opt.price || null,
@@ -589,11 +601,13 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       guest: {
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
         mobile: nationalMobile(guest.mobile), email: guest.email.trim(), pan: guest.pan.trim() || null,
+        ...(added.passportRequired ? { passportNumber: guest.passportNumber.trim().toUpperCase(), passportExpiry: guest.passportExpiry, passportCountry: (guest.passportCountry || nationality).toUpperCase() } : {}),
         streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
         gstNumber: guest.gstNumber.trim().toUpperCase(), gstName: guest.gstName.trim(), gstAddress: guest.gstAddress.trim(),
         gstState: guest.gstState.trim(), gstCity: guest.gstCity.trim(), gstPincode: guest.gstPincode.trim(),
       },
       accept_changes: acceptChanges,
+      nationality, // the guest's nationality from the search: Create Itinerary's country
     })
       .then((r: any) => { draftRef.current = null; setLockInfo(r); setSub("locked"); })
       .catch((e: any) => {
@@ -607,6 +621,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   if (sub === "search") {
     return (
       <>
+        <HotelApiStatus />
+        <GuestNationality value={nationality} onChange={setNationality} disabled={busy} />
         <HotelSearchBar
           city={form.city} onCity={(v) => set("city", v)}
           location={location} onLocation={setLocation}
@@ -756,8 +772,10 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     const pan = guest.pan.trim().toUpperCase();
     const panBad = (added.panRequired && !pan) || (pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan));
     const gstOk = guest.gstNumber.trim() === "" || guest.gstNumber.trim().length === 15;
+    const ppNo = guest.passportNumber.trim().toUpperCase();
+    const ppBad = added.passportRequired && (!/^[A-Z0-9]{6,9}$/.test(ppNo) || !guest.passportExpiry || Date.parse(guest.passportExpiry) <= Date.parse(form.checkOut));
     const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad && gstOk;
+    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad && !ppBad && gstOk;
     return (
       <>
         <div className="taw-banner taw-banner--info">
@@ -782,6 +800,17 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             onChange={(e) => setG("pan", e.target.value.toUpperCase())} />
         </Field>
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>PAN is sent to Tripsure only and is never stored.</div>
+          </>
+        ) : null}
+        {added.passportRequired ? (
+          <>
+            <div className="taw-banner taw-banner--info">This rate needs the guest&apos;s passport.</div>
+            <div className="ow-grid2">
+              <Field label="Passport number" htmlFor="nbg-pp"><input className="taw-input" maxLength={9} value={guest.passportNumber} onChange={(e) => setG("passportNumber", e.target.value.toUpperCase())} /></Field>
+              <Field label="Passport expiry" htmlFor="nbg-ppx"><input className="taw-input" type="date" value={guest.passportExpiry} onChange={(e) => setG("passportExpiry", e.target.value)} /></Field>
+              <Field label="Issuing country (ISO code)" htmlFor="nbg-ppc"><input className="taw-input" maxLength={2} placeholder={nationality} value={guest.passportCountry} onChange={(e) => setG("passportCountry", e.target.value.toUpperCase())} /></Field>
+            </div>
+            {guest.passportExpiry && Date.parse(guest.passportExpiry) <= Date.parse(form.checkOut) ? <div className="ow-sub" style={{ color: "var(--danger, #b00020)" }}>The passport must be valid beyond the check-out date.</div> : null}
           </>
         ) : null}
         {added.addressRequired ? (

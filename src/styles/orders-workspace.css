@@ -861,3 +861,67 @@
 .nb-fare b{font-size:13px;}
 .nb-fare.on{border-color:var(--gold,#b08d3c);background:rgba(176,141,60,.12);}
 .nb-fare:disabled{opacity:.55;cursor:default;}
+
+/* New booking → Travellers step (components/orders/NewBookingModal.tsx): who is travelling, filled in while the fares load. */
+.nb-trav{display:grid;gap:12px;}
+.nb-trav-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+.nb-trav-head h3{margin:0;font-family:var(--serif);font-weight:600;font-size:17px;color:var(--ink);}
+.nb-trav-head p{margin:3px 0 0;font-size:12.5px;line-height:1.4;color:var(--taupe);max-width:62ch;}
+.nb-trav-search{flex:none;display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:12px;color:var(--ink);}
+.nb-trav-search.busy{color:var(--taupe);}
+/* The buttons stay in view while a long list of travellers scrolls. */
+.nb-modal .nb-trav ~ .ow-modal-foot{position:sticky;bottom:-22px;z-index:2;background:var(--card);padding:10px 0 4px;border-top:1px solid var(--line);margin-top:2px;}
+
+/* Orders list → "Paid, but not ticketed" strip (components/orders/TicketingWatchPanel.tsx). */
+.ow-tw{margin:8px 0 0;border:1px solid #E5CFA0;border-radius:12px;background:#FBF5E6;overflow:hidden;}
+.ow-tw.is-high{border-color:#E3B4B4;background:#FBEDED;}
+.ow-tw-head{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;border:0;background:transparent;cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink);text-align:left;}
+.ow-tw.is-high .ow-tw-head{color:#8E2A2A;}
+.ow-tw-n{min-width:20px;padding:0 6px;border-radius:999px;background:var(--ink);color:#fff;font-size:11px;line-height:20px;text-align:center;}
+.ow-tw-sub{flex:1;font-size:11.5px;color:var(--taupe);}
+.ow-tw-list{list-style:none;margin:0;padding:0 10px 10px;display:grid;gap:8px;}
+.ow-tw-item{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:9px 11px;display:grid;gap:3px;font-size:12.5px;}
+.ow-tw-item.is-high{border-color:#E3B4B4;}
+.ow-tw-top{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;}
+.ow-tw-wait{margin-left:auto;font-size:11.5px;color:var(--taupe);}
+.ow-tw-what{display:flex;align-items:center;gap:5px;color:var(--taupe);font-size:12px;}
+.ow-tw-why{color:var(--ink);font-weight:500;}
+.ow-tw-next{color:var(--taupe);font-size:12px;}
+.ow-tw-ans{margin-top:2px;padding:6px 9px;border-radius:8px;background:var(--ivory);font-size:12px;line-height:1.4;}
+.ow-tw-ans.is-sync{background:#EAF3EA;color:#2B5A33;}
+.ow-tw-ans.is-err{background:#FBEDED;color:#8E2A2A;}
+.ow-tw-acts{display:flex;gap:6px;margin-top:5px;}
+
+/* Flight "Cancel or change" window (components/orders/FlightServicingModal.tsx). */
+.ow-fs{display:grid;gap:12px;}
+.ow-fs-leg{border:1px solid var(--line);border-radius:12px;padding:12px;display:grid;gap:9px;}
+.ow-fs-head{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;}
+.ow-fs-st{margin-left:auto;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--taupe);}
+.ow-fs-quote{display:grid;gap:8px;}
+.ow-fs-quote ul{list-style:none;margin:0;padding:0;display:grid;gap:4px;}
+.ow-fs-quote li{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;}
+.ow-fs-quote li.net{border-top:1px solid var(--line);padding-top:5px;font-size:13.5px;}
+.ow-fs-ok{padding:9px 12px;border-radius:9px;background:#EAF3EA;color:#2B5A33;font-size:12.5px;display:grid;gap:7px;}
+.ow-fs-bad{padding:9px 12px;border-radius:9px;background:#FBEDED;color:#8E2A2A;font-size:12.5px;}
+.ow-fs-change{display:grid;gap:9px;}
+.ow-fs-date{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.ow-fs-opts{list-style:none;margin:0;padding:0;display:grid;gap:6px;}
+.ow-fs-opts li{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font-size:12.5px;}
+.ow-fs-opts li.on{border-color:var(--gold);background:var(--ivory);}
+/* who a cancellation / date change is for: one checkbox per passenger still ticketed on the leg */
+.ow-fs-pax{border:1px solid var(--line);border-radius:10px;padding:8px 12px 10px;margin:0;display:grid;gap:5px;}
+.ow-fs-pax legend{padding:0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--taupe);}
+.ow-fs-pax label{display:flex;align-items:baseline;gap:8px;font-size:13px;cursor:pointer;}
+.ow-fs-pax label.off{opacity:.55;text-decoration:line-through;cursor:default;}
+.ow-fs-pax input:disabled{cursor:not-allowed;}
+.ow-fs-pax small{color:var(--taupe);font-size:11.5px;margin-left:auto;}
+/* the add-ons the airline lists on the booking */
+.ow-fs-ssr{display:grid;gap:8px;border:1px dashed var(--line);border-radius:10px;padding:9px 12px;}
+.ow-fs-ssr-g{display:grid;gap:2px;margin-top:4px;}
+.ow-fs-ssr ul{list-style:none;margin:0;padding:0;display:grid;gap:2px;}
+.ow-fs-ssr li{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;}
+.ow-tf-saved{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--taupe);flex-wrap:wrap;}
+.ow-tf-saved select{max-width:260px;}
+.nb-trav-remember{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
+.ow-tag.warn{background:#FBEDED;color:#8E2A2A;border-color:#E3B4B4;}
+.ow-tag.info{background:#FBF5E6;color:#7A5A1E;border-color:#E5CFA0;}
