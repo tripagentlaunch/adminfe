@@ -81,6 +81,8 @@ function loadCheckout(): Promise<boolean> {
 type Pending = { item: FulfilmentItem; acceptFare?: boolean } | null;
 type CancelQuote = {
   booking_amount: number | null; cancellation_charges: number | null; refund_amount: number | null; discount: number | null;
+  /** What the hotel itself charges (guide 7.1 r360hotelCharges). */
+  hotel_charges?: number | null;
   /** Tripsure's cancellation schedule; the guide doesn't fix its shape, so each entry is a sentence or an object. */
   policies?: unknown[];
 };
@@ -263,13 +265,24 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     setBusy(item.id);
     setErr(null);
     try {
-      await bookingCancelHotel(item.id);
-      toast("Hotel booking cancelled", "success");
-      const owed = cancelling?.quote?.refund_amount ?? 0;
+      // the fee the advisor was shown is sent back: if TripSure's fee moved in the meantime the cancel is refused
+      const shown = cancelling?.quote;
+      const r: any = await bookingCancelHotel(item.id, shown ? { cancellation_charges: shown.cancellation_charges, refund_amount: shown.refund_amount } : undefined);
+      const owed = shown?.refund_amount ?? 0;
       setCancelling(null);
-      if (owed > 0 && f && f.payment.paid - (f.payment.refunded || 0) > 0.5) setRefundOpen({ amount: owed });
-    } catch (e) {
+      if (r && r.status === "check_required") {
+        // TripSure took the request but hasn't reported the room Cancelled: not a cancellation yet
+        setErr("TripSure hasn't confirmed the cancellation yet. Use Check status on the room before doing anything else.");
+      } else {
+        toast("Hotel booking cancelled", "success");
+        if (owed > 0 && f && f.payment.paid - (f.payment.refunded || 0) > 0.5) setRefundOpen({ amount: owed });
+      }
+    } catch (e: any) {
       setErr(errText(e));
+      if (e && e.status === 409 && /fee changed/i.test(errText(e))) {
+        // show the new fee so the advisor can decide again
+        try { setCancelling({ item, quote: (await bookingHotelCancelQuote(item.id)) as CancelQuote }); } catch { /* the message above stays */ }
+      }
     } finally {
       setBusy(null);
       onChanged();
@@ -644,6 +657,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         </div>
                         <ul className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0" }}>
                           {cancelling.quote.booking_amount != null ? <li>Booking amount: {fmtINR(cancelling.quote.booking_amount)}</li> : null}
+                          {cancelling.quote.hotel_charges ? <li>Hotel charges: {fmtINR(cancelling.quote.hotel_charges)}</li> : null}
+                          {cancelling.quote.discount ? <li>Discount: {fmtINR(cancelling.quote.discount)}</li> : null}
                           <li>Cancellation charges: <b>{fmtINR(cancelling.quote.cancellation_charges ?? 0)}</b></li>
                           <li>Refund: <b>{fmtINR(cancelling.quote.refund_amount ?? 0)}</b></li>
                         </ul>

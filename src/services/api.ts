@@ -2300,8 +2300,10 @@ function bookingHotelTripsureBooking(hotelId) {
 function hotelApiHealth() {
   return fastapiHotelCall("/hotels/health", { method: "GET" });
 }
-function bookingCancelHotel(hotelId) {
-  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST" });
+// bookingCancelHotel(hotelId, expectedFee?) — expectedFee is the fee that was shown ({cancellation_charges, refund_amount}):
+// the server reads TripSure's fee again and refuses with 409 if it has moved (guide 7.2: confirm the fee first).
+function bookingCancelHotel(hotelId, expectedFee?: { cancellation_charges?: number | null; refund_amount?: number | null }) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST", body: expectedFee || undefined });
 }
 // Resolves { blob } for a file, { url } for a hosted document, or { data } when
 // TripSure's answer is neither (shown as-is).
