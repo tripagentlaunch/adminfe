@@ -11,6 +11,7 @@ import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
 import { HotelSearchBar } from "./HotelSearchBar";
 import { detailsProblem, liveCheckChanges, plainInstructions, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
+import { mobileOk, nationalMobile, splitMobile } from "../../lib/phone";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
@@ -75,14 +76,6 @@ function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero
     <img className={hero ? "ow-hero-img" : "ow-hcard-img"} src={shown} alt={alt} loading="lazy" decoding="async"
       onError={() => (shown !== src ? setPlain(true) : setBad(true))} />
   );
-}
-
-// "+91 81728 36138" / "918172836138" / "08172836138" -> "8172836138" (the country code is sent separately).
-function nationalMobile(v: string): string {
-  let d = (v || "").replace(/\D/g, "");
-  if (d.length > 10 && d.startsWith("91")) d = d.slice(2);
-  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
-  return d;
 }
 
 // Tripsure's review-page split: base fare per night per room, taxes & fees, total.
@@ -214,7 +207,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; passportRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
-    mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
+    mobile: splitMobile(customer.phone || "").national, mobileCountryCode: splitMobile(customer.phone || "").code, email: customer.email || "", pan: "",
     passportNumber: "", passportExpiry: "", passportCountry: "",
     streetAddress1: "", city: "", state: "", postalCode: "",
     gstNumber: "", gstName: "", gstAddress: "", gstState: "", gstCity: "", gstPincode: "",
@@ -584,7 +577,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       handles: added.handles,
       guest: {
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
-        mobile: nationalMobile(guest.mobile), email: guest.email.trim(), pan: guest.pan.trim() || null,
+        mobile: nationalMobile(guest.mobile, guest.mobileCountryCode), mobileCountryCode: guest.mobileCountryCode.replace(/\D/g, "") || "91", email: guest.email.trim(), pan: guest.pan.trim() || null,
         ...(added.passportRequired ? { passportNumber: guest.passportNumber.trim().toUpperCase(), passportExpiry: guest.passportExpiry, passportCountry: (guest.passportCountry || nationality).toUpperCase() } : {}),
         streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
         gstNumber: guest.gstNumber.trim().toUpperCase(), gstName: guest.gstName.trim(), gstAddress: guest.gstAddress.trim(),
@@ -759,7 +752,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     const ppNo = guest.passportNumber.trim().toUpperCase();
     const ppBad = added.passportRequired && (!/^[A-Z0-9]{6,9}$/.test(ppNo) || !guest.passportExpiry || Date.parse(guest.passportExpiry) <= Date.parse(form.checkOut));
     const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad && !ppBad && gstOk;
+    const ready = guest.firstName.trim() && guest.lastName.trim() && mobileOk(nationalMobile(guest.mobile, guest.mobileCountryCode), guest.mobileCountryCode.replace(/\D/g, "") || "91") && guest.email.includes("@") && !panBad && !addrBad && !ppBad && gstOk;
     return (
       <>
         <div className="taw-banner taw-banner--info">
@@ -774,7 +767,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <span />
           <Field label="First name" htmlFor="nbg-fn"><input className="taw-input" value={guest.firstName} onChange={(e) => setG("firstName", e.target.value)} /></Field>
           <Field label="Last name" htmlFor="nbg-ln"><input className="taw-input" value={guest.lastName} onChange={(e) => setG("lastName", e.target.value)} /></Field>
-          <Field label="Mobile (India, 10 digits)" htmlFor="nbg-mob"><input className="taw-input" inputMode="numeric" value={guest.mobile} onChange={(e) => setG("mobile", e.target.value)} /></Field>
+          <Field label="Mobile country code" htmlFor="nbg-cc"><input className="taw-input" inputMode="numeric" maxLength={4} placeholder="91" value={guest.mobileCountryCode} onChange={(e) => setG("mobileCountryCode", e.target.value.replace(/\D/g, ""))} /></Field>
+          <Field label={guest.mobileCountryCode === "91" || !guest.mobileCountryCode ? "Mobile (10 digits)" : "Mobile (without the country code)"} htmlFor="nbg-mob"><input className="taw-input" inputMode="numeric" value={guest.mobile} onChange={(e) => setG("mobile", e.target.value)} /></Field>
           <Field label="Email" htmlFor="nbg-em"><input className="taw-input" type="email" value={guest.email} onChange={(e) => setG("email", e.target.value)} /></Field>
         </div>
         {added.panRequired ? (
@@ -849,6 +843,16 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <b>Room locked with Tripsure</b>
           <div>Reference {lockInfo.partner_reference_id}</div>
           <div>Locked amount {inr(Number(lockInfo.locked_total))}</div>
+          {lockInfo.confirmed && lockInfo.confirmed.message ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>{lockInfo.confirmed.message}</div> : null}
+          {lockInfo.price_changed ? (
+            <div className="taw-banner taw-banner--warn" role="alert" style={{ marginTop: 8, flexDirection: "column", alignItems: "flex-start" }}>
+              <b>The price changed when the room was locked: was {inr(Number(lockInfo.previous_total))}, now {inr(Number(lockInfo.locked_total))}.</b>
+              <span style={{ fontSize: 12 }}>Tell the customer the new amount and get their OK before recording any payment.</span>
+            </div>
+          ) : null}
+          {lockInfo.confirmed && lockInfo.confirmed.rate_breakdown ? (
+            <PriceBreakdown price={{ base: Number(lockInfo.confirmed.rate_breakdown.baseFare) || 0, tax: Number(lockInfo.confirmed.rate_breakdown.tax) || 0, total: Number(lockInfo.confirmed.rate_breakdown.total) || Number(lockInfo.locked_total) }} nights={nights >= 1 ? nights : 1} rooms={nRooms} />
+          ) : null}
           <div className="ow-sub" style={{ whiteSpace: "normal" }}>
             The lock is short-lived. Next, on the order: add the travellers, record the payment and confirm the hotel from Booking progress.
           </div>
