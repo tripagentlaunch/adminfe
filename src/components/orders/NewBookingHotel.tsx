@@ -1300,7 +1300,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
               <h3 className="ow-hd-name">{name}</h3>
               <div className="ow-hcard-sub">
                 {stars ? <span className="ow-hcard-stars">{"★".repeat(Math.min(5, Math.round(stars)))}</span> : null}
-                <span>{[listInfo.address || info.address, listInfo.city || info.city].filter(Boolean).join(", ")}</span>
+                <span>{[listInfo.address || info.address, listInfo.city || info.city, info.state].filter(Boolean).join(", ")}</span>
+                {details && details.partnerName ? <span className="ow-tag" title="Supplier that answered Hotel Details">via {details.partnerName}</span> : null}
                 {review && review.rating ? <span className="ow-tag">{review.rating}/5{review.count ? ` · ${review.count} review${review.count === "1" ? "" : "s"}` : ""}</span> : null}
               </div>
             </div>

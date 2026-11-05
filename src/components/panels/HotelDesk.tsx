@@ -565,7 +565,12 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   return (
     <div className="taw-dx">
       <div className="taw-dx-body">
-        {info.address ? <div style={{ fontSize: 12.5 }}><b>{info.hotelName}</b> · {info.address}</div> : null}
+        {info.address ? (
+          <div style={{ fontSize: 12.5 }}>
+            <b>{info.hotelName}</b> · {[info.address, info.city, info.state].filter(Boolean).join(", ")}
+            {det && det.partnerName ? <small className="taw-muted" title="Supplier that answered Hotel Details"> · via {det.partnerName}</small> : null}
+          </div>
+        ) : null}
         <div className="taw-res-sub" style={{ margin: "4px 0 8px" }}>
           {info.checkIn ? <span>Check-in {info.checkIn}</span> : null}
           {info.checkOut ? <span>Check-out {info.checkOut}</span> : null}
