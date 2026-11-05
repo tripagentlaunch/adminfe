@@ -10,6 +10,7 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
 import { HotelSearchBar } from "./HotelSearchBar";
+import { detailsProblem, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
@@ -142,6 +143,9 @@ function roomOptions(det: any): any[] {
         // One card per supplier roomGroup; its rates are exactly that group's own options.
         gid: `${gi}:${(g.standardRoomIds || []).join(",")}`,
         code: String(o.recommendationId),
+        // roomType.bookingCode: what Price Check and Create Itinerary take (guide 6.3); `code` stays the key of the rate in the UI
+        bookingCode: rateBookingCode(o, rt),
+        requires: rateRequirements(rt),
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
         refundable: !!rt.refundable,
@@ -394,7 +398,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     setSub("rooms");
     setBusy(true);
     hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
-      .then((d: any) => { if (current()) setDetails(d || {}); })
+      .then((d: any) => {
+        const bad = detailsProblem(d);
+        if (bad) throw new Error(bad);
+        if (current()) setDetails(d || {});
+      })
       .catch((e: any) => { if (current()) { onError(errText(e)); setSub("results"); } })
       .finally(() => { if (current()) setBusy(false); });
   }
@@ -411,7 +419,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   function runCheck(opt: any): Promise<any> {
     const sess = sessOf(hotel);
     if (!sess || !hotel) return Promise.reject(new Error("Open a hotel first."));
-    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code, listedTotal: opt.total })
+    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code, listedTotal: opt.total })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         if (!rate || r.validResponse === false) {
@@ -494,7 +502,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       customer: { member_id: customer.member_id, name: customer.name, email: customer.email || null },
       itinerary_id: itineraryId || null,
       order_id: itineraryId ? null : orderId || null,
-      handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
+      handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code },
       snapshot: {
         name: info.name || "Hotel",
         address: info.address || null,
@@ -523,7 +531,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(fresh || checks[opt.code] || {}).panRequired,
           addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
           passportRequired: !!(fresh || checks[opt.code] || {}).passportRequired,
-          handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
+          handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
           price: (fresh || checks[opt.code] || {}).price || opt.price || null,
         });
@@ -546,7 +554,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       || mapTripSureHotel(hotel, { international: intl, nights, rooms: nRooms, docKey: sess.docKey, token: sess.token });
     const handles = { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token };
     Promise.all([
-      Promise.resolve(hotelFacts({ ...handles, bookingCode: opt.code })).catch(() => null), // a failure just adds the hotel without them
+      Promise.resolve(hotelFacts({ ...handles, bookingCode: opt.bookingCode || opt.code })).catch(() => null), // a failure just adds the hotel without them
       pricedAlternatives(hotelAlternatives(shown, offer)),
     ])
       .then(([facts, alts]) => {
@@ -564,7 +572,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           occupancy: roomsCfg,
           requests: { ...req, note: req.note.trim() },
           distance: null,
-          tripsure: { ...handles, bookingCode: opt.code, roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
+          tripsure: { ...handles, bookingCode: opt.bookingCode || opt.code, roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
         });
       })
       .catch((e: any) => onError(errText(e)))
@@ -1262,6 +1270,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
                       <b>{r.board || (isBreakfast(r) ? "Breakfast included" : "Room only")}</b>
                       {r.inclusions ? <small>{r.inclusions}</small> : null}
                       <small className={r.refundable ? "ok" : "no"}>{r.refundable ? "Free cancellation" : "Non-refundable booking"}</small>
+                      {r.requires && r.requires.length ? <small className="no">{r.requires.join(" · ")} to book</small> : null}
                       {gone ? <small className="no"><b>Sold out</b> - Tripsure can&apos;t book this rate any more</small> : null}
                     </span>
                     <span className="ow-rate-pr">

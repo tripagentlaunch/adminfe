@@ -7,6 +7,8 @@
  * ===========================================================================*/
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
+import { detailsProblem, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
+import { policyLines } from "../../lib/hotelPolicy";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
@@ -389,6 +391,13 @@ function roomOptions(det: any, nights: number): any[] {
       out.push({
         group: gi,
         code: o.recommendationId,
+        // roomType.bookingCode: what Price Check / Create Itinerary take (guide 6.3); `code` stays the rate's key here
+        bookingCode: rateBookingCode(o, rt),
+        requires: rateRequirements(rt),
+        // the supplier's own cancellation terms for this rate (text, else the structured rules)
+        cancellation: typeof sr.cancellationPolicy === "string" && sr.cancellationPolicy.trim()
+          ? sr.cancellationPolicy.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
+          : policyLines(sr.cancellationRules).join("\n"),
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
         refundable: !!rt.refundable,
@@ -418,7 +427,12 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   useEffect(() => {
     let cancelled = false;
     hotelDetailsV2({ docKey: ts.docKey, token: ts.token, hotelId: ts.hotelId })
-      .then((r: any) => { if (!cancelled) { setDet(r || {}); setLoading(false); } })
+      .then((r: any) => {
+        if (cancelled) return;
+        const bad = detailsProblem(r);
+        if (bad) { setErr(bad); setLoading(false); return; }
+        setDet(r || {}); setLoading(false);
+      })
       .catch((e: any) => { if (!cancelled) { setErr(errText(e)); setLoading(false); } });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -426,7 +440,7 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
 
   function confirmPrice(opt: any) {
     setChecks((c: any) => ({ ...c, [opt.code]: { state: "loading" } }));
-    hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code })
+    hotelPriceCheckV2({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.bookingCode || opt.code })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         // TripSure listed this room but its live price-check came back empty. It says why in
@@ -462,7 +476,7 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
     const alts: any[] = alternatives || [];
     const toPrice = alts.map((a) => a._handles).filter(Boolean);
     const [factsRes, ratesRes] = await Promise.allSettled([
-      hotelFacts({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code }),
+      hotelFacts({ hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.bookingCode || opt.code }),
       toPrice.length ? hotelRates(toPrice) : Promise.resolve({}),
     ]);
     const facts: any = factsRes.status === "fulfilled" ? factsRes.value : null;
@@ -498,7 +512,7 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
       requests: { ...req, note: req.note.trim() },
       distance: distance || null,
       // kept for the later Create Itinerary / Book Room step
-      tripsure: { hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.code,
+      tripsure: { hotelId: ts.hotelId, docKey: ts.docKey, token: ts.token, bookingCode: opt.bookingCode || opt.code,
                   roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
     });
     toast(d.hotelName + " — " + opt.title + " added at " + inr(chk.total), "success");
@@ -531,6 +545,14 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
   const amenities: string[] = [];
   (info.hotelAmenities || []).forEach((a: any) => (a.amenity || []).forEach((x: string) => amenities.length < 14 && amenities.push(x)));
   const rev = (info.reviews || [])[0];
+  // the property's photos and written policies (guide 6.3 imageInfo[] / policies[])
+  const photos: { thumb: string; large: string; caption?: string }[] = ((info.imageInfo || []) as any[])
+    .map((i: any) => ({ thumb: i.thumbnailImageUrl || i.smallImageUrl || i.largeImageUrl, large: i.largeImageUrl || i.wideAngleImageUrl || i.thumbnailImageUrl, caption: i.caption }))
+    .filter((i) => i.thumb && i.large)
+    .slice(0, 12);
+  const policies: { name: string; content: string }[] = ((info.policies || []) as any[])
+    .map((x: any) => ({ name: String(x.name || "").trim(), content: readableDescription(x.content) }))
+    .filter((x) => x.content);
   return (
     <div className="taw-dx">
       <div className="taw-dx-body">
@@ -545,10 +567,31 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
             {description.slice(0, 420)}{description.length > 420 ? "…" : ""}
           </p>
         ) : null}
+        {photos.length ? (
+          <div style={{ display: "flex", gap: 6, overflowX: "auto", margin: "0 0 10px", paddingBottom: 2 }}>
+            {photos.map((ph, i) => (
+              <a key={i} href={ph.large} target="_blank" rel="noopener noreferrer" style={{ flex: "0 0 auto" }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={ph.thumb} alt={ph.caption || `${info.hotelName || "Hotel"} photo ${i + 1}`} title={ph.caption || undefined} loading="lazy"
+                  style={{ height: 84, width: 124, objectFit: "cover", borderRadius: 8, display: "block" }} />
+              </a>
+            ))}
+          </div>
+        ) : null}
         {amenities.length ? (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
             {amenities.map((a) => <span key={a} className="taw-chip taw-chip--dom">{a}</span>)}
           </div>
+        ) : null}
+        {policies.length ? (
+          <details style={{ fontSize: 12.5, margin: "0 0 10px" }}>
+            <summary style={{ cursor: "pointer", fontWeight: 600 }}>Hotel policies <small className="taw-muted">{policies.length}</small></summary>
+            {policies.map((pl, i) => (
+              <div key={i} style={{ margin: "6px 0", lineHeight: 1.5 }}>
+                {pl.name ? <b>{pl.name}: </b> : null}<span style={{ color: "var(--taupe)", whiteSpace: "pre-line" }}>{pl.content}</span>
+              </div>
+            ))}
+          </details>
         ) : null}
         <HotelLocationMap name={info.hotelName} address={info.address} lat={info.latitude != null ? Number(info.latitude) : (offer.detail || {}).lat} lng={info.longitude != null ? Number(info.longitude) : (offer.detail || {}).lng} nearby={info.nearByAttractions} />
         <div className="taw-addpanel">
@@ -598,7 +641,14 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
                       {opt.inclusions ? <div className="taw-res-sub"><span>{opt.inclusions}</span></div> : null}
                       <div className="taw-res-sub">
                         {refundable ? <span className="taw-chip taw-chip--ref">Free cancellation</span> : <span className="taw-chip taw-chip--noref">Non-refundable</span>}
+                        {opt.requires.map((x: string) => <span key={x} className="taw-chip taw-chip--noref">{x}</span>)}
                       </div>
+                      {opt.cancellation ? (
+                        <details style={{ fontSize: 11.5, marginTop: 4 }}>
+                          <summary style={{ cursor: "pointer" }}>Cancellation terms</summary>
+                          <div style={{ whiteSpace: "pre-line", color: "var(--taupe)", marginTop: 3 }}>{opt.cancellation}</div>
+                        </details>
+                      ) : null}
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <div className="ta-num" style={{ fontWeight: 600 }}>{inr(chk.state === "ok" ? chk.total : opt.total)}</div>
