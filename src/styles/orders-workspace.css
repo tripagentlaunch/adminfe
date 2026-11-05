@@ -570,6 +570,14 @@
 .nb-place{white-space:normal;overflow:visible;font-size:12px;line-height:1.35;}
 .nb-place b{color:var(--ink);font-weight:600;}
 
+/* Hotel search: places inside the picked destination (popular areas / attractions / hotels). */
+.hsb-drill{display:flex;flex-direction:column;gap:8px;}
+.hsb-drill-row{display:flex;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+.hsb-drill-l{flex:0 0 130px;padding-top:5px;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted-deco);}
+.hsb-drill-chips{flex:1 1 240px;display:flex;flex-wrap:wrap;gap:6px;}
+.hsb-chip{border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:4px 12px;font-size:12.5px;line-height:1.4;cursor:pointer;}
+.hsb-chip:hover,.hsb-chip:focus-visible{border-color:var(--gold);background:var(--gold-bg);outline:none;}
+
 /* Hotel search, same pattern: destination on its own row (gold, like a flight's
    To), then check-in (green) / check-out (gold) / guests / search. */
 .nb-modal .ow-sbar--hotel,
