@@ -10,7 +10,7 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
 import { HotelSearchBar } from "./HotelSearchBar";
-import { detailsProblem, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
+import { detailsProblem, liveCheckChanges, plainInstructions, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
@@ -83,17 +83,6 @@ function nationalMobile(v: string): string {
   if (d.length > 10 && d.startsWith("91")) d = d.slice(2);
   if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
   return d;
-}
-
-// Tripsure sends check-in instructions as strings holding HTML-escaped HTML ("&lt;ul&gt;…").
-// Decoded and flattened to plain text lines — never injected as markup.
-function plainInstructions(list: any): string[] {
-  const decode = (t: string) => new DOMParser().parseFromString(t, "text/html").documentElement.textContent || "";
-  return (Array.isArray(list) ? list : [])
-    .map((x) => decode(decode(String(x || "")).replace(/<\/(li|p)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")))
-    .flatMap((t) => t.split("\n"))
-    .map((t) => t.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
 }
 
 // Tripsure's review-page split: base fare per night per room, taxes & fees, total.
@@ -444,25 +433,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           bed: String((rate && rate.bedType) || "").trim(),
           sleeps: Number(rate && ((rate.maxGuestCount) || (rate.roomType && rate.roomType.maxOccupancy))) || 0,
           refundable: rate.roomType && rate.roomType.refundable != null ? !!rate.roomType.refundable : opt.refundable,
-          // what the live check says that the room list didn't (guide: show the customer any change)
-          changes: [
-            // guide 6.4: the hotel's name can differ between Details and Price Check; the customer must see it
-            (() => {
-              const liveName = String(r.hotelName || (r.hotelInfo && r.hotelInfo.hotelName) || "").trim();
-              const wasName = String(((details && details.hotelInfo && details.hotelInfo.hotelName) || (hotel && hotel.hotelInfo && hotel.hotelInfo.name)) || "").trim();
-              return liveName && wasName && liveName.toLowerCase() !== wasName.toLowerCase() ? `Hotel is now named "${liveName}" (was "${wasName}")` : null;
-            })(),
-            rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
-            rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
-              ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
-            // compared by calendar day: the room list and the live check write the same deadline
-            // with different time / timezone suffixes, which is not a change
-            (() => {
-              const live = (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end;
-              return live && opt.freeUntil && String(live).slice(0, 10) !== String(opt.freeUntil).slice(0, 10)
-                ? `Free cancellation now ends ${String(live).slice(0, 10)} (was ${String(opt.freeUntil).slice(0, 10)})` : null;
-            })(),
-          ].filter(Boolean),
+          // what the live check says that the room list didn't (guide 6.4: show the customer any change)
+          changes: liveCheckChanges({
+            liveHotelName: String(r.hotelName || (r.hotelInfo && r.hotelInfo.hotelName) || ""),
+            wasHotelName: String(((details && details.hotelInfo && details.hotelInfo.hotelName) || (hotel && hotel.hotelInfo && hotel.hotelInfo.name)) || ""),
+            rate, opt,
+          }),
         };
       });
   }

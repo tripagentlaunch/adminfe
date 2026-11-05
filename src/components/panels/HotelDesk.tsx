@@ -7,7 +7,7 @@
  * ===========================================================================*/
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
-import { detailsProblem, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
+import { detailsProblem, freeUntilOf, liveCheckChanges, plainInstructions, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
 import { policyLines } from "../../lib/hotelPolicy";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, searchHotels, hotelAutosuggestV2, hotelListingStart, hotelListingMore, hotelDetailsV2, hotelPriceCheckV2, hotelPublicGet, hotelSetWebsite, inr } from "../../services/api";
@@ -394,6 +394,7 @@ function roomOptions(det: any, nights: number): any[] {
         // roomType.bookingCode: what Price Check / Create Itinerary take (guide 6.3); `code` stays the rate's key here
         bookingCode: rateBookingCode(o, rt),
         requires: rateRequirements(rt),
+        freeUntil: freeUntilOf(sr.cancellationRules),
         // the supplier's own cancellation terms for this rate (text, else the structured rules)
         cancellation: typeof sr.cancellationPolicy === "string" && sr.cancellationPolicy.trim()
           ? sr.cancellationPolicy.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim()
@@ -461,6 +462,14 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
             refundability: rate.refundability || null,
             roomTypeCode: rate.roomType && rate.roomType.roomTypeCode,
             roomTypeId: rate.roomType && rate.roomType.roomTypeId,
+            // guide 6.4: what the live check says that the room list didn't, plus its own terms and check-in rules
+            changes: liveCheckChanges({
+              liveHotelName: String(r.hotelName || (r.hotelInfo && r.hotelInfo.hotelName) || ""),
+              wasHotelName: String((det && det.hotelInfo && det.hotelInfo.hotelName) || (offer && offer.hotelName) || ""),
+              rate, opt,
+            }),
+            terms: typeof rate.cancellation === "string" && rate.cancellation.trim() ? rate.cancellation.trim() : policyLines(rate.cancellationRules).join("\n"),
+            instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
           },
         }));
       })
@@ -671,6 +680,24 @@ function RealHotelDetail({ offer, checkIn, onAdd, occ, distance, alternatives }:
                       {changed ? "Price changed: was " + inr(chk.listed) + ", now " + inr(chk.total) + ". " : "Price confirmed. "}
                       {chk.refundability ? String(chk.refundability) : chk.refundable ? "Refundable" : "Non-refundable"}
                     </div>
+                  ) : null}
+                  {chk.state === "ok" && chk.changes && chk.changes.length ? (
+                    <div className="taw-banner taw-banner--warn" style={{ marginTop: 6, flexDirection: "column", alignItems: "flex-start" }}>
+                      <b style={{ fontSize: 12 }}>Changed since the room list - tell the customer:</b>
+                      {chk.changes.map((c: string) => <span key={c} style={{ fontSize: 12 }}>{c}</span>)}
+                    </div>
+                  ) : null}
+                  {chk.state === "ok" && chk.terms ? (
+                    <details style={{ fontSize: 11.5, marginTop: 4 }}>
+                      <summary style={{ cursor: "pointer" }}>Confirmed cancellation terms</summary>
+                      <div style={{ whiteSpace: "pre-line", color: "var(--taupe)", marginTop: 3 }}>{chk.terms}</div>
+                    </details>
+                  ) : null}
+                  {chk.state === "ok" && chk.instructions && chk.instructions.length ? (
+                    <details style={{ fontSize: 11.5, marginTop: 4 }}>
+                      <summary style={{ cursor: "pointer" }}>Check-in instructions</summary>
+                      <ul style={{ margin: "3px 0 0", paddingLeft: 18, color: "var(--taupe)" }}>{chk.instructions.map((t: string, i: number) => <li key={i}>{t}</li>)}</ul>
+                    </details>
                   ) : null}
                   {chk.state === "err" ? (
                     <div className="taw-banner taw-banner--err" style={{ marginTop: 6 }}><Icon name="alert" size={13} />{chk.msg}</div>
