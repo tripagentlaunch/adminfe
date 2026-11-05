@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
@@ -20,6 +20,7 @@ import { TravellersForm } from "./TravellersForm";
 import { OrderActivity } from "./OrderActivity";
 import { HotelBookingDetails } from "./HotelBookingDetails";
 import { HotelInvoiceView } from "./HotelInvoiceView";
+import { HotelVoucherView } from "./HotelVoucherView";
 import { policyLines } from "../../lib/hotelPolicy";
 
 const STAGE: Record<Fulfilment["stage"], { label: string; tone: string }> = {
@@ -122,6 +123,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [hotelOpen, setHotelOpen] = useState<Record<string, boolean>>({});
   // A tax invoice Tripsure sent as data (not a file): shown in the app instead of downloaded.
   const [invoiceView, setInvoiceView] = useState<{ item: FulfilmentItem; data: unknown } | null>(null);
+  const [voucherView, setVoucherView] = useState<{ item: FulfilmentItem; voucher: any; html: string } | null>(null);
 
   // Book Room can be slow (guide 6.6): a room left "Confirming" / "Supplier confirming" is re-read
   // from Tripsure every 20s for up to 4 minutes. This only reads (check-status), it never books again.
@@ -271,6 +273,19 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     } finally {
       setBusy(null);
       onChanged();
+    }
+  }
+
+  async function openVoucher(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const r: any = await bookingHotelVoucher(item.id);
+      setVoucherView({ item, voucher: r.voucher, html: String(r.html || "") });
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -544,6 +559,12 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           </button>
                         </>
                       ) : null}
+                      {it.kind === "hotel" && it.status === "confirmed" ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} title="The guest voucher, made from this booking"
+                          onClick={() => openVoucher(it)}>
+                          {busy === it.id ? "Working…" : "Voucher"}
+                        </button>
+                      ) : null}
                       {it.kind === "hotel" && ["booking", "pending", "confirmed", "check_required", "failed", "cancelled"].includes(it.status) ? (
                         <button type="button" className="taw-btn taw-btn--sm" aria-expanded={!!hotelOpen[it.id]}
                           onClick={() => setHotelOpen((m) => ({ ...m, [it.id]: !m[it.id] }))}>
@@ -677,6 +698,10 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
           busy={busy === invoiceView.item.id}
           onClose={() => setInvoiceView(null)}
           onRegenerate={() => { const it = invoiceView.item; setInvoiceView(null); downloadInvoice(it, true); }} />
+      ) : null}
+
+      {voucherView ? (
+        <HotelVoucherView voucher={voucherView.voucher} html={voucherView.html} onClose={() => setVoucherView(null)} />
       ) : null}
 
       {travOpen ? (

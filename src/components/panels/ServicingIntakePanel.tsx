@@ -8,6 +8,7 @@
  * ===========================================================================*/
 import { useState } from "react";
 import { servicingIntake, call as apiCall } from "../../services/api";
+import { HotelAmendForm } from "./HotelAmendForm";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, softNotice } from "../../lib/advisorHelpers";
 import { Empty, Field, Icon, Spinner, OrderScopeBar, SellNote } from "../ui";
@@ -162,7 +163,16 @@ export function ServicingIntakePanel(props: any) {
         {KindBtn("special_request", "Special request")}
         {KindBtn("name_check", "Name check")}
         {KindBtn("idempotency_probe", "Idempotency probe")}
+        {KindBtn("hotel_amend", "Hotel change")}
       </div>
+
+      {kind === "hotel_amend" ? (
+        orderId ? (
+          <HotelAmendForm key={orderId} orderId={orderId} advisorId={advisorId} />
+        ) : (
+          <div className="taw-banner taw-banner--info"><Icon name="bell" size={16} />Enter an order id to change its hotel.</div>
+        )
+      ) : null}
 
       {kind === "ssr" ? (
         <Field label="SSR codes (comma-separated)" htmlFor="svc-ssr">
@@ -201,10 +211,12 @@ export function ServicingIntakePanel(props: any) {
         </div>
       ) : null}
 
-      <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busy} onClick={submit} title="Capture this servicing input (no money moves)">
-        {busy ? <Spinner /> : <Icon name="check" size={13} />}
-        {kind === "name_check" ? "Capture & hold" : "Capture"}
-      </button>
+      {kind !== "hotel_amend" ? (
+        <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busy} onClick={submit} title="Capture this servicing input (no money moves)">
+          {busy ? <Spinner /> : <Icon name="check" size={13} />}
+          {kind === "name_check" ? "Capture & hold" : "Capture"}
+        </button>
+      ) : null}
 
       {res ? (
         <div className="taw-recon-notice" style={{ marginTop: 14 }}>
