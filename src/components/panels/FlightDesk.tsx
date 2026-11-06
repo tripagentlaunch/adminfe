@@ -11,6 +11,7 @@ import { exportTripsureFlightOffers, fastapiFlightSearch, getTripsureFlightOffer
 import { AutosuggestInput } from "../AutosuggestInput";
 import { AIRPORTS, searchAirports } from "../../lib/airports";
 import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
+import { nearbyDates } from "../../lib/searchDates";
 import { cx } from "../../lib/cx";
 import { errText, toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
@@ -449,16 +450,6 @@ export function FlightDesk(props: any) {
     setForm((f) => ({ ...f, originCode: f.destCode, destCode: f.originCode }));
   }
 
-  // offsetDateStr(dateStr, days) — a date-string offset from an ARBITRARY
-  // base date, unlike advisorHelpers' todayISO() which only offsets from
-  // today. Needed for building the ±3-day nearby-dates window around
-  // whatever date the advisor actually chose.
-  function offsetDateStr(dateStr: string, days: number) {
-    const d = new Date(dateStr + "T00:00:00");
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
-
   // fetchOffersForDate(dateStr, fromCode, toCode) — the real API call for
   // ONE date on ONE leg, factored out of run() so it can be fired once
   // (normal search), in parallel across ±3 days (includeNearbyDates), and
@@ -605,8 +596,8 @@ export function FlightDesk(props: any) {
 
     const originCode = form.originCode.toUpperCase().trim();
     const destCode = form.destCode.toUpperCase().trim();
-    const outboundDates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
-    const returnDates = roundTrip ? (includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(form.returnDate, d)) : [form.returnDate]) : [];
+    const outboundDates = includeNearbyDates ? nearbyDates(searchDate, todayISO()) : [searchDate];
+    const returnDates = roundTrip ? (includeNearbyDates ? nearbyDates(form.returnDate, todayISO()) : [form.returnDate]) : [];
 
     if (searchRef.current) searchRef.current.cancel();
     const search = startSearch();
