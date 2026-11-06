@@ -71,6 +71,8 @@ export interface FulfilmentItem {
   booking_ref?: string | null;
   confirmation_number?: string | null;
   pnrs?: string[];
+  /** flight only: the tickets issued once ticketed (guide 6.11 passengers[].ticketNumber). */
+  tickets?: { route?: string | null; name?: string | null; number: string }[];
   error?: string | null;
   booked_at?: string | null;
   amount?: number | null;

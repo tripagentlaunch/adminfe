@@ -516,6 +516,13 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           ? (it.pnrs?.length ? <>PNR <b>{it.pnrs.join(", ")}</b></> : "Ticketed")
                           : (it.confirmation_number ? <>Confirmation <b>{it.confirmation_number}</b></> : "Confirmed")}
                         {it.booking_ref ? <span className="ow-sub"> · TripSure {it.booking_ref}</span> : null}
+                        {it.kind === "flight" && it.tickets?.length ? (
+                          <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                            Ticket{it.tickets.length > 1 ? "s" : ""}: {it.tickets.map((t, i) => (
+                              <span key={i}>{i ? " · " : ""}{t.name ? `${t.name} ` : ""}<b>{t.number}</b>{(it.tickets || []).some((x) => x.route !== t.route) && t.route ? ` (${t.route})` : ""}</span>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                     {it.error && !done ? <div className="ow-ful-err">{it.error}</div> : null}
