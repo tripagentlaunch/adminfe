@@ -20,6 +20,9 @@ export interface TripSearchParams {
 export interface SearchResult {
   offers: any[];
   errors?: any[];
+  /** the answer was empty and no airline supplier answered at all (lib/searchOutage.ts) */
+  noSuppliers?: boolean;
+  searchKey?: string | null;
 }
 
 export interface SearchDeps {
@@ -42,7 +45,7 @@ export async function searchTrip(legs: McLeg[], p: TripSearchParams, deps: Searc
   try {
     const r = await deps.multi({ ...p, legs: legs.map((l) => ({ from: l.from, to: l.to, date: l.date })) });
     const tagged = regroupByLeg(r.offers || [], legs.length);
-    if (tagged) return { offers: tagged, errors: r.errors || [], viaMulti: true };
+    if (tagged) return { offers: tagged, errors: r.errors || [], viaMulti: true, noSuppliers: !!r.noSuppliers && tagged.length === 0, searchKey: r.searchKey || null };
   } catch (e) {
     if (isAbort(e)) throw e;
     // refused or unreachable: the legs are searched one by one below, which reports its own error if it fails too
@@ -61,5 +64,8 @@ export async function searchTrip(legs: McLeg[], p: TripSearchParams, deps: Searc
     offers: answers.flatMap((a, i) => (a.offers || []).map((o) => ({ ...o, leg: legKey(i) }))),
     errors: answers.flatMap((a) => a.errors || []),
     viaMulti: false,
+    // Only an outage when EVERY leg came back empty with no supplier answering.
+    noSuppliers: answers.length > 0 && answers.every((a) => !!a.noSuppliers),
+    searchKey: answers.find((a) => a.searchKey)?.searchKey || null,
   };
 }

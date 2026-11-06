@@ -11,6 +11,7 @@
  * behavior to the original — this is a port, not a rewrite.
  * ===========================================================================*/
 import { accessToken } from "./auth";
+import { noSupplierAnswered } from "../lib/searchOutage";
 import { AIRPORTS } from "../lib/airports";
 import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
 import { detailToText } from "../lib/errText";
@@ -1998,7 +1999,12 @@ function mapTripSureSearchResponse(searchResponse, ctx) {
       );
     });
   });
-  return { count: offers.length, offers: offers, errors: searchResponse.errors || [] };
+  return {
+    count: offers.length, offers: offers, errors: searchResponse.errors || [],
+    // Empty AND no airline supplier answered at all (an outage on Tripsure's side, not a route without seats).
+    noSuppliers: noSupplierAnswered(searchResponse, offers.length),
+    searchKey: searchResponse.searchKey || null,
+  };
 }
 
 // fastapiFlightSearch({ originCode, destCode, date, pax, cabin }) — same

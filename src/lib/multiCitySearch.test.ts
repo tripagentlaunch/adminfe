@@ -77,4 +77,14 @@ describe("searchTrip", () => {
     await expect(searchTrip(LEGS, P, d)).rejects.toMatchObject({ aborted: true });
     expect(log.single).toEqual([]);
   });
+
+  it("reports an outage only when every leg came back empty with no supplier answering", async () => {
+    const empty = { offers: [], errors: [], noSuppliers: true, searchKey: "k1" };
+    const down = deps({ multi: async () => ({ offers: [], errors: [], noSuppliers: true }), single: async () => empty });
+    const r = await searchTrip(LEGS, P, down.d);
+    expect(r.noSuppliers).toBe(true);
+    expect(r.searchKey).toBe("k1");
+    const partial = deps({ multi: async () => ({ offers: [], errors: [] }), single: async (p) => (p.originCode === "BOM" ? { offers: [o("x")], errors: [] } : empty) });
+    expect((await searchTrip(LEGS, P, partial.d)).noSuppliers).toBe(false);
+  });
 });

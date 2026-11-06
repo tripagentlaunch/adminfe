@@ -198,6 +198,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     [allOffers, resultsRound, resultsMulti, activeLeg],
   );
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
+  // The last search was empty because no airline supplier answered at all (Tripsure outage): its own message and a Retry.
+  const [outage, setOutage] = useState<{ searchKey: string | null; at: string } | null>(null);
   // The cheapest fare on each day around the searched one, for the same party and cabin (one-way only).
   const [fareDays, setFareDays] = useState<{ key: string; cells: any[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -291,6 +293,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setActiveLeg(legKey(0));
         setPicked({});
         setPartialErrors(r.errors || []);
+        setOutage(r.noSuppliers ? { searchKey: r.searchKey || null, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } : null);
         setSearched({ party: { adults: form.adults, children: form.children, infants: form.infants }, date: legsNow[0].date });
         setSearchErr(null);
         setStep((s) => (s === "travellers" ? s : "results"));
@@ -348,6 +351,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setActiveLeg("ONWARD");
         setPicked({ ONWARD: null, RETURN: null });
         setPartialErrors(r.errors || []);
+        setOutage(r.noSuppliers ? { searchKey: r.searchKey || null, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } : null);
         setSearched({ party: { adults: form2.adults, children: form2.children, infants: form2.infants }, date: form2.date });
         setSearchErr(null);
         setStep((s) => (s === "travellers" ? s : "results")); // on the Travellers step the advisor moves on themselves
@@ -1166,7 +1170,21 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               </div>
             ) : null}
 
-            {offers && offers.length === 0 ? (
+            {offers && offers.length === 0 && outage ? (
+              <>
+                <Empty icon="flight" title="No airline supplier answered"
+                  message="Tripsure returned no results from any airline supplier, not even for other dates. This looks like an outage on Tripsure's side, so changing the date, cabin or airport won't help. Retry in a few minutes." />
+                <div className="nb-nearby">
+                  <button type="button" className="taw-btn taw-btn--primary" disabled={searching} onClick={() => runSearch()}>
+                    {searching ? "Searching…" : "Retry search"}
+                  </button>
+                </div>
+                <div className="ow-sub" style={{ whiteSpace: "normal", textAlign: "center", marginTop: 8 }}>
+                  Still empty after a while? Tell Tripsure support: flight search returns 200 with an empty result and no suppliers, at {outage.at}
+                  {outage.searchKey ? <>. Search reference <code>{outage.searchKey}</code></> : null}.
+                </div>
+              </>
+            ) : offers && offers.length === 0 ? (
               <>
                 <Empty icon="flight" title="No flights found" message={legsMode ? "No flights on this part of the trip — try another date or cabin." : searched?.date === todayISO() ? "Airlines stop selling a flight a couple of hours before it leaves, so nothing may be left for today. Try tomorrow." : "Try another date or cabin."} />
                 {!legsMode && searched?.date === todayISO() ? (
