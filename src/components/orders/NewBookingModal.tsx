@@ -307,6 +307,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     const form2 = { ...form, ...(over || {}) };
     const cabinNow = form2.cabin;
     setErr(null);
+    setGoneFares([]);
     if (form2.from.length !== 3 || form2.to.length !== 3) {
       setErr("Pick a From and To airport from the suggestions."); return;
     }
@@ -496,6 +497,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // option's fare id is what gets locked, priced as search price + its difference.
   const [fareFor, setFareFor] = useState<any | null>(null);
   const [fareSel, setFareSel] = useState<FareChoice | null>(null);
+  // Fares Tripsure refused to lock as "no longer available" ("<offer id>|<fare id>"): not tried again until a new search.
+  const [goneFares, setGoneFares] = useState<string[]>([]);
   const [lockInfo, setLockInfo] = useState<{ locked: number | null; shown: number; flagged: boolean } | null>(null);
   // When TripSure drops the locked fare (Create Itinerary's expiresAt, ~15 minutes).
   const [fareExpiry, setFareExpiry] = useState<string | null>(null);
@@ -581,7 +584,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setFareFor(null);
     } catch (e: any) {
       if (created) await discardDraft();
-      setErr(errText(e));
+      // One flight that Tripsure won't lock any more: say which, why it happens, and stop offering the same fare.
+      const sold = e?.status === 410 || /no longer available|sold out/i.test(String(e?.message || ""));
+      if (sold && !returnOffer && !moreOffers.length) {
+        const d = offer.detail || {};
+        const fareId = offer.fareChoice?.fare_id || "";
+        setGoneFares((g) => [...g, `${offer.id}|${fareId}`]);
+        setErr(`${d.airlineName || d.airline || "This flight"} ${d.flightNo || ""}${offer.fareChoice?.name ? ` at the ${offer.fareChoice.name} fare` : ""} is no longer available. `
+          + "Tripsure refused to lock it: the seats at this price have sold out, the flight is too close to departure, or these search results are out of date. "
+          + "Search again for fresh fares, or choose another fare or flight.");
+      } else {
+        setErr(errText(e));
+      }
     } finally {
       setLockingId(null);
     }
@@ -1329,13 +1343,22 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   price={inr(fareFor.base_net + (fareSel?.delta || 0))}
                   priceNote={`${covers(fareFor.base_net + (fareSel?.delta || 0))}${legName ? ` · ${legName}${resultsMulti ? "" : " flight"}` : ""}`}
                   actions={
-                    <button type="button" className="taw-btn taw-btn--primary fi-next" disabled={!fareSel || !!lockingId}
+                    <button type="button" className="taw-btn taw-btn--primary fi-next"
+                      disabled={!fareSel || !!lockingId || goneFares.includes(`${fareFor.id}|${fareSel.fare_id}`)}
                       onClick={() => fareSel && chooseFare(fareFor, fareSel)}>
-                      {lockingId ? "Locking fare…" : legName ? `Select ${legName}${resultsMulti ? "" : " flight"}` : "Next"}
+                      {lockingId ? "Locking fare…" : fareSel && goneFares.includes(`${fareFor.id}|${fareSel.fare_id}`) ? "Not available"
+                        : legName ? `Select ${legName}${resultsMulti ? "" : " flight"}` : "Next"}
                     </button>
                   }
                 >
-                  {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
+                  {err ? (
+                    <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
+                      {errText(err)}
+                      {goneFares.some((k) => k.startsWith(`${fareFor.id}|`)) ? (
+                        <>{" "}<button type="button" className="ow-link" onClick={() => { setFareFor(null); runSearch(); }}>Search again</button></>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {drawerTab === "timeline"
                     ? <FlightTimeline legs={[{ segments: getTripsureFlightOffer(fareFor.id)?.raw?.segments || [] }]} />
                     : <FareOptionsList offer={fareFor} selected={fareSel?.fare_id || null} onSelect={setFareSel} />}
