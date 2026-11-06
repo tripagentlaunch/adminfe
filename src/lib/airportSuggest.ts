@@ -13,6 +13,7 @@
  * ===========================================================================*/
 import { fastapiFlightAutosuggest } from "../services/api";
 import { searchAirports } from "./airports";
+import { meansTripsureIsDown } from "./airportLiveStatus";
 
 // TripSure's flight autosuggest returns nothing for a 1-character query and
 // GET /flights/autosuggest rejects q shorter than 2 (422, which would also trip
@@ -28,7 +29,8 @@ const liveCache = new Map<string, any[]>();
 
 // Live TripSure rows, or null when TripSure is down/slow/empty.
 export function liveAirports(query: string, limit: number): Promise<any[] | null> {
-  const key = `${query.trim().toLowerCase()}|${limit}`;
+  query = query.trim();
+  const key = `${query.toLowerCase()}|${limit}`;
   const hit = liveCache.get(key);
   if (hit) return Promise.resolve(hit);
   if (Date.now() < liveAutosuggestDownUntil) return Promise.resolve(null);
@@ -36,13 +38,14 @@ export function liveAirports(query: string, limit: number): Promise<any[] | null
     liveAutosuggestDownUntil = Date.now() + LIVE_RETRY_MS;
     return null;
   };
+  const failed = (e: any) => (meansTripsureIsDown(e) ? markDown() : null);
   const live = fastapiFlightAutosuggest(query, limit)
     .then((r: any) => {
       const rows = Array.isArray(r) ? r : (r && r.data) || [];
       if (rows.length) liveCache.set(key, rows);
       return rows.length ? rows : null;
     })
-    .catch(markDown);
+    .catch(failed);
   // Cleared once the live call settles — an unconditional timer would still
   // fire after a successful answer and mark a healthy TripSure as down.
   let timer: ReturnType<typeof setTimeout>;

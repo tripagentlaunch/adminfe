@@ -294,6 +294,10 @@ export function FlightDesk(props: any) {
   // current (cancelled, superseded, unmounted) is ignored.
   const searchRef = useRef<any>(null);
   useEffect(() => () => { if (searchRef.current) searchRef.current.cancel(); }, []);
+  // One TripSure trace per journey (guide section 3), which starts with the first airport lookup, so it is
+  // minted when the desk opens, before anything is typed. The first search keeps it; a later search starts a new one.
+  useState(() => newFlightJourney());
+  const journeyUsedRef = useRef(false);
   // Shopping controls (FLT-011 filters / FLT-012 sort) — applied client-side
   // over the offers the search adapter returns. Reset whenever a new search runs.
   const [view, setView] = useState<{ sort: string; stops: string; refundable: boolean; carrier: string; depWindow: string }>(
@@ -587,8 +591,10 @@ export function FlightDesk(props: any) {
     setPaxOpen(null);
     setModifyOpen(false);
     setSearchedPax(paxRef.current);
-    // One TripSure trace per search, through to the live price checks of its results.
-    newFlightJourney();
+    // One TripSure trace per search, through to the live price checks of its results. The first search
+    // keeps the one the airport lookups already used; each later search starts a new one.
+    if (journeyUsedRef.current) newFlightJourney();
+    journeyUsedRef.current = true;
     setLoading(true);
     setRes(null);
     setSearchedAt(null);
