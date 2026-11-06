@@ -22,6 +22,7 @@ import { HotelBookingDetails } from "./HotelBookingDetails";
 import { HotelInvoiceView } from "./HotelInvoiceView";
 import { HotelVoucherView } from "./HotelVoucherView";
 import { policyLines } from "../../lib/hotelPolicy";
+import { supportDetails } from "../../lib/supportDetails";
 
 const STAGE: Record<Fulfilment["stage"], { label: string; tone: string }> = {
   empty: { label: "Nothing to book", tone: "warn" },
@@ -354,6 +355,12 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     }
   }
 
+  // Everything TripSure asks for in a support request (trace id, step, time, itinerary / booking id), ready to paste.
+  function copySupport(item: FulfilmentItem) {
+    const text = supportDetails(item, order.id);
+    navigator.clipboard?.writeText(text).then(() => toast("Support details copied", "success"), () => toast("Couldn't copy — select the text manually", "warn"));
+  }
+
   function copySummary() {
     const lines = [
       `Booking ${order.id} — ${order.customerName}`,
@@ -537,6 +544,11 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                     ) : null}
                     {!done && it.blocked_reason && it.status !== "check_required" ? (
                       <div className="ow-sub" style={{ whiteSpace: "normal" }}>{it.blocked_reason}</div>
+                    ) : null}
+                    {it.kind === "flight" && it.trace_id ? (
+                      <div className="ow-sub">
+                        <button type="button" className="ow-link" onClick={() => copySupport(it)}>Copy details for TripSure support</button>
+                      </div>
                     ) : null}
 
                     <div className="ow-ful-acts">

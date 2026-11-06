@@ -93,6 +93,9 @@ export interface FulfilmentItem {
   documents_required?: string[];
   /** flight only: the journey's x-trace-id, quoted to TripSure support. */
   trace_id?: string | null;
+  /** flight only: what TripSure support asks for next to the trace id: its itinerary id and the supplier booking id(s). */
+  tripsure_itinerary_id?: string | null;
+  supplier_booking_ids?: string[];
 }
 export interface PaymentRow {
   id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null;
