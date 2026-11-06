@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
@@ -23,6 +23,7 @@ import { HotelInvoiceView } from "./HotelInvoiceView";
 import { HotelVoucherView } from "./HotelVoucherView";
 import { policyLines } from "../../lib/hotelPolicy";
 import { supportDetails } from "../../lib/supportDetails";
+import { fareLockNote } from "../../lib/fareLock";
 
 const STAGE: Record<Fulfilment["stage"], { label: string; tone: string }> = {
   empty: { label: "Nothing to book", tone: "warn" },
@@ -96,6 +97,14 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [confirming, setConfirming] = useState<Pending>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // The final price TripSure locked for a flight (Update Itinerary): total and the pay-by time, per flight.
+  const [locks, setLocks] = useState<Record<string, { total: number; payBy: string }>>({});
+  const [, tickLock] = useState(0);
+  useEffect(() => {
+    if (!Object.keys(locks).length) return;
+    const t = setInterval(() => tickLock((n) => n + 1), 30_000);
+    return () => clearInterval(t);
+  }, [locks]);
   const [gw, setGw] = useState<Gateway | null>(null);
   const [gwErr, setGwErr] = useState(false);
   useEffect(() => {
@@ -355,6 +364,23 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     }
   }
 
+  // "Check final price": TripSure's price for these travellers and add-ons, locked for about 15 minutes (guide 6.7: show it
+  // before payment is collected). Books and charges nothing; a refusal (missing traveller, add-ons left out of the price,
+  // an expired fare) comes back as the reason, before any money is taken.
+  async function lockPrice(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const r: any = await bookingFlightFareLock(item.id);
+      setLocks((p) => ({ ...p, [item.id]: { total: Number(r.total), payBy: String(r.pay_by) } }));
+    } catch (e) {
+      setLocks((p) => { const n = { ...p }; delete n[item.id]; return n; });
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // Everything TripSure asks for in a support request (trace id, step, time, itinerary / booking id), ready to paste.
   function copySupport(item: FulfilmentItem) {
     const text = supportDetails(item, order.id);
@@ -545,6 +571,27 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                     {!done && it.blocked_reason && it.status !== "check_required" ? (
                       <div className="ow-sub" style={{ whiteSpace: "normal" }}>{it.blocked_reason}</div>
                     ) : null}
+                    {it.kind === "flight" && !done && (it.status === "fare_locked" || it.status === "failed") ? (() => {
+                      const lk = locks[it.id];
+                      const note = lk ? fareLockNote(lk.payBy) : null;
+                      return (
+                        <div className="ow-fare-lock">
+                          {lk && note && !note.expired ? (
+                            <div className={`nb-expiry${note.soon ? " soon" : ""}`} role="status">
+                              <Icon name="clock" size={14} /> TripSure&apos;s final price: <b>{fmtINR(lk.total)}</b>, locked until <b>{note.clock}</b> · {note.minsLeft} min left.
+                              Collect the payment before then; ticketing checks the fare once more.
+                            </div>
+                          ) : null}
+                          {lk && note?.expired ? (
+                            <div className="nb-expiry gone" role="status"><Icon name="clock" size={14} /> The price lock lapsed at <b>{note.clock}</b>. Check the final price again before taking payment.</div>
+                          ) : null}
+                          <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy || !travDone} title={travDone ? undefined : "Add the travellers' details first"}
+                            onClick={() => lockPrice(it)}>
+                            {busy === it.id ? "Asking TripSure…" : lk && note && !note.expired ? "Check again" : "Check final price"}
+                          </button>
+                        </div>
+                      );
+                    })() : null}
                     {it.kind === "flight" && it.trace_id ? (
                       <div className="ow-sub">
                         <button type="button" className="ow-link" onClick={() => copySupport(it)}>Copy details for TripSure support</button>

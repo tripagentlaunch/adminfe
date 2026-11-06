@@ -2210,6 +2210,19 @@ function bookingTripsureOrder(itineraryId) {
 function bookingCheckFlight(itineraryId) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/check-status", { method: "POST" });
 }
+// TripSure's FINAL price for the order's travellers and add-ons (Update Itinerary, guide 6.7), locked for ~15 minutes.
+// Books and charges nothing -> { total, pay_by }. The lock token itself never comes to the browser.
+function bookingFlightFareLock(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/fare-lock", { method: "POST" });
+}
+// Booking Details for every flight / room left unclear (guide 6.12). Read-only towards TripSure: it never books.
+// -> { checked, settled, still_open, skipped, failed }
+function bookingReconcileFlights() {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/reconcile", { method: "POST" });
+}
+function bookingReconcileHotels() {
+  return fastapiBookingCall("/booking-orders/hotels/reconcile", { method: "POST" });
+}
 // Irreversible: TripSure booking/create for a locked room (one attempt only).
 function bookingConfirmHotel(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/confirm", { method: "POST" });
@@ -3071,6 +3084,9 @@ export {
   bookingRecordPayment,
   bookingIssueTicket,
   bookingCheckFlight,
+  bookingFlightFareLock,
+  bookingReconcileFlights,
+  bookingReconcileHotels,
   bookingTripsureOrder,
   bookingCancelOrder,
   bookingDeleteOrder,

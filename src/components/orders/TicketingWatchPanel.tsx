@@ -10,7 +10,8 @@
  * ===========================================================================*/
 import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../ui";
-import { bookingAskTripsure, bookingTicketingWatch } from "../../services/api";
+import { bookingAskTripsure, bookingReconcileFlights, bookingReconcileHotels, bookingTicketingWatch } from "../../services/api";
+import { reconcileSummary } from "../../lib/fareLock";
 import { errText } from "../../lib/errText";
 
 type Finding = {
@@ -34,6 +35,9 @@ export function TicketingWatchPanel({ onOpenOrder }: { onOpenOrder: (orderNumber
   const [items, setItems] = useState<Finding[]>([]);
   const [open, setOpen] = useState(true);
   const [asked, setAsked] = useState<Record<string, Asked>>({});
+  // "Re-check with TripSure": Booking Details for every flight and room left unclear. It only reads, it never books.
+  const [rechecking, setRechecking] = useState(false);
+  const [recheck, setRecheck] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const load = useCallback(() => {
     bookingTicketingWatch()
@@ -51,6 +55,23 @@ export function TicketingWatchPanel({ onOpenOrder }: { onOpenOrder: (orderNumber
   if (!items.length) return null;
   const high = items.filter((i) => i.severity === "high").length;
 
+  function recheckAll() {
+    setRechecking(true);
+    setRecheck(null);
+    Promise.allSettled([bookingReconcileFlights(), bookingReconcileHotels()])
+      .then(([fl, ho]) => {
+        if (fl.status === "rejected" && ho.status === "rejected") {
+          setRecheck({ text: errText(fl.reason), bad: true });
+          return;
+        }
+        const text = reconcileSummary(fl.status === "fulfilled" ? fl.value : null, ho.status === "fulfilled" ? ho.value : null);
+        const half = fl.status === "rejected" ? " Flights could not be checked." : ho.status === "rejected" ? " Hotels could not be checked." : "";
+        setRecheck({ text: text + half, bad: !!half });
+        load();
+      })
+      .finally(() => setRechecking(false));
+  }
+
   function ask(f: Finding) {
     setAsked((m) => ({ ...m, [f.item_id]: "loading" }));
     bookingAskTripsure(f.itinerary_id)
@@ -67,6 +88,14 @@ export function TicketingWatchPanel({ onOpenOrder }: { onOpenOrder: (orderNumber
         <span className="ow-tw-sub">{high ? `${high} need action now` : "worth a look"}</span>
         <Icon name="chevron" size={13} />
       </button>
+      {open ? (
+        <div className="ow-tw-acts" style={{ padding: "6px 12px" }}>
+          <button type="button" className="taw-btn taw-btn--sm" disabled={rechecking} onClick={recheckAll}>
+            {rechecking ? "Checking with TripSure…" : "Re-check all with TripSure"}
+          </button>
+          {recheck ? <span className={"ow-sub" + (recheck.bad ? " is-err" : "")} role="status" style={{ whiteSpace: "normal" }}>{recheck.text}</span> : null}
+        </div>
+      ) : null}
       {open ? (
         <ul className="ow-tw-list">
           {items.map((f) => {
