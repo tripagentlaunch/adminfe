@@ -10,6 +10,7 @@ import {
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
+import { extrasOfferFrom, type ExtrasOffer } from "../../lib/droppedExtras";
 import { pollPaymentSettlement, type PollHandle, type PaymentStatus } from "../../lib/pollPaymentSettlement";
 import { errText } from "../../lib/errText";
 import { toast } from "../../lib/advisorHelpers";
@@ -121,6 +122,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [refundOpen, setRefundOpen] = useState<{ amount: number } | null>(null); // opened after a cancel, pre-filled with Tripsure's refund
   const [servicing, setServicing] = useState<FulfilmentItem | null>(null); // a ticketed flight being cancelled / its date changed
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
+  // The airline did not take the extras the customer paid for: offer to ticket the bare fare and take the extras off.
+  const [extrasOff, setExtrasOff] = useState<{ item: FulfilmentItem; message: string; offer: ExtrasOffer } | null>(null);
   // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
   const [tsOrder, setTsOrder] = useState<Record<string, { busy?: boolean; err?: string; data?: any }>>({});
   function toggleTsOrder(id: string) {
@@ -159,22 +162,27 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const payDone = f.payment.total > 0 && f.payment.due <= 0.5;
   const locked = f.stage === "cancelled";
 
-  async function run(item: FulfilmentItem, acceptFare = false) {
+  async function run(item: FulfilmentItem, acceptFare = false, dropExtras = false) {
     setBusy(item.id);
     setErr(null);
     setFareChange(null);
+    setExtrasOff(null);
     setConfirming(null);
     try {
       if (item.kind === "flight") {
-        const r: any = await bookingIssueTicket(item.id, acceptFare);
-        toast(r.ok ? `Ticket issued${r.pnrs?.length ? ` · PNR ${r.pnrs.join(", ")}` : ""}` : "Ticketing needs a check — see the order", r.ok ? "success" : "warn");
+        const r: any = await bookingIssueTicket(item.id, acceptFare, dropExtras);
+        toast(r.ok ? `Ticket issued${r.pnrs?.length ? ` · PNR ${r.pnrs.join(", ")}` : ""}${r.extras_dropped ? ` · ${fmtINR(r.extras_dropped)} of extras taken off` : ""}` : "Ticketing needs a check — see the order", r.ok ? "success" : "warn");
+        // The extras came off the order: what was received now exceeds it, so open the refund form with that amount.
+        if (r.extras_dropped > 0) setRefundOpen({ amount: r.extras_dropped });
       } else {
         const r: any = await bookingConfirmHotel(item.id);
         toast(r.status === "confirmed" ? "Hotel confirmed" : "Hotel sent — the supplier is still confirming", r.status === "confirmed" ? "success" : "info");
       }
     } catch (e: any) {
       const msg = errText(e);
+      const offer = item.kind === "flight" && e?.status === 409 && !dropExtras ? extrasOfferFrom(msg) : null;
       if (item.kind === "flight" && e?.status === 409 && /Accept the new fare/i.test(msg)) setFareChange({ item, message: msg });
+      else if (offer) setExtrasOff({ item, message: msg, offer });
       else setErr(msg);
     } finally {
       setBusy(null);
@@ -505,7 +513,20 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                 ))}
               </ul>
             ) : null}
-            {f.items.some((i) => i.status === "cancelled") && f.payment.paid - (f.payment.refunded || 0) > 0.5 && !refundOpen ? (
+            {(f.payment.refund_due || 0) > 0.5 && !refundOpen ? (
+              <div className="ow-ful-confirm">
+                <div style={{ whiteSpace: "normal" }}>
+                  <b>{fmtINR(f.payment.refund_due || 0)} is due back to the customer</b> — more was received than this order now costs
+                  (for example extras the airline could not add). Pay it back, then record it here.
+                </div>
+                <div className="ow-ful-acts">
+                  <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => setRefundOpen({ amount: f.payment.refund_due || 0 })}>
+                    Record refund to customer
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {f.items.some((i) => i.status === "cancelled") && f.payment.paid - (f.payment.refunded || 0) > 0.5 && !refundOpen && !((f.payment.refund_due || 0) > 0.5) ? (
               <div className="ow-ful-acts">
                 <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRefundOpen({ amount: 0 })}>Record refund to customer</button>
               </div>
@@ -746,6 +767,22 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           <button type="button" className="taw-btn taw-btn--sm" disabled={busy === it.id} onClick={() => setCancelling(null)}>Keep booking</button>
                           <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={busy === it.id} onClick={() => doCancel(it)}>
                             {busy === it.id ? "Cancelling…" : "Yes, cancel the room"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {extrasOff?.item.id === it.id ? (
+                      <div className="ow-ful-confirm">
+                        <div style={{ whiteSpace: "normal" }}>{extrasOff.message}</div>
+                        <div style={{ whiteSpace: "normal", marginTop: 6 }}>
+                          If the extras can&apos;t be added, you can ticket the fare only{extrasOff.offer.fare != null ? ` (${fmtINR(extrasOff.offer.fare)})` : ""}.
+                          The {fmtINR(extrasOff.offer.extras)} of extras then comes off this order and is due back to the customer, and you record that refund next.
+                          Tripsure is asked for the bare fare first, so nothing is ticketed if its price differs. This can&apos;t be undone here.
+                        </div>
+                        <div className="ow-ful-acts">
+                          <button type="button" className="taw-btn taw-btn--sm" onClick={() => setExtrasOff(null)}>Don&apos;t ticket</button>
+                          <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy} onClick={() => run(it, false, true)}>
+                            Ticket the fare only
                           </button>
                         </div>
                       </div>

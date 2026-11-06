@@ -2236,9 +2236,10 @@ function hotelPaymentStatus(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/status", { method: "GET" });
 }
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
-function bookingIssueTicket(itineraryId, acceptFareChange) {
+function bookingIssueTicket(itineraryId, acceptFareChange, dropExtras) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
-    method: "POST", body: { accept_fare_change: !!acceptFareChange },
+    // dropExtras: the airline would not take the extras the customer paid for: ticket the bare fare and take them off the order.
+    method: "POST", body: { accept_fare_change: !!acceptFareChange, ...(dropExtras ? { drop_extras: true } : {}) },
   });
 }
 // Booking Details for a flight whose ticketing is unclear (Tripsure guide 6.9).
