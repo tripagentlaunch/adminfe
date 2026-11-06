@@ -20,6 +20,7 @@ import { fillFromSaved, type SavedTraveller } from "../../lib/travellerRules";
 import { connectionWarnings } from "../../lib/connectionWarnings";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
+import { FareBreakup } from "./FareBreakup";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
 import { EXTRAS_TABS, FlightExtrasPicker, emptySel, extrasCounts, extrasDrawerTabs, extrasSum, firstExtrasTab, paxSlots, selSegments, withPick, type ExtrasSel, type ExtrasTab } from "./FlightExtras";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
@@ -1300,7 +1301,10 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             </div>
                           </div>
                           <div className="ow-fcard-buy">
-                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{legsMode ? legLabel(activeLeg) + " · " : ""}{covers(o.base_net)}</small></div>
+                            <div className="ow-fcard-price">
+                              <FareBreakup price={((raw.PriceSummaries || raw.priceSummaries || [])[0]) || null}><b>{inr(o.base_net)}</b></FareBreakup>
+                              <small>{legsMode ? legLabel(activeLeg) + " · " : ""}{covers(o.base_net)}</small>
+                            </div>
                             {legsMode ? (
                               <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => selectOffer(o)} disabled={!!lockingId}>
                                 {picked[activeLeg]?.id === o.id ? "Selected ✓" : "Select"}

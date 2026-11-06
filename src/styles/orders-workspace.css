@@ -943,3 +943,22 @@
 .nb-mc-x{align-self:center;flex:0 0 auto;}
 .nb-mc-add{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
 .nb-mc-add .ow-sub{white-space:normal;}
+
+/* Price breakup on a flight's price (hover / keyboard focus). */
+.ow-bk{position:relative;display:inline-block;outline:none;cursor:help;}
+.ow-bk-trigger{border-bottom:1px dashed var(--taupe);}
+.ow-bk-pop{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:240px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 24px rgba(40,30,10,.16);text-align:left;font-size:12.5px;color:var(--ink);}
+.ow-bk:hover .ow-bk-pop,.ow-bk:focus .ow-bk-pop,.ow-bk:focus-within .ow-bk-pop{display:block;}
+.ow-bk-t{display:block;font-size:13px;margin-bottom:8px;}
+.ow-bk-row{display:flex;justify-content:space-between;gap:16px;padding:3px 0;}
+.ow-bk-row.total{margin-top:6px;padding-top:8px;border-top:1px solid var(--line);font-weight:700;}
+/* Meals as picture cards. */
+.ow-meals{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-height:clamp(260px,46vh,520px);overflow-y:auto;overscroll-behavior:contain;padding:2px 4px 2px 0;}
+.ow-meal{display:flex;flex-direction:column;gap:3px;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--card);transition:border-color .15s,background .15s;}
+.ow-meal.on{border-color:var(--gold);background:var(--gold-bg);box-shadow:0 0 0 1px var(--gold);}
+.ow-meal-pic{aspect-ratio:4/3;border-radius:8px;background:var(--bone,#F4EFE3);overflow:hidden;display:grid;place-items:center;margin-bottom:4px;}
+.ow-meal-img{width:100%;height:100%;object-fit:cover;display:block;}
+.ow-meal-art{object-fit:contain;padding:6px;}
+.ow-meal-t{font-size:13px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em;}
+.ow-meal-act{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}
+.ow-meal-act .taw-btn{flex:1;justify-content:center;}

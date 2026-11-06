@@ -9,6 +9,7 @@ import { Icon } from "../ui";
 import { inr } from "../../services/api";
 import type { DrawerTab } from "./FlightItinerary";
 import { SeatMap } from "./SeatMap";
+import { MealPicture } from "./MealPicture";
 import { findSector } from "../../lib/ssrKeys";
 
 export type Pick = { code: string; label: string; price: number };
@@ -245,29 +246,31 @@ export function FlightExtrasPicker({ ssr, rows, detail, tab, sel, pax, infants, 
         mealOpts.length === 0 ? (
           <div className="ow-sub">No meals can be pre-ordered for this segment.</div>
         ) : (
-          <div className="ow-cards">
-            {mealOpts.map((m: any) => {
-              const on = cur.meal?.code === m.code;
-              const pick: Pick = { code: m.code, label: m.label, price: Number(m.price) || 0 };
-              return (
-                <div key={m.code} className={`ow-card${on ? " on" : ""}`}>
-                  <span className="ow-card-ic"><Icon name="note" size={18} /></span>
-                  <div className="ow-card-main">
-                    <div className="ow-card-t">{m.label}{m.special ? " · special" : ""}</div>
+          <>
+            <div className="ow-meals">
+              {mealOpts.map((m: any) => {
+                const on = cur.meal?.code === m.code;
+                const pick: Pick = { code: m.code, label: m.label, price: Number(m.price) || 0 };
+                return (
+                  <div key={m.code} className={`ow-meal${on ? " on" : ""}`}>
+                    <div className="ow-meal-pic"><MealPicture label={m.label} item={m.raw} /></div>
+                    <div className="ow-meal-t" title={m.label}>{m.label}{m.special ? " · special" : ""}</div>
                     <div className="ow-card-s">{pick.price > 0 ? inr(pick.price) + (many ? " per traveller" : "") : "Included"}</div>
+                    <div className="ow-meal-act">
+                      {many ? (
+                        <button type="button" className="taw-btn taw-btn--sm" disabled={busy || allHave(m.code)} onClick={() => pickAll(pick)}>
+                          Add for all {pax.length}
+                        </button>
+                      ) : null}
+                      <button type="button" className={`taw-btn taw-btn--sm${on ? "" : " taw-btn--primary"}`} disabled={busy}
+                        onClick={() => pickFor(on ? null : pick)}>{on ? "Remove" : "Add"}</button>
+                    </div>
                   </div>
-                  {many ? (
-                    <button type="button" className="taw-btn taw-btn--sm" disabled={busy || allHave(m.code)} onClick={() => pickAll(pick)}>
-                      Add for all {pax.length}
-                    </button>
-                  ) : null}
-                  <button type="button" className={`taw-btn taw-btn--sm${on ? "" : " taw-btn--primary"}`} disabled={busy}
-                    onClick={() => pickFor(on ? null : pick)}>{on ? "Remove" : "Add"}</button>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
             <div className="ow-sub">One meal per traveller per segment.</div>
-          </div>
+          </>
         )
       ) : !block?.offered?.seats ? (
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>
