@@ -52,6 +52,8 @@ export function FareOptionsList({ offer, selected, onSelect }: {
 
   const [opts, setOpts] = useState<Option[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Airline sources that did not answer (guide 4 / 6.3: errors[] inside a 200 is a partial answer, not a failure).
+  const [sourceErrs, setSourceErrs] = useState<string[]>([]);
   const [rules, setRules] = useState<Record<string, { busy?: boolean; err?: string; sectors?: any[] }>>({});
   const [open, setOpen] = useState<string | null>(null);
 
@@ -68,6 +70,7 @@ export function FareOptionsList({ offer, selected, onSelect }: {
         if (!live) return;
         const list: Option[] = r.options || [];
         setOpts(list);
+        setSourceErrs(Array.isArray(r.errors) ? r.errors : []);
         // Nothing chosen yet: the searched fare is the selected one (as on TripSure).
         if (!selected) onSelect(list.find((o) => o.is_current) || list[0] || fallback);
       })
@@ -95,6 +98,11 @@ export function FareOptionsList({ offer, selected, onSelect }: {
       {err ? (
         <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
           Couldn&apos;t load the other fare options ({err}). The fare you searched is selected — you can continue with it.
+        </div>
+      ) : null}
+      {!err && sourceErrs.length ? (
+        <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+          {(opts || []).length ? "Some fare options may be missing" : "No other fare options came back"}: an airline source did not answer ({sourceErrs.join("; ")}).
         </div>
       ) : null}
       {(opts || []).map((o) => {
