@@ -73,6 +73,8 @@ export interface FulfilmentItem {
   pnrs?: string[];
   /** flight only: the tickets issued once ticketed (guide 6.11 passengers[].ticketNumber). */
   tickets?: { route?: string | null; name?: string | null; number: string }[];
+  /** flight only: the invoice number(s) from Booking Details (guide 6.12 invoiceNumber), once ticketed. */
+  invoice_numbers?: string[];
   error?: string | null;
   booked_at?: string | null;
   amount?: number | null;
