@@ -1981,7 +1981,8 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
 // supplierTraceIds, searchKey}) into the {count, offers, errors} shape
 // FlightDesk.jsx's run() already reads off searchFlights()'s old result.
 function mapTripSureSearchResponse(searchResponse, ctx) {
-  _tripsureFlightOfferCache.clear();
+  // A multi-city trip searched leg by leg keeps the offers of the legs already answered (ctx.keepCache).
+  if (!ctx.keepCache) _tripsureFlightOfferCache.clear();
   var searchResult = searchResponse.search_result || searchResponse.searchResult || {};
   var offers = [];
   Object.keys(searchResult).forEach(function (leg) {
@@ -2037,8 +2038,40 @@ function fastapiFlightSearch(params) {
     nationality: String(params.nationality || "IN").toUpperCase(),
   };
   return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
+    return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1, keepCache: !!params.keepCache });
+  });
+}
+
+// fastapiMultiCitySearch({ legs: [{ from, to, date }], pax, children, infants, cabin, ... }) — ONE search with trip_type
+// MULTI_CITY (guide 6.2: 2+ segments). The offers come back tagged with whatever TripSure names each leg's group; the caller
+// splits them into legs (lib/multiCity.ts regroupByLeg) because that naming is not documented.
+function fastapiMultiCitySearch(params) {
+  params = params || {};
+  var body = {
+    trip_type: "MULTI_CITY",
+    segments: (params.legs || []).map(function (l) {
+      return { origin: String(l.from || "").toUpperCase(), destination: String(l.to || "").toUpperCase(), departure_date: l.date };
+    }),
+    adults: Number(params.pax) || 1,
+    children: Number(params.children) || 0,
+    infants: Number(params.infants) || 0,
+    cabin_class: String(params.cabin || "economy").toUpperCase(),
+    max_stops: params.maxStops || "ALL",
+    refundable: !!params.refundable,
+    preferred_airlines: params.preferredAirlines || [],
+    excluded_airlines: params.excludedAirlines || [],
+    results_limit: params.resultsLimit || 50,
+    currency: String(params.currency || "INR").toUpperCase(),
+    nationality: String(params.nationality || "IN").toUpperCase(),
+  };
+  return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
     return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1 });
   });
+}
+
+// clearFlightOfferCache() — forget the offers of earlier searches (a multi-city search made leg by leg starts clean, then keeps).
+function clearFlightOfferCache() {
+  _tripsureFlightOfferCache.clear();
 }
 
 // fastapiFlightAutosuggest(query, limit?) — GET /flights/autosuggest
@@ -3066,6 +3099,8 @@ export {
   hotelSetWebsite,
   fastapiFlightSearch,
   fastapiFlightAutosuggest,
+  fastapiMultiCitySearch,
+  clearFlightOfferCache,
   bookingCustomerSearch,
   bookingCreateFlightItinerary,
   flightSsr,

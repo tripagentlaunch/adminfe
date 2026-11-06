@@ -933,3 +933,13 @@
 .nb-trav-remember{display:flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer;}
 .ow-tag.warn{background:#FBEDED;color:#8E2A2A;border-color:#E3B4B4;}
 .ow-tag.info{background:#FBF5E6;color:#7A5A1E;border-color:#E5CFA0;}
+/* Multi-city: one row per flight (From, To, date, remove) */
+.nb-mc{display:flex;flex-direction:column;gap:8px;margin:8px 0;}
+.nb-mc-row{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap;}
+.nb-mc-n{display:flex;align-items:center;min-width:64px;font-weight:600;font-size:12.5px;color:var(--taupe);}
+.nb-mc-air{flex:1 1 200px;min-width:0;}
+.nb-mc-date{flex:0 1 160px;}
+.nb-mc-date input{font:inherit;color:inherit;background:transparent;border:0;outline:0;min-width:0;}
+.nb-mc-x{align-self:center;flex:0 0 auto;}
+.nb-mc-add{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+.nb-mc-add .ow-sub{white-space:normal;}
