@@ -9,6 +9,7 @@ import { Icon } from "../ui";
 import { inr } from "../../services/api";
 import type { DrawerTab } from "./FlightItinerary";
 import { SeatMap } from "./SeatMap";
+import { findSector } from "../../lib/ssrKeys";
 
 export type Pick = { code: string; label: string; price: number };
 export type SegSel = { seat: Pick | null; baggage: Pick | null; meal: Pick | null };
@@ -52,20 +53,16 @@ export function selSegments(sel: ExtrasSel) {
 export type ExtrasTab = "baggage" | "meals" | "seats";
 export const EXTRAS_TABS: string[] = ["baggage", "meals", "seats"];
 
-// Sector keys look like "2_DEL$BOM" ({providerId}_{origin}${dest}).
+// Sector keys look like "2_DEL$BOM" ({providerId}_{origin}${dest}); the guide's sample has the bare "DEL$BOM" (lib/ssrKeys.ts).
 export function ssrSector(catalog: any, o?: string, d?: string): any | null {
   const data = catalog && typeof catalog.data === "object" && catalog.data ? catalog.data : catalog || {};
-  const suffix = `_${o}$${d}`;
-  const hits = Object.keys(data).filter((k) => k.endsWith(suffix));
-  return hits.length === 1 ? data[hits[0]] : null;
+  return findSector(data, o, d);
 }
 // The server's normalized SSR (flight_ssr_service): same sector keys, stable
 // baggage / meals / seats lists. Seats the airline lists as booked are left out,
 // so the grid shows them as occupied.
 export function ssrNorm(catalog: any, o?: string, d?: string): any | null {
-  const n = catalog?.normalized || {};
-  const hits = Object.keys(n).filter((k) => k.endsWith(`_${o}$${d}`));
-  return hits.length === 1 ? n[hits[0]] : null;
+  return findSector(catalog?.normalized || {}, o, d);
 }
 const baggageLabel = (b: any) => b.text || (b.weight ? `Extra ${b.weight} kg` : b.code);
 
@@ -163,6 +160,18 @@ export function FlightExtrasPicker({ ssr, rows, detail, tab, sel, pax, infants, 
     return x ? (kind === "seat" ? x.code : x.label) : "None";
   };
 
+  // Not the same as "the airline sells nothing": TripSure's list has no entry for a flight, or reported it could not load one.
+  const noEntry = rows.some((s: any) => !blockFor(ssr, s, d));
+  const notLoaded = rows.some((s: any) => blockFor(ssr, s, d)?.available === false);
+  if (noneAtAll && (noEntry || notLoaded)) {
+    return (
+      <div className="ow-empty">
+        <Icon name="luggage" size={20} />
+        <div><b>Couldn&apos;t load the add-ons for this flight</b></div>
+        <div className="ow-sub">{noEntry ? "TripSure's add-on list has no entry for this flight." : "TripSure reported that it could not load this flight's add-ons."} Go Back and pick the fare again to retry, or continue without add-ons.</div>
+      </div>
+    );
+  }
   if (noneAtAll) {
     return (
       <div className="ow-empty">

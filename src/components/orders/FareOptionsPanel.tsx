@@ -148,6 +148,7 @@ export function FareOptionsList({ offer, selected, onSelect }: {
                   <div key={s.route}>
                     <div className="ow-sub"><b>{s.route}</b>{s.rebooking_allowed === false ? " · rerouting not allowed" : ""}{s.partial_cancel_allowed === false ? " · no partial cancellation" : ""}</div>
                     {s.warnings.map((w: string, i: number) => <div key={i} className="taw-banner taw-banner--warn">{w}</div>)}
+                    {s.summary ? <RulesSummary s={s.summary} /> : null}
                     {s.rules.map((x: any, i: number) => (
                       <div key={i} className="ow-fare-rule"><b>{x.category}</b><span>{x.text}</span></div>
                     ))}
@@ -161,4 +162,24 @@ export function FareOptionsList({ offer, selected, onSelect }: {
       })}
     </div>
   );
+}
+
+// Guide 6.6's penaltySummary / noShowPolicy: the headline of a fare's rules, above the rule text.
+function penaltyText(label: string, p: any): string | null {
+  if (!p) return null;
+  const part = (when: string, e: any) =>
+    !e ? null : e.allowed === false ? `${when} departure: not allowed` : `${when} departure: ${e.fee != null ? inr(e.fee) : "allowed"}`;
+  const bits = [part("Before", p.before), part("after", p.after)].filter(Boolean);
+  return bits.length ? `${label} — ${bits.join("; ")}` : null;
+}
+
+function RulesSummary({ s }: { s: any }) {
+  const lines = [
+    s.refundable === true ? "Refundable" : s.refundable === false ? "Non-refundable" : null,
+    penaltyText("Cancellation", s.cancellation),
+    penaltyText("Date change", s.date_change),
+    s.no_show ? (s.no_show.message || (s.no_show.window_hours != null ? `No-show within ${s.no_show.window_hours} hours` : null)) : null,
+  ].filter(Boolean) as string[];
+  if (!lines.length) return null;
+  return <ul className="fi-fare-feat fi-fare-rules">{lines.map((t, i) => <li key={i}>{t}</li>)}</ul>;
 }
