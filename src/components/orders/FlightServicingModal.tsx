@@ -35,7 +35,7 @@ type Leg = {
 };
 type Overview = { order_number?: string; title?: string; voucher_url?: string | null; line_items: Leg[] };
 type Quote = { partial?: boolean; passengers?: string[]; pax_ids?: string[]; cancellation_key: string; base_refund?: number | null; tax_refund?: number | null; cancellation_fee?: number | null; net_refund?: number | null; warnings?: string[]; valid_minutes?: number };
-type CancelRun = { requestId: string | number; state: "pending" | "success" | "failed"; refunded?: number; charges?: number; itineraryCancelled?: boolean; wholeLeg?: boolean; names?: string[] };
+type CancelRun = { requestId: string | number; state: "pending" | "success" | "partial" | "failed"; refunded?: number; charges?: number; itineraryCancelled?: boolean; wholeLeg?: boolean; names?: string[]; quotedNet?: number | null; refundDiffers?: boolean };
 type SsrItem = { code?: string | null; text?: string | null; price?: number | null; currency?: string; weight?: number | string | null; flight?: string | null; route?: string | null };
 type Ssr = {
   busy?: boolean; error?: string;
@@ -156,8 +156,8 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
               if (polls.current[key] > MAX_POLLS) note(leg, "TripSure is still processing this. The order will update when it finishes; you can close this window.");
               return;
             }
-            setRuns((p) => ({ ...p, [leg]: { ...r, state: s.status, refunded: s.refunded, charges: s.cancellation_charges, itineraryCancelled: !!s.itinerary_cancelled, wholeLeg: s.whole_leg !== false } }));
-            if (s.status === "success") onChanged();
+            setRuns((p) => ({ ...p, [leg]: { ...r, state: s.status, refunded: s.refunded, charges: s.cancellation_charges, itineraryCancelled: !!s.itinerary_cancelled, wholeLeg: s.whole_leg !== false, quotedNet: s.quoted_net_refund, refundDiffers: !!s.refund_differs } }));
+            if (s.status === "success" || s.status === "partial") onChanged();
           })
           .catch((e: any) => note(leg, errText(e)))
           .finally(() => { inFlight.current[key] = false; });
@@ -321,11 +321,22 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
                     <div className="ow-fs-ok" role="status">
                       <b>Cancelled with TripSure{run.names?.length ? <> for {run.names.join(", ")}</> : null}.</b> Refund to the customer: <b>{money(run.refunded)}</b>
                       {run.charges ? <> (cancellation charges {money(run.charges)})</> : null}.
+                      {run.refundDiffers ? <span className="ow-sub" style={{ display: "block", whiteSpace: "normal" }} role="alert">TripSure&apos;s final refund ({money(run.refunded)}) is not the {money(run.quotedNet)} it quoted. Check the amount before recording the refund.</span> : null}
                       {run.itineraryCancelled ? " The ticket is marked cancelled on this order." : ""}
                       {run.wholeLeg === false ? " The other passengers on this leg are still ticketed." : ""}
                       <div className="ow-ful-acts">
                         <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => { onRefund(run.refunded || 0); onClose(); }}>Record refund to customer</button>
                       </div>
+                    </div>
+                  ) : run?.state === "partial" ? (
+                    <div className="ow-fs-bad" role="alert">
+                      <b>TripSure cancelled some of the tickets on this leg, not all.</b> The passengers it did cancel are cancelled
+                      {run.refunded ? <>; refund so far <b>{money(run.refunded)}</b></> : null}. The rest are still ticketed. Reload the order and check with TripSure before trying again.
+                      {run.refunded ? (
+                        <div className="ow-ful-acts">
+                          <button type="button" className="taw-btn taw-btn--sm" onClick={() => { onRefund(run.refunded || 0); onClose(); }}>Record refund to customer</button>
+                        </div>
+                      ) : null}
                     </div>
                   ) : run?.state === "failed" ? (
                     <div className="ow-fs-bad" role="alert">TripSure could not cancel this leg. Nothing was cancelled and nothing is owed. Close this window and try again, or contact TripSure.</div>
@@ -363,9 +374,9 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
                   )
                 ) : (
                   chg?.run?.state === "success" ? (
-                    <div className="ow-fs-ok" role="status"><b>Date changed.</b> {chg.run.note || "TripSure has reissued the ticket."}</div>
+                    <div className="ow-fs-ok" role="status"><b>Date changed{chg.date ? <> to {chg.date}</> : null}.</b> {chg.run.note || "TripSure has reissued the ticket."}</div>
                   ) : chg?.run?.state === "failed" || chg?.run?.state === "partial" ? (
-                    <div className="ow-fs-bad" role="alert">TripSure could not complete the date change ({chg.run.state}). Check the order with TripSure before trying again.</div>
+                    <div className="ow-fs-bad" role="alert">TripSure could not complete the date change ({chg.run.state}). {chg.run.note || "Check the order with TripSure before trying again."}</div>
                   ) : chg?.run?.state === "pending" ? (
                     <div className="ow-sub" role="status"><Spinner /> TripSure is reissuing the ticket…</div>
                   ) : !leg.can_change ? (
