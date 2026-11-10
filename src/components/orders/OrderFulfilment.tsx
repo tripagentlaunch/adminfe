@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingExtrasArranged, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
@@ -124,6 +124,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [fareChange, setFareChange] = useState<{ item: FulfilmentItem; message: string } | null>(null);
   // The airline did not take the extras the customer paid for: offer to ticket the bare fare and take the extras off.
   const [extrasOff, setExtrasOff] = useState<{ item: FulfilmentItem; message: string; offer: ExtrasOffer } | null>(null);
+  // Which flight's "mark arranged" note box is open, and what is typed in it.
+  const [arranging, setArranging] = useState<{ id: string; note: string } | null>(null);
   // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
   const [tsOrder, setTsOrder] = useState<Record<string, { busy?: boolean; err?: string; data?: any }>>({});
   function toggleTsOrder(id: string) {
@@ -162,7 +164,23 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const payDone = f.payment.total > 0 && f.payment.due <= 0.5;
   const locked = f.stage === "cancelled";
 
-  async function run(item: FulfilmentItem, acceptFare = false, dropExtras = false) {
+  // The to-do for extras the advisor arranges with the airline.
+  async function markArranged(item: FulfilmentItem, note: string) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      await bookingExtrasArranged(item.id, note);
+      toast("Marked as arranged", "success");
+      setArranging(null);
+    } catch (e: any) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
+
+  async function run(item: FulfilmentItem, acceptFare = false, dropExtras = false, arrangeExtras = false) {
     setBusy(item.id);
     setErr(null);
     setFareChange(null);
@@ -170,7 +188,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     setConfirming(null);
     try {
       if (item.kind === "flight") {
-        const r: any = await bookingIssueTicket(item.id, acceptFare, dropExtras);
+        const r: any = await bookingIssueTicket(item.id, acceptFare, dropExtras, arrangeExtras);
         toast(r.ok ? `Ticket issued${r.pnrs?.length ? ` · PNR ${r.pnrs.join(", ")}` : ""}${r.extras_dropped ? ` · ${fmtINR(r.extras_dropped)} of extras taken off` : ""}` : "Ticketing needs a check — see the order", r.ok ? "success" : "warn");
         // The extras came off the order: what was received now exceeds it, so open the refund form with that amount.
         if (r.extras_dropped > 0) setRefundOpen({ amount: r.extras_dropped });
@@ -180,7 +198,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
       }
     } catch (e: any) {
       const msg = errText(e);
-      const offer = item.kind === "flight" && e?.status === 409 && !dropExtras ? extrasOfferFrom(msg) : null;
+      const offer = item.kind === "flight" && e?.status === 409 && !dropExtras && !arrangeExtras ? extrasOfferFrom(msg) : null;
       if (item.kind === "flight" && e?.status === 409 && /Accept the new fare/i.test(msg)) setFareChange({ item, message: msg });
       else if (offer) setExtrasOff({ item, message: msg, offer });
       else setErr(msg);
@@ -771,18 +789,62 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                         </div>
                       </div>
                     ) : null}
+                    {it.extras_to_arrange ? (
+                      <div className="ow-ful-confirm">
+                        {it.extras_to_arrange.arranged ? (
+                          <div style={{ whiteSpace: "normal" }}>
+                            <b>Extras arranged</b>{it.extras_to_arrange.arranged_at ? ` · ${String(it.extras_to_arrange.arranged_at).slice(0, 10)}` : ""}
+                            {it.extras_to_arrange.note ? ` · ${it.extras_to_arrange.note}` : ""}
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ whiteSpace: "normal" }}>
+                              <b>Extras to arrange with the airline{it.extras_to_arrange.amount ? ` · ${fmtINR(it.extras_to_arrange.amount)} already paid by the customer` : ""}.</b>{" "}
+                              Tripsure left them out of the ticket. Buy them from the airline with the PNR{it.pnrs?.length ? ` (${it.pnrs.join(", ")})` : ""}, then mark this done.
+                            </div>
+                            <ul style={{ whiteSpace: "normal", margin: "6px 0 0", paddingLeft: 18 }}>
+                              {it.extras_to_arrange.items.map((x, i) => (
+                                <li key={i}>{x.label}{x.route ? ` · ${x.route}` : ""}{x.pax ? ` · traveller ${x.pax}` : ""} · {fmtINR(x.price)}</li>
+                              ))}
+                            </ul>
+                            {arranging?.id === it.id ? (
+                              <div className="ow-ful-acts">
+                                <input className="taw-input" style={{ flex: 1, minWidth: 180 }} placeholder="How it was arranged (optional)" value={arranging.note}
+                                  onChange={(e) => setArranging({ id: it.id, note: e.target.value })} />
+                                <button type="button" className="taw-btn taw-btn--sm" onClick={() => setArranging(null)}>Cancel</button>
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy} onClick={() => markArranged(it, arranging.note)}>
+                                  {busy === it.id ? "Saving…" : "Save as arranged"}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="ow-ful-acts">
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" onClick={() => setArranging({ id: it.id, note: "" })}>Mark arranged</button>
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                     {extrasOff?.item.id === it.id ? (
                       <div className="ow-ful-confirm">
                         <div style={{ whiteSpace: "normal" }}>{extrasOff.message}</div>
                         <div style={{ whiteSpace: "normal", marginTop: 6 }}>
-                          If the extras can&apos;t be added, you can ticket the fare only{extrasOff.offer.fare != null ? ` (${fmtINR(extrasOff.offer.fare)})` : ""}.
-                          The {fmtINR(extrasOff.offer.extras)} of extras then comes off this order and is due back to the customer, and you record that refund next.
-                          Tripsure is asked for the bare fare first, so nothing is ticketed if its price differs. This can&apos;t be undone here.
+                          If the extras can&apos;t be added, ticket the fare only{extrasOff.offer.fare != null ? ` (${fmtINR(extrasOff.offer.fare)})` : ""}. Tripsure is asked for the bare fare first,
+                          so nothing is ticketed if its price differs. Neither choice can be undone here.
                         </div>
+                        <ul style={{ whiteSpace: "normal", margin: "6px 0 0", paddingLeft: 18 }}>
+                          <li><b>Refund the extras.</b> The {fmtINR(extrasOff.offer.extras)} comes off this order and is due back to the customer; you record that refund next.
+                            The customer then buys the extras from the airline themselves.</li>
+                          <li><b>Keep the money and arrange them.</b> The {fmtINR(extrasOff.offer.extras)} stays on the order, and a to-do stays on the flight until you have
+                            bought the extras from the airline (with the PNR) and marked it done.</li>
+                        </ul>
                         <div className="ow-ful-acts">
                           <button type="button" className="taw-btn taw-btn--sm" onClick={() => setExtrasOff(null)}>Don&apos;t ticket</button>
+                          <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => run(it, false, false, true)}>
+                            Ticket the fare; I&apos;ll arrange the extras
+                          </button>
                           <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy} onClick={() => run(it, false, true)}>
-                            Ticket the fare only
+                            Ticket the fare only, refund the extras
                           </button>
                         </div>
                       </div>

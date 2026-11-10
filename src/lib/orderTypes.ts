@@ -87,6 +87,8 @@ export interface FulfilmentItem {
   can_invoice?: boolean;
   /** flight only: a hold TripSure placed with the airline that is not ticketed yet (PNR kept until the last ticketing date). */
   hold?: { pnr?: string | null; last_ticket_date?: string | null; booking_id?: string | null } | null;
+  /** flight only: seat / baggage / meal extras the customer paid for that Tripsure left out of the ticket, for the advisor to arrange with the airline. */
+  extras_to_arrange?: { amount?: number | null; items: { kind: string; label: string; price: number; pax?: number | null; route?: string }[]; arranged: boolean; arranged_at?: string | null; note?: string | null } | null;
   /** flight only: a ticketed flight can be cancelled / its date changed (cancellation and reschedule with TripSure). */
   can_service?: boolean;
   /** flight only: documents the fare needs (Create Itinerary conditions): passport / pan / gst. */
