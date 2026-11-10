@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, Spinner } from "../ui";
 import {
-  bookingFlightCancel, bookingFlightCancelQuote, bookingFlightCancelStatus, bookingFlightRescheduleConfirm,
+  bookingFlightCancel, bookingFlightCancelQuote, bookingFlightRecordManualCancel, bookingFlightCancelStatus, bookingFlightRescheduleConfirm,
   bookingFlightRescheduleReview, bookingFlightRescheduleSearch, bookingFlightRescheduleSsr, bookingFlightRescheduleStatus, bookingFlightServicing,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -87,6 +87,10 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
   const [changes, setChanges] = useState<Record<string, Change>>({});
   const [pick, setPick] = useState<Record<string, string[]>>({});   // the passengers chosen on a leg (nobody picked = everyone still ticketed)
   const [ssr, setSsr] = useState<Record<string, Ssr>>({});
+  // TripSure holds no order for this ticket: its support cancels it, and the advisor records that here.
+  const [manual, setManual] = useState({ reference: "", note: "", refund: "" });
+  const [manualBusy, setManualBusy] = useState(false);
+  const [manualErr, setManualErr] = useState<string | null>(null);
   const polls = useRef<Record<string, number>>({});
   const inFlight = useRef<Record<string, boolean>>({});
 
@@ -108,6 +112,24 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
       .catch((e: any) => setLoadErr(errText(e)));
   }, [itemId]);
   useEffect(() => { load(); }, [load]);
+
+  const noTripsureOrder = !!loadErr && /TripSure has no order for this ticket/i.test(loadErr);
+  async function recordManual() {
+    const refund = manual.refund.trim() === "" ? null : Number(manual.refund);
+    if (refund !== null && (!Number.isFinite(refund) || refund < 0)) { setManualErr("The refund TripSure said it will pay must be a number."); return; }
+    setManualBusy(true);
+    setManualErr(null);
+    try {
+      await bookingFlightRecordManualCancel(itemId, { reference: manual.reference.trim(), note: manual.note.trim() || null, refund_expected: refund });
+      onChanged();
+      if (refund && refund > 0) onRefund(refund);   // opens the order's refund form with that amount
+      onClose();
+    } catch (e: any) {
+      setManualErr(errText(e));
+    } finally {
+      setManualBusy(false);
+    }
+  }
 
   const patchChange = (leg: string, patch: Partial<Change>) => setChanges((p) => ({ ...p, [leg]: { ...(p[leg] || { date: "" }), ...patch } }));
   const note = (leg: string, msg?: string) => setErr((p) => { const n = { ...p }; if (msg) n[leg] = msg; else delete n[leg]; return n; });
@@ -301,6 +323,32 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
 
         {loadErr ? <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal" }}>{loadErr}</div> : null}
         {!data && !loadErr ? <div className="ow-sub"><Spinner /> Asking TripSure about this ticket…</div> : null}
+        {noTripsureOrder ? (
+          <section className="ow-fs-leg" aria-label="Cancelled by TripSure support">
+            <div className="ow-fs-head"><b>Already cancelled by TripSure support?</b></div>
+            <div className="ow-sub" style={{ whiteSpace: "normal", marginBottom: 8 }}>
+              Ask TripSure support to cancel it (use “Copy details for TripSure support” on the order). When they confirm, record it here: the flight is marked cancelled
+              and nothing is sent to TripSure. Paying the customer back stays the order&apos;s “Record refund”.
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>TripSure&apos;s reference (their reply, case or ticket number) — required
+                <input className="taw-input" value={manual.reference} maxLength={120} onChange={(e) => setManual({ ...manual, reference: e.target.value })} />
+              </label>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>Refund TripSure said it will pay, in rupees (optional — opens the refund form)
+                <input className="taw-input" inputMode="decimal" value={manual.refund} onChange={(e) => setManual({ ...manual, refund: e.target.value })} />
+              </label>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>Note (optional)
+                <input className="taw-input" value={manual.note} maxLength={500} onChange={(e) => setManual({ ...manual, note: e.target.value })} />
+              </label>
+              {manualErr ? <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal" }}>{manualErr}</div> : null}
+              <div>
+                <button type="button" className="taw-btn taw-btn--primary" disabled={manualBusy || manual.reference.trim().length < 3} onClick={recordManual}>
+                  {manualBusy ? "Recording…" : "Record cancellation"}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <div className="ow-fs">
           {data?.line_items.map((leg) => {

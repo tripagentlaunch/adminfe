@@ -2302,6 +2302,11 @@ function bookingFlightServicing(itineraryId) {
 function _flightServicingCall(itineraryId, path, body) {
   return fastapiBookingCall("/booking-orders/flights/" + encodeURIComponent(itineraryId) + path, { method: "POST", body: body });
 }
+// Records a cancellation TripSure SUPPORT did for a ticket TripSure holds no order for (so the cancel call can't be used).
+// Sends nothing to TripSure and moves no money: the flight is marked cancelled with the support reference.
+function bookingFlightRecordManualCancel(itineraryId, body) {
+  return _flightServicingCall(itineraryId, "/cancellation/manual", body);
+}
 // What TripSure would refund for one leg now: {cancellation_key, base_refund, tax_refund, cancellation_fee, net_refund, warnings,
 // partial, pax_ids, passengers}. paxIds (TripSure's paxId): only those passengers, each with their own ticket; empty = the whole leg.
 function bookingFlightCancelQuote(itineraryId, lineItemId, paxIds?) {
@@ -3136,6 +3141,7 @@ export {
   bookingSaveTravellers,
   bookingRecordPayment,
   bookingIssueTicket,
+  bookingFlightRecordManualCancel,
   bookingExtrasArranged,
   bookingRemoveExtras,
   bookingCheckFlight,
