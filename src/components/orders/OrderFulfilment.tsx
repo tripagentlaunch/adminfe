@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingExtrasArranged, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingExtrasArranged, bookingRemoveExtras, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
@@ -126,6 +126,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const [extrasOff, setExtrasOff] = useState<{ item: FulfilmentItem; message: string; offer: ExtrasOffer } | null>(null);
   // Which flight's "mark arranged" note box is open, and what is typed in it.
   const [arranging, setArranging] = useState<{ id: string; note: string } | null>(null);
+  // The flight whose "remove the extras" is waiting for a yes.
+  const [removing, setRemoving] = useState<string | null>(null);
   // TripSure's own order for a flight (guide 7.2 / 7.3), fetched only when asked for.
   const [tsOrder, setTsOrder] = useState<Record<string, { busy?: boolean; err?: string; data?: any }>>({});
   function toggleTsOrder(id: string) {
@@ -165,6 +167,20 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const locked = f.stage === "cancelled";
 
   // The to-do for extras the advisor arranges with the airline.
+  async function removeExtras(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const r: any = await bookingRemoveExtras(item.id);
+      toast(`${fmtINR(r.extras_removed || 0)} of extras removed from the order`, "success");
+      setRemoving(null);
+    } catch (e: any) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
   async function markArranged(item: FulfilmentItem, note: string) {
     setBusy(item.id);
     setErr(null);
@@ -787,6 +803,35 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                             {busy === it.id ? "Cancelling…" : "Yes, cancel the room"}
                           </button>
                         </div>
+                      </div>
+                    ) : null}
+                    {it.extras ? (
+                      <div className="ow-ful-confirm">
+                        <div style={{ whiteSpace: "normal" }}>
+                          <b>Extras on this flight · {fmtINR(it.extras.amount)}</b>
+                          {it.extras.items.map((x, i) => (
+                            <span key={i} className="ow-sub"> · {x.label}{x.pax ? ` (traveller ${x.pax})` : ""} {fmtINR(x.price)}</span>
+                          ))}
+                        </div>
+                        {removing === it.id ? (
+                          <>
+                            <div style={{ whiteSpace: "normal", marginTop: 6 }}>
+                              Remove these extras? The order total falls by {fmtINR(it.extras.amount)}
+                              {f.payment.paid > 0.5 ? ", and anything already received beyond the new total is shown as due back to the customer" : ""}.
+                              The flight is then checked with Tripsure again without them.
+                            </div>
+                            <div className="ow-ful-acts">
+                              <button type="button" className="taw-btn taw-btn--sm" onClick={() => setRemoving(null)}>Keep them</button>
+                              <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy} onClick={() => removeExtras(it)}>
+                                {busy === it.id ? "Removing…" : "Yes, remove the extras"}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="ow-ful-acts">
+                            <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy} onClick={() => setRemoving(it.id)}>Remove the extras</button>
+                          </div>
+                        )}
                       </div>
                     ) : null}
                     {it.extras_to_arrange ? (

@@ -2243,6 +2243,10 @@ function bookingIssueTicket(itineraryId, acceptFareChange, dropExtras, arrangeEx
     method: "POST", body: { accept_fare_change: !!acceptFareChange, ...(dropExtras ? { drop_extras: true } : {}), ...(arrangeExtras ? { arrange_extras: true } : {}) },
   });
 }
+// Takes the seat / baggage / meal extras off a flight that is not ticketed yet (Tripsure will not price them).
+function bookingRemoveExtras(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/remove-extras", { method: "POST", body: {} });
+}
 // The advisor has arranged (and paid the airline for) the extras Tripsure left out of a ticket: closes the to-do on the flight.
 function bookingExtrasArranged(itineraryId, note) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/extras-arranged", {
@@ -3133,6 +3137,7 @@ export {
   bookingRecordPayment,
   bookingIssueTicket,
   bookingExtrasArranged,
+  bookingRemoveExtras,
   bookingCheckFlight,
   bookingFlightFareLock,
   bookingReconcileFlights,
