@@ -2307,6 +2307,11 @@ function _flightServicingCall(itineraryId, path, body) {
 function bookingFlightRecordManualCancel(itineraryId, body) {
   return _flightServicingCall(itineraryId, "/cancellation/manual", body);
 }
+// Records a date change TripSure SUPPORT did for a ticket TripSure holds no order for: the flights move to the new date.
+// Sends nothing to TripSure and moves no money.
+function bookingFlightRecordManualDateChange(itineraryId, body) {
+  return _flightServicingCall(itineraryId, "/reschedule/manual", body);
+}
 // What TripSure would refund for one leg now: {cancellation_key, base_refund, tax_refund, cancellation_fee, net_refund, warnings,
 // partial, pax_ids, passengers}. paxIds (TripSure's paxId): only those passengers, each with their own ticket; empty = the whole leg.
 function bookingFlightCancelQuote(itineraryId, lineItemId, paxIds?) {
@@ -3142,6 +3147,7 @@ export {
   bookingRecordPayment,
   bookingIssueTicket,
   bookingFlightRecordManualCancel,
+  bookingFlightRecordManualDateChange,
   bookingExtrasArranged,
   bookingRemoveExtras,
   bookingCheckFlight,

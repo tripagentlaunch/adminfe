@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon, Spinner } from "../ui";
 import {
-  bookingFlightCancel, bookingFlightCancelQuote, bookingFlightRecordManualCancel, bookingFlightCancelStatus, bookingFlightRescheduleConfirm,
+  bookingFlightCancel, bookingFlightCancelQuote, bookingFlightRecordManualCancel, bookingFlightRecordManualDateChange, bookingFlightCancelStatus, bookingFlightRescheduleConfirm,
   bookingFlightRescheduleReview, bookingFlightRescheduleSearch, bookingFlightRescheduleSsr, bookingFlightRescheduleStatus, bookingFlightServicing,
 } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -91,6 +91,7 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
   const [manual, setManual] = useState({ reference: "", note: "", refund: "" });
   const [manualBusy, setManualBusy] = useState(false);
   const [manualErr, setManualErr] = useState<string | null>(null);
+  const [mdc, setMdc] = useState({ reference: "", date: "", dep: "", arr: "", flight: "", note: "" });
   const polls = useRef<Record<string, number>>({});
   const inFlight = useRef<Record<string, boolean>>({});
 
@@ -113,6 +114,22 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
   }, [itemId]);
   useEffect(() => { load(); }, [load]);
 
+  async function recordManualDateChange() {
+    setManualBusy(true);
+    setManualErr(null);
+    try {
+      await bookingFlightRecordManualDateChange(itemId, {
+        reference: mdc.reference.trim(), new_date: mdc.date, note: mdc.note.trim() || null,
+        new_departure_time: mdc.dep || null, new_arrival_time: mdc.arr || null, new_flight_number: mdc.flight.trim() || null,
+      });
+      onChanged();
+      onClose();
+    } catch (e: any) {
+      setManualErr(errText(e));
+    } finally {
+      setManualBusy(false);
+    }
+  }
   const noTripsureOrder = !!loadErr && /TripSure has no order for this ticket/i.test(loadErr);
   async function recordManual() {
     const refund = manual.refund.trim() === "" ? null : Number(manual.refund);
@@ -323,7 +340,45 @@ export function FlightServicingModal({ itemId, title, onClose, onChanged, onRefu
 
         {loadErr ? <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal" }}>{loadErr}</div> : null}
         {!data && !loadErr ? <div className="ow-sub"><Spinner /> Asking TripSure about this ticket…</div> : null}
-        {noTripsureOrder ? (
+        {noTripsureOrder && tab === "change" ? (
+          <section className="ow-fs-leg" aria-label="Date changed by TripSure support">
+            <div className="ow-fs-head"><b>Date changed by TripSure support?</b></div>
+            <div className="ow-sub" style={{ whiteSpace: "normal", marginBottom: 8 }}>
+              TripSure can&apos;t change this ticket from here. Ask TripSure support to change the date (use “Copy details for TripSure support” on the order). When they
+              confirm, record the new date here: the flights move to it and nothing is sent to TripSure. Any charge for the change is collected through the order&apos;s own payment steps.
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>TripSure&apos;s reference (their reply, case or ticket number) — required
+                <input className="taw-input" value={mdc.reference} maxLength={120} onChange={(e) => setMdc({ ...mdc, reference: e.target.value })} />
+              </label>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>New travel date (of the first flight) — required
+                <input className="taw-input" type="date" value={mdc.date} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setMdc({ ...mdc, date: e.target.value })} />
+              </label>
+              <div className="ow-sub" style={{ whiteSpace: "normal" }}>Only for a ticket with a single flight (a connection moves together by the same number of days):</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                <label className="ow-sub" style={{ display: "grid", gap: 4 }}>New departure time
+                  <input className="taw-input" type="time" value={mdc.dep} onChange={(e) => setMdc({ ...mdc, dep: e.target.value })} />
+                </label>
+                <label className="ow-sub" style={{ display: "grid", gap: 4 }}>New arrival time
+                  <input className="taw-input" type="time" value={mdc.arr} onChange={(e) => setMdc({ ...mdc, arr: e.target.value })} />
+                </label>
+                <label className="ow-sub" style={{ display: "grid", gap: 4 }}>New flight number
+                  <input className="taw-input" value={mdc.flight} maxLength={12} onChange={(e) => setMdc({ ...mdc, flight: e.target.value })} />
+                </label>
+              </div>
+              <label className="ow-sub" style={{ display: "grid", gap: 4 }}>Note (optional)
+                <input className="taw-input" value={mdc.note} maxLength={500} onChange={(e) => setMdc({ ...mdc, note: e.target.value })} />
+              </label>
+              {manualErr ? <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal" }}>{manualErr}</div> : null}
+              <div>
+                <button type="button" className="taw-btn taw-btn--primary" disabled={manualBusy || mdc.reference.trim().length < 3 || !mdc.date} onClick={recordManualDateChange}>
+                  {manualBusy ? "Recording…" : "Record date change"}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
+        {noTripsureOrder && tab === "cancel" ? (
           <section className="ow-fs-leg" aria-label="Cancelled by TripSure support">
             <div className="ow-fs-head"><b>Already cancelled by TripSure support?</b></div>
             <div className="ow-sub" style={{ whiteSpace: "normal", marginBottom: 8 }}>
