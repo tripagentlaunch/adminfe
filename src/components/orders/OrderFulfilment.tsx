@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Field, Icon } from "../ui";
 import {
-  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingExtrasArranged, bookingRemoveExtras, bookingPaymentGateway, bookingRazorpayConfirm,
+  bookingCancelHotel, bookingCheckFlight, bookingFlightFareLock, bookingTripsureOrder, bookingCheckHotel, bookingConfirmHotel, bookingHotelCancelQuote, bookingHotelInvoice, bookingHotelVoucher, bookingIssueTicket, bookingFlightSupplierPayment, bookingFlightSupplierPaymentVerify, bookingFlightSupplierPaymentStatus, bookingExtrasArranged, bookingRemoveExtras, bookingPaymentGateway, bookingRazorpayConfirm,
   bookingRazorpayOrder, bookingRecordPayment, bookingRecordRefund, bookingRefundOnline, bookingResetItem, hotelPaymentTransaction, hotelPaymentVerify, hotelPaymentStatus,
 } from "../../services/api";
 import { openRazorpayCheckout } from "../../lib/razorpay";
@@ -67,7 +67,7 @@ const paxText = (m: Record<string, number> | null | undefined) =>
     .map(([k, w]) => `${m[k]} ${w}${m[k] === 1 ? "" : k === "child" ? "ren" : "s"}`)
     .join(", ");
 
-type Gateway = { configured: boolean; webhook_configured: boolean; missing: string[]; mode: "test" | "live" | null };
+type Gateway = { configured: boolean; webhook_configured: boolean; missing: string[]; mode: "test" | "live" | null; own_for_bookings?: boolean };
 
 function loadCheckout(): Promise<boolean> {
   if (typeof window === "undefined") return Promise.resolve(false);
@@ -164,6 +164,8 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
   const lead = f.travellers.list.find((t: any) => t.is_lead);
   const travDone = f.travellers.complete;
   const payDone = f.payment.total > 0 && f.payment.due <= 0.5;
+  // Flights and hotels are paid to TripSure directly (Pay via TripSure on each one): the order's own online payment would charge twice.
+  const paidToTripsure = !gw?.own_for_bookings && f.items.some((i) => i.kind === "flight" || i.kind === "hotel");
   const locked = f.stage === "cancelled";
 
   // The to-do for extras the advisor arranges with the airline.
@@ -272,14 +274,55 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
     }
   }
 
+  // A flight is paid to TripSure directly, like a hotel: a Razorpay order on TripSure's merchant, Checkout, then TripSure verifies the
+  // callback and the payment is recorded against this flight. Nothing is collected on our own account.
+  async function payFlight(item: FulfilmentItem) {
+    setBusy(item.id);
+    setErr(null);
+    try {
+      const o: any = await bookingFlightSupplierPayment(item.id);
+      if (!o?.key_id || !o?.razorpay_order_id) throw new Error("TripSure didn't return a payment order.");
+      await openRazorpayCheckout({
+        keyId: o.key_id,
+        orderId: o.razorpay_order_id,
+        amount: o.amount,
+        currency: o.currency || "INR",
+        name: "Flight payment",
+        description: item.title || "Flight booking",
+        onSuccess: async (r) => {
+          setBusy(item.id);
+          try {
+            await bookingFlightSupplierPaymentVerify(item.id, {
+              razorpay_order_id: r.razorpay_order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature: r.razorpay_signature,
+            });
+            toast("Payment verified — confirming settlement with TripSure…", "success");
+            onChanged();
+            startSettlementPoll(item);
+          } catch (e) {
+            setErr(errText(e));
+          } finally {
+            setBusy(null);
+          }
+        },
+        onDismiss: () => toast("Payment window closed — nothing recorded yet", "info"),
+      });
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   // After verify, TripSure confirms settlement asynchronously, so we poll
   // /payment/status with backoff until it is settled (then the room can be
   // confirmed with the supplier), failed, or the 2-minute cap is reached.
   function startSettlementPoll(item: FulfilmentItem) {
     pollRef.current?.cancel();
     setSettling(item.id);
-    pollRef.current = pollPaymentSettlement(() => hotelPaymentStatus(item.id) as Promise<PaymentStatus>, {
-      onSettled: () => { setSettling(null); toast("Payment settled — you can confirm the room with the hotel", "success"); onChanged(); },
+    pollRef.current = pollPaymentSettlement(() => (item.kind === "flight" ? bookingFlightSupplierPaymentStatus(item.id) : hotelPaymentStatus(item.id)) as Promise<PaymentStatus>, {
+      onSettled: () => { setSettling(null); toast(item.kind === "flight" ? "Payment settled — you can issue the ticket" : "Payment settled — you can confirm the room with the hotel", "success"); onChanged(); },
       onFailed: () => { setSettling(null); setErr("TripSure reports the payment failed — check with TripSure before retrying."); onChanged(); },
       onTimeout: () => { setSettling(null); toast("Still awaiting TripSure's settlement — use Check status in a moment", "info"); onChanged(); },
     });
@@ -496,11 +539,13 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
               <b>Payment</b>
               {!payDone ? (
                 <span className="ow-ful-acts" style={{ margin: 0 }}>
-                  <button type="button" className={`taw-btn taw-btn--sm${travDone && gw?.configured ? " taw-btn--primary" : ""}`}
-                    disabled={locked || !f.schema_ready || f.payment.total <= 0 || !gw?.configured || !!busy} onClick={payOnline}
-                    title={gw?.configured ? undefined : "Razorpay credentials are missing on the server"}>
-                    {busy === "razorpay" ? "Opening…" : `Pay ${fmtINR(f.payment.due)} online${gw?.mode === "test" ? " (test)" : ""}`}
-                  </button>
+                  {!paidToTripsure ? (
+                    <button type="button" className={`taw-btn taw-btn--sm${travDone && gw?.configured ? " taw-btn--primary" : ""}`}
+                      disabled={locked || !f.schema_ready || f.payment.total <= 0 || !gw?.configured || !!busy} onClick={payOnline}
+                      title={gw?.configured ? undefined : "Razorpay credentials are missing on the server"}>
+                      {busy === "razorpay" ? "Opening…" : `Pay ${fmtINR(f.payment.due)} online${gw?.mode === "test" ? " (test)" : ""}`}
+                    </button>
+                  ) : null}
                   <button type="button" className="taw-btn taw-btn--sm"
                     disabled={locked || !f.schema_ready || f.payment.total <= 0} onClick={() => setPayOpen(true)}>
                     Record payment
@@ -508,7 +553,12 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                 </span>
               ) : null}
             </div>
-            {!payDone && f.schema_ready && gw && !gw.configured ? (
+            {paidToTripsure && !payDone ? (
+              <div className="ow-sub" style={{ whiteSpace: "normal", margin: "6px 0" }}>
+                The customer pays TripSure directly: use <b>Pay via TripSure</b> on each flight and room below. Nothing is collected on our own account.
+              </div>
+            ) : null}
+            {!paidToTripsure && !payDone && f.schema_ready && gw && !gw.configured ? (
               <div className="taw-banner taw-banner--warn" style={{ margin: "6px 0" }}>
                 {/* One text block: the banner is a flex row, so loose text and <code> became columns. */}
                 <span style={{ whiteSpace: "normal" }}>
@@ -516,7 +566,7 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                 </span>
               </div>
             ) : null}
-            {!payDone && gw?.configured && !gw.webhook_configured ? (
+            {!paidToTripsure && !payDone && gw?.configured && !gw.webhook_configured ? (
               <div className="taw-banner taw-banner--info" style={{ margin: "6px 0" }}>
                 <span style={{ whiteSpace: "normal" }}>
                   RAZORPAY_WEBHOOK_SECRET isn&apos;t set. Payments still confirm in this window, but one made after the window is closed won&apos;t be picked up.
@@ -659,6 +709,15 @@ export function OrderFulfilment({ order, onChanged }: { order: Order; onChanged:
                           onClick={() => { setFareChange(null); setConfirming({ item: it }); }}>
                           {it.kind === "flight" ? "Issue ticket" : "Confirm hotel"}
                         </button>
+                      ) : null}
+                      {it.kind === "flight" && !done && it.status !== "cancelled" && it.status !== "ticketing" && !it.supplier_payment?.paid ? (
+                        <button type="button" className="taw-btn taw-btn--sm taw-btn--primary" disabled={!!busy || settling === it.id || !travDone}
+                          title={travDone ? undefined : "Add the travellers' details first"} onClick={() => payFlight(it)}>
+                          {settling === it.id ? "Confirming settlement…" : busy === it.id ? "Opening…" : "Pay via TripSure"}
+                        </button>
+                      ) : null}
+                      {it.kind === "flight" && it.supplier_payment?.paid && !done ? (
+                        <span className="ow-sub" role="status">Paid to TripSure · {fmtINR(it.supplier_payment.amount)}</span>
                       ) : null}
                       {it.kind === "hotel" && !done && it.status !== "cancelled" && it.status !== "booking" ? (
                         <button type="button" className="taw-btn taw-btn--sm" disabled={!!busy || settling === it.id} onClick={() => payHotel(it)}>

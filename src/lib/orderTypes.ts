@@ -87,6 +87,8 @@ export interface FulfilmentItem {
   can_invoice?: boolean;
   /** flight only: a hold TripSure placed with the airline that is not ticketed yet (PNR kept until the last ticketing date). */
   hold?: { pnr?: string | null; last_ticket_date?: string | null; booking_id?: string | null } | null;
+  /** flight only: what the customer paid TripSure directly for this flight ({ paid, amount }), or null while no payment was started. */
+  supplier_payment?: { paid: boolean; amount: number } | null;
   /** flight only, not ticketed yet: the seat / baggage / meal extras picked on it (they can be removed while Tripsure will not price them). */
   extras?: { amount: number; items: { kind: string; label: string; price: number; pax?: number | null; route?: string }[] } | null;
   /** flight only: seat / baggage / meal extras the customer paid for that Tripsure left out of the ticket, for the advisor to arrange with the airline. */

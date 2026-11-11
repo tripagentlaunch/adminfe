@@ -2235,6 +2235,19 @@ function hotelPaymentVerify(hotelId, payload) {
 function hotelPaymentStatus(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/status", { method: "GET" });
 }
+// A flight paid to TripSure directly (the customer pays TripSure's Razorpay; we only hold the API keys):
+//   bookingFlightSupplierPayment  -> { key_id, razorpay_order_id, amount (paise), currency } to open Checkout,
+//   ...Verify  records the payment once TripSure has re-checked Razorpay's signature,
+//   ...Status  is polled after verify until TripSure reports it settled: { payment_status, settled, terminal }.
+function bookingFlightSupplierPayment(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment", { method: "POST" });
+}
+function bookingFlightSupplierPaymentVerify(itineraryId, payload) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment/verify", { method: "POST", body: payload });
+}
+function bookingFlightSupplierPaymentStatus(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment/status", { method: "GET" });
+}
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
 function bookingIssueTicket(itineraryId, acceptFareChange, dropExtras, arrangeExtras) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
@@ -3147,6 +3160,9 @@ export {
   bookingSaveTravellers,
   bookingRecordPayment,
   bookingIssueTicket,
+  bookingFlightSupplierPayment,
+  bookingFlightSupplierPaymentVerify,
+  bookingFlightSupplierPaymentStatus,
   bookingFlightRecordManualCancel,
   bookingFlightRecordManualDateChange,
   bookingExtrasArranged,
