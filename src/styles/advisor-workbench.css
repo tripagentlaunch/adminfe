@@ -2013,3 +2013,7 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-tripcard.is-loading .taw-tripcard-photo{animation:taw-tripcard-pulse 1.4s ease-in-out infinite;}
 @keyframes taw-tripcard-pulse{50%{opacity:.7;}}
 @media (prefers-reduced-motion:reduce){.taw-tripcard-go,.taw-tripcard-golabel{transition:none;}.taw-tripcard.is-loading .taw-tripcard-photo{animation:none;}}
+
+/* Conversation tab: the chat gets the wider column, so its header (title, Claude usage, Tara site, call, WhatsApp) sits on ONE row. */
+.taw-cols-2.taw-convo-grid{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);}
+@media(max-width:900px){.taw-cols-2.taw-convo-grid{grid-template-columns:1fr;}}

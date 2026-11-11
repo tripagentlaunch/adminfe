@@ -602,3 +602,32 @@
   padding: 3px 6px;
   font: inherit;
 }
+
+/* The Conversation card's header: title and customer on one line, the actions kept together on the right as one group.
+   When the card is too narrow for both, the whole group drops under the title together instead of splitting. */
+.taw-convo-card.cv .taw-card-h {
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 10px;
+  padding: 12px 18px;
+}
+.taw-convo-card.cv .taw-card-h h3 {
+  white-space: nowrap;
+}
+.taw-convo-card.cv .taw-card-h .sub {
+  min-width: 0;
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.taw-convo-card.cv .taw-card-h > div:last-child {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+.cv-pill,
+.cv-iconbtn,
+.cv-usebtn {
+  flex: none;
+}

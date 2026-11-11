@@ -669,7 +669,7 @@ export function ChatbotConversationPanel({ member }: any) {
       icon={<Icon name="chat" size={20} />}
       sub={member ? "with " + ((member && member.name) || code) : "no customer selected"}
       actions={usage || member || siteChatLink || waLink ? (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "nowrap", justifyContent: "flex-end" }}>
           {usage ? (
             (() => {
               const capped = !!usage.capUsd;

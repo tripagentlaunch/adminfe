@@ -644,7 +644,7 @@ export function ConversationTab() {
   }
   const goBuild = () => router.push("/console/queue");
   return (
-    <div className="taw-grid taw-cols-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+    <div className="taw-grid taw-cols-2 taw-convo-grid">
       <ConversationSummaryPanel
         key={selEnqId || "none"}
         enquiry={selectedEnquiryWithAsk}
