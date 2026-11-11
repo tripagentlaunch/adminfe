@@ -293,6 +293,16 @@ export function ChatbotConversationPanel({ member }: any) {
   const [topAmount, setTopAmount] = useState(5);
   const [topBusy, setTopBusy] = useState(false);
   const [topErr, setTopErr] = useState<string | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const usageRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!usageOpen) return;
+    const close = (e: MouseEvent) => { if (usageRef.current && !usageRef.current.contains(e.target as Node)) setUsageOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setUsageOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [usageOpen]);
 
   const [convo, setConvo] = useState<ConvoState>(() => emptyConvo(""));
   const cur = convo.code === code ? convo : null;
@@ -658,8 +668,50 @@ export function ChatbotConversationPanel({ member }: any) {
       title="Conversation"
       icon={<Icon name="chat" size={20} />}
       sub={member ? "with " + ((member && member.name) || code) : "no customer selected"}
-      actions={member || siteChatLink || waLink ? (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      actions={usage || member || siteChatLink || waLink ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {usage ? (
+            (() => {
+              const capped = !!usage.capUsd;
+              const left = usage.remainingUsd ?? 0;
+              const pct = capped ? Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100)) : 0;
+              const out = capped && left <= 0;
+              const danger = out || pct >= 90;
+              return (
+                <span className="cv-usechip" ref={usageRef}>
+                  <button type="button" className={"cv-usebtn" + (danger ? " is-danger" : "")} aria-expanded={usageOpen} aria-haspopup="dialog"
+                    title="Claude usage for this customer: click for details" onClick={() => setUsageOpen((v) => !v)}>
+                    <span>{capped ? (out ? "Budget used up" : "Claude $" + usage.spentUsd.toFixed(2) + " / $" + usage.capUsd!.toFixed(2)) : "Claude $" + usage.spentUsd.toFixed(2)}</span>
+                    {capped ? <span className="cv-usebtn__bar" aria-hidden="true"><i className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} /></span> : null}
+                    {canAddBudget && capped ? <b aria-hidden="true">+</b> : null}
+                  </button>
+                  {usageOpen ? (
+                    <div className="cv-usepop" role="dialog" aria-label="Claude usage for this customer">
+                      <div className="cv-usage__row"><b>Claude usage</b>
+                        <span>{capped ? "$" + usage.spentUsd.toFixed(2) + " of $" + usage.capUsd!.toFixed(2) + " used · $" + left.toFixed(2) + " left" : "$" + usage.spentUsd.toFixed(2) + " (no cap set)"}</span>
+                      </div>
+                      {capped ? <div className="cv-usage__bar"><div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} /></div> : null}
+                      {usage.extraUsd && usage.extraUsd > 0 ? <div className="cv-usepop__note">Includes ${usage.extraUsd.toFixed(2)} added for this customer</div> : null}
+                      {out ? (
+                        <div role="alert" className="cv-usepop__warn">Tara has stopped replying to this customer{canAddBudget ? "." : ". Ask an admin to add more."}</div>
+                      ) : null}
+                      {canAddBudget && capped ? (
+                        <div className="cv-usepop__add">
+                          <select value={topAmount} disabled={topBusy} onChange={(e) => setTopAmount(Number(e.target.value))} aria-label="Amount to add in US dollars">
+                            {[5, 10, 20, 50].map((n) => <option key={n} value={n} style={{ color: "#111" }}>${n}</option>)}
+                          </select>
+                          <button type="button" className="cv-btn" disabled={topBusy} onClick={addBudget}>
+                            {topBusy ? "Adding…" : "Add $" + topAmount + " for this customer"}
+                          </button>
+                          {topErr ? <span role="alert" className="cv-usepop__warn">{topErr}</span> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </span>
+              );
+            })()
+          ) : null}
           {siteChatLink ? (
             <a
               href={siteChatLink}
@@ -721,47 +773,6 @@ export function ChatbotConversationPanel({ member }: any) {
               </div>
             ) : null;
           })()}
-          {usage && usage.capUsd ? (
-            (() => {
-              const pct = Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100));
-              const danger = pct >= 90;
-              return (
-                <div className="cv-usage">
-                  <div className="cv-usage__row">
-                    <b>Claude usage</b>
-                    <span>
-                      ${usage.spentUsd.toFixed(2)} of ${usage.capUsd!.toFixed(2)} used · ${(usage.remainingUsd ?? 0).toFixed(2)} left
-                    </span>
-                  </div>
-                  <div className="cv-usage__bar">
-                    <div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} />
-                  </div>
-                  {usage.extraUsd && usage.extraUsd > 0 ? <div style={{ marginTop: 4 }}>Includes ${usage.extraUsd.toFixed(2)} added for this customer</div> : null}
-                  {(usage.remainingUsd ?? 0) <= 0 ? (
-                    <div role="alert" style={{ marginTop: 6, color: "var(--cv-amber)" }}>
-                      Budget used up: Tara has stopped replying to this customer{canAddBudget ? "." : ". Ask an admin to add more."}
-                    </div>
-                  ) : null}
-                  {canAddBudget ? (
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
-                      <select value={topAmount} disabled={topBusy} onChange={(e) => setTopAmount(Number(e.target.value))} aria-label="Amount to add in US dollars"
-                        style={{ background: "transparent", color: "inherit", border: "1px solid rgba(242,237,228,0.25)", borderRadius: 8, padding: "2px 6px", font: "inherit" }}>
-                        {[5, 10, 20, 50].map((n) => <option key={n} value={n} style={{ color: "#111" }}>${n}</option>)}
-                      </select>
-                      <button type="button" className="cv-btn" disabled={topBusy} onClick={addBudget}>
-                        {topBusy ? "Adding…" : "Add $" + topAmount + " for this customer"}
-                      </button>
-                      {topErr ? <span role="alert" style={{ color: "var(--cv-amber)" }}>{topErr}</span> : null}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })()
-          ) : usage ? (
-            <div className="cv-usage">
-              Claude usage: ${usage.spentUsd.toFixed(2)} (no cap set)
-            </div>
-          ) : null}
           {error && messages.length > 0 ? (
             <div role="alert" className="cv-banner">
               <span>

@@ -519,3 +519,86 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Claude usage: one compact chip in the header (details and "Add $5" open over the thread, never push it down). */
+.cv-usechip {
+  position: relative;
+  display: inline-flex;
+}
+.cv-usebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(242, 237, 228, 0.25);
+  background: transparent;
+  color: var(--cv-ivory-2);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cv-usebtn:hover {
+  border-color: var(--cv-champagne);
+}
+.cv-usebtn.is-danger {
+  border-color: var(--cv-amber);
+  color: var(--cv-amber);
+}
+.cv-usebtn__bar {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(242, 237, 228, 0.15);
+  overflow: hidden;
+}
+.cv-usebtn__bar > i {
+  display: block;
+  height: 100%;
+  background: var(--cv-champagne);
+}
+.cv-usebtn__bar > i.is-danger {
+  background: var(--cv-amber);
+}
+.cv-usepop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  width: 300px;
+  max-width: 80vw;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #1c1914;
+  border: 1px solid rgba(242, 237, 228, 0.18);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: var(--cv-ivory-2);
+  font-size: 12.5px;
+}
+.cv-usepop .cv-usage__row {
+  gap: 10px;
+}
+.cv-usepop__note {
+  margin-top: 6px;
+  color: var(--cv-ivory-3);
+}
+.cv-usepop__warn {
+  margin-top: 6px;
+  color: var(--cv-amber);
+}
+.cv-usepop__add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.cv-usepop__add select {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(242, 237, 228, 0.25);
+  border-radius: 8px;
+  padding: 3px 6px;
+  font: inherit;
+}
