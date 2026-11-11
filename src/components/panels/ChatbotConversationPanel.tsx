@@ -24,10 +24,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { relTime } from "../../lib/relTime";
-import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
+import { addConversationBudget, getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 import MeshBackdrop from "../chat/MeshBackdrop";
-import { toast } from "../../lib/advisorHelpers";
+import { isAdmin, toast } from "../../lib/advisorHelpers";
 import "../../styles/convo-dark.css"; // the chatbot's dark surface for this card
 import { pullTripLinks } from "../../lib/taraTripLinks";
 import { TaraTripCard } from "./TaraTripCard";
@@ -56,6 +56,9 @@ interface Usage {
   spentUsd: number;
   capUsd: number | null;
   remainingUsd: number | null;
+  /** the base cap every code gets, and what admins have added for this one (both in USD) */
+  baseCapUsd?: number | null;
+  extraUsd?: number;
 }
 
 // WhatsApp's own mark (filled, so it keeps its green), for the "open WhatsApp" link in the header.
@@ -286,11 +289,32 @@ export function ChatbotConversationPanel({ member }: any) {
   const siteChatBase = ((process.env.NEXT_PUBLIC_TARA_CHAT_URL as string | undefined) || "https://chatbot.tripagent.vip/chat").trim();
   const siteChatLink = code ? siteChatBase + "#code=" + encodeURIComponent(code) : null;
 
+  // An admin adding budget for THIS customer's AI-desk conversation (the $5 cap): the amount chosen and whether it is saving.
+  const [topAmount, setTopAmount] = useState(5);
+  const [topBusy, setTopBusy] = useState(false);
+  const [topErr, setTopErr] = useState<string | null>(null);
+
   const [convo, setConvo] = useState<ConvoState>(() => emptyConvo(""));
   const cur = convo.code === code ? convo : null;
   const messages = cur ? cur.messages : NO_MESSAGES;
   const usage = cur ? cur.usage : null;
   const error = cur ? cur.error : null;
+  const canAddBudget = isAdmin();
+  async function addBudget() {
+    if (!code || topBusy) return;
+    setTopBusy(true);
+    setTopErr(null);
+    try {
+      const r: any = await addConversationBudget(code, topAmount);
+      // Show the new cap at once; the next poll confirms it.
+      if (r && r.usage) setConvo((prev) => (prev.code === code ? { ...prev, usage: r.usage } : prev));
+      toast("$" + topAmount + " added: Tara can reply to this customer again", "success");
+    } catch (e: any) {
+      setTopErr(String((e && e.message) || "Could not add the extra budget."));
+    } finally {
+      setTopBusy(false);
+    }
+  }
   const firstItemIndex = cur ? cur.firstItemIndex : START_INDEX;
   const hasMore = cur ? cur.hasMore : false;
   const olderLoading = cur ? cur.olderLoading : false;
@@ -712,6 +736,24 @@ export function ChatbotConversationPanel({ member }: any) {
                   <div className="cv-usage__bar">
                     <div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} />
                   </div>
+                  {usage.extraUsd && usage.extraUsd > 0 ? <div style={{ marginTop: 4 }}>Includes ${usage.extraUsd.toFixed(2)} added for this customer</div> : null}
+                  {(usage.remainingUsd ?? 0) <= 0 ? (
+                    <div role="alert" style={{ marginTop: 6, color: "var(--cv-amber)" }}>
+                      Budget used up: Tara has stopped replying to this customer{canAddBudget ? "." : ". Ask an admin to add more."}
+                    </div>
+                  ) : null}
+                  {canAddBudget ? (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6, flexWrap: "wrap" }}>
+                      <select value={topAmount} disabled={topBusy} onChange={(e) => setTopAmount(Number(e.target.value))} aria-label="Amount to add in US dollars"
+                        style={{ background: "transparent", color: "inherit", border: "1px solid rgba(242,237,228,0.25)", borderRadius: 8, padding: "2px 6px", font: "inherit" }}>
+                        {[5, 10, 20, 50].map((n) => <option key={n} value={n} style={{ color: "#111" }}>${n}</option>)}
+                      </select>
+                      <button type="button" className="cv-btn" disabled={topBusy} onClick={addBudget}>
+                        {topBusy ? "Adding…" : "Add $" + topAmount + " for this customer"}
+                      </button>
+                      {topErr ? <span role="alert" style={{ color: "var(--cv-amber)" }}>{topErr}</span> : null}
+                    </div>
+                  ) : null}
                 </div>
               );
             })()

@@ -499,3 +499,23 @@
   border-color: rgba(216, 194, 154, 0.3);
   border-top-color: var(--cv-champagne);
 }
+
+/* "Add $5 for this customer" under the usage meter (admins). */
+.cv-btn {
+  border: 1px solid var(--cv-champagne);
+  background: transparent;
+  color: var(--cv-champagne);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cv-btn:hover:not(:disabled) {
+  background: var(--cv-champagne);
+  color: #1a1712;
+}
+.cv-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

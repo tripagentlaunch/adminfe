@@ -3003,6 +3003,7 @@ export {
   setConversationHandoff,
   getMemberCode,
   sendChatbotReply,
+  addConversationBudget,
   getDestinationPhoto,
 
   // RAG / AI
@@ -3441,6 +3442,24 @@ function sendChatbotReply(code, text, clientMsgId, channel) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to send reply.", { status: res.status, body: body });
       }
+      return body;
+    });
+  });
+}
+
+// addConversationBudget(code, amountUsd, note?) — an ADMIN gives one customer's AI-desk conversation more budget (the cap is $5 a
+// code), so Tara answers them again. amountUsd is one of 5 / 10 / 20 / 50. Not retried: a repeat would add twice, so a timeout says
+// to look at the usage meter first. Resolves { ok, usage: { spentUsd, capUsd, extraUsd, remainingUsd, ... } }.
+function addConversationBudget(code, amountUsd, note?) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/budget", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: JSON.stringify({ amount_usd: amountUsd, note: note || null }),
+  }, 20000, "No answer after 20s — the extra budget may or may not have been added. Check the usage meter before trying again.").then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) throw new ApiError((body && typeof body.detail === "string" && body.detail) || "Could not add the extra budget.", { status: res.status, body: body });
       return body;
     });
   });
