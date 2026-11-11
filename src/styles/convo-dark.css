@@ -631,3 +631,16 @@
 .cv-usebtn {
   flex: none;
 }
+
+/* A connection problem that lasts is one slim line in the status strip, never a block over the thread. */
+.cv-presence .cv-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--cv-amber);
+  font-size: 12px;
+}
+.cv-presence .cv-conn i {
+  background: var(--cv-amber);
+}

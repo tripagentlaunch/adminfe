@@ -310,6 +310,16 @@ export function ChatbotConversationPanel({ member }: any) {
   const usage = cur ? cur.usage : null;
   const error = cur ? cur.error : null;
   const canAddBudget = isAdmin();
+  // A refresh that missed (the backend waking or restarting) must not flash a notice over the thread: it is shown only once the
+  // connection trouble has lasted a few seconds, and it goes the moment a refresh gets through.
+  const connIssue = !!error && messages.length > 0 && isConnectionError(error);
+  const [connLate, setConnLate] = useState(false);
+  useEffect(() => {
+    if (!connIssue) return;
+    const t = setTimeout(() => setConnLate(true), 6000);
+    return () => { clearTimeout(t); setConnLate(false); };
+  }, [connIssue]);
+  const showConn = connIssue && connLate;
   async function addBudget() {
     if (!code || topBusy) return;
     setTopBusy(true);
@@ -766,20 +776,22 @@ export function ChatbotConversationPanel({ member }: any) {
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 480 }}>
           {(() => {
             const pl = presenceLine(presence, Date.now());
-            return pl ? (
-              <div aria-live="polite" className={"cv-presence" + (pl.online ? " is-online" : "")}>
-                <i />
-                {pl.text}
+            return pl || showConn ? (
+              <div aria-live="polite" className={"cv-presence" + (pl && pl.online ? " is-online" : "")}>
+                {pl ? (<><i />{pl.text}</>) : null}
+                {showConn ? (
+                  <span className="cv-conn" role="status">
+                    <i />
+                    Reconnecting: new messages may be delayed
+                    <button type="button" className="cv-link" onClick={() => reloadRef.current && reloadRef.current()}>Retry</button>
+                  </span>
+                ) : null}
               </div>
             ) : null;
           })()}
-          {error && messages.length > 0 ? (
+          {error && messages.length > 0 && !isConnectionError(error) ? (
             <div role="alert" className="cv-banner">
-              <span>
-                {isConnectionError(error)
-                  ? "The connection is slow, so new messages may be delayed. Showing the last messages loaded; retrying."
-                  : <>Couldn&apos;t refresh: {error} Showing the last messages loaded.</>}
-              </span>
+              <span>Couldn&apos;t refresh: {error} Showing the last messages loaded.</span>
               <button type="button" className="cv-link" onClick={() => reloadRef.current && reloadRef.current()}>
                 Retry
               </button>
