@@ -1485,7 +1485,8 @@ function siteSetSuperKeyActive(code, active) {
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
 // opts (optional): { seats: 1-10 } lets that many people join with this one invitation (default: just them);
-// { expiry_days } sets how long they have to claim it. Returns { code, link, expires_at, email_sent, first_name, phone, seats }.
+// { expiry_days } sets how long they have to claim it; { new_code: true } gives THIS email its own code even though the phone number
+// already belongs to a member (the same person's second address). Returns { code, link, expires_at, email_sent, first_name, phone, seats }.
 function siteApproveAccessRequest(id, opts?) {
   return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", opts || {});
 }

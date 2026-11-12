@@ -481,9 +481,9 @@ function AccessRequestsSection() {
   // How many people each pending request's invitation will admit (default: just them), picked before approving.
   const [seatPick, setSeatPick] = useState<any>({});
 
-  function approve(row: any) {
+  function approve(row: any, opts?: { newCode?: boolean }) {
     setBusyId(row.id);
-    siteApproveAccessRequest(row.id, { seats: seatPick[row.id] || 1 })
+    siteApproveAccessRequest(row.id, { seats: seatPick[row.id] || 1, ...(opts?.newCode ? { new_code: true } : {}) })
       .then((result: any) => {
         setBusyId(null);
         setJustApproved((prev: any) => ({ ...prev, [row.id]: { ...result, full_name: row.full_name, email: row.email } }));
@@ -496,6 +496,13 @@ function AccessRequestsSection() {
         // (same phone or email) keeps it; no second code is issued.
         if (result && result.already_member) {
           toast(row.full_name + " is already a member — existing code " + result.code + " (same " + (result.matched_on || "details") + "). No new code issued.", "success");
+          load();
+          return;
+        }
+        if (opts?.newCode) {
+          toast(result && result.email_sent
+            ? "New code " + result.code + " sent to " + row.email
+            : "New code " + (result && result.code) + " made for " + row.email + ", but the email did NOT send (see below)", result && result.email_sent ? "success" : "error");
           load();
           return;
         }
@@ -587,6 +594,18 @@ function AccessRequestsSection() {
                 </div>
                 {!a.already_member && a.code && a.link ? (
                   <ShareBar code={a.code} link={a.link} phone={a.phone} firstName={a.first_name} />
+                ) : null}
+                {a.already_member && a.matched_on === "phone" && a.email ? (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 12.5, color: "var(--taupe)", marginBottom: 6 }}>
+                      Only the phone number matched, and {a.email} is a different address. If this is the same person with a second email, they can have
+                      their own code and sign in with that email (a separate login and chat from the existing code).
+                    </div>
+                    <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busyId === id} onClick={() => approve({ id, email: a.email, full_name: a.full_name }, { newCode: true })}>
+                      {busyId === id ? <Spinner /> : <Icon name="check" size={13} />}
+                      Send a new code to {a.email}
+                    </button>
+                  </div>
                 ) : null}
                 <button
                   className="taw-btn taw-btn--ghost taw-btn--sm"
@@ -693,6 +712,10 @@ function AccessRequestsSection() {
                     <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busyId === r.id} onClick={() => approve(r)}>
                       {busyId === r.id ? <Spinner /> : <Icon name="check" size={13} />}
                       Issue code
+                    </button>
+                    <button className="taw-btn taw-btn--sm" style={{ marginTop: 6 }} disabled={busyId === r.id} onClick={() => approve(r, { newCode: true })}
+                      title="Gives this email its own code even if its phone number belongs to a member">
+                      New code for this email
                     </button>
                   </div>
                 </div>
