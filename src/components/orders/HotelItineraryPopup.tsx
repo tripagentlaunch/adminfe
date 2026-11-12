@@ -12,8 +12,10 @@ import "../../styles/orders-workspace.css";
 
 export type HotelPopupSearch = { city: string; location: any | null; checkIn: string; checkOut: string; rooms: RoomGuests[] };
 
-export function HotelItineraryPopup({ search, onAdd, onClose }: {
+export function HotelItineraryPopup({ search, findName, onAdd, onClose }: {
   search: HotelPopupSearch;
+  /** Open this hotel's room list by itself once the search has it (Get live price on a Tara draft stay). */
+  findName?: string;
   /** The itinerary item for the room that was picked (same shape the Hotels desk has always passed to onAdd). */
   onAdd: (item: any) => void;
   onClose: () => void;
@@ -39,7 +41,7 @@ export function HotelItineraryPopup({ search, onAdd, onClose }: {
           </button>
         </div>
         {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
-        <NewBookingHotel mode="itinerary" initial={search} autoSearch onBack={onClose} onError={setErr} onAddToItinerary={onAdd} />
+        <NewBookingHotel mode="itinerary" initial={search} autoSearch findName={findName} onBack={onClose} onError={setErr} onAddToItinerary={onAdd} />
       </div>
     </div>,
     document.body,

@@ -17,7 +17,7 @@ import { errText, toast, todayISO, fmtDate, fareBrand, flightCartItem } from "..
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { paxText, type PaxMix } from "../../lib/flightRequests";
-import { FlightQuoteDrawer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { FlightQuoteDrawer, autoPriceOffer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
 import { LIVE_PRICE_EVENT, flightNum, takeLivePriceRequest, type LivePriceRequest } from "../../lib/livePriceRequest";
 import { Dropdown, Empty, Field, Spinner, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType } from "../../lib/mockFlightSearch";
@@ -1070,7 +1070,29 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
         return nums.length === autoPick.length && nums.every((n: string, i: number) => n === flightNum(autoPick[i]));
       }) || null
     : null;
-  const active = quote || (autoOffer ? { offer: autoOffer, tab: "fares" as const } : null);
+  // "Get live price" prices that flight by itself (TripSure's Create Itinerary on the searched fare) and puts it in the
+  // itinerary in place of the draft. Only if TripSure refuses (sold out, stale search) does the drawer open instead, so the
+  // advisor can pick another fare option. autoFailed: the offer id that auto-pricing could not do, with the reason.
+  const [autoFailed, setAutoFailed] = useState<{ id: string; why: string } | null>(null);
+  const autoTried = useRef("");
+  const autoId = autoOffer ? String(autoOffer.id) : "";
+  useEffect(() => {
+    if (!autoOffer) { autoTried.current = ""; return; }
+    if (autoTried.current === autoId) return;
+    autoTried.current = autoId;
+    void runAuto(autoOffer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoId]);
+  async function runAuto(o: any) {
+    try {
+      const pricing = await autoPriceOffer(o);
+      addPriced(o, pricing);
+    } catch (e: any) {
+      setAutoFailed({ id: String(o.id), why: errText(e) });
+    }
+  }
+  const autoPricing = !!autoOffer && autoFailed?.id !== autoId;
+  const active = quote || (autoOffer && autoFailed?.id === autoId ? { offer: autoOffer, tab: "fares" as const } : null);
   // A live-priced flight into the itinerary, with two swap options by default: the closest other
   // flights on the same route and day, at their fare for the same travellers (no add-ons — "fare
   // only"), bookable as they are. "+ Swap option" adds one priced live with its seats, meals and
@@ -1312,6 +1334,17 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
         )}
       </div>
       </SleekScroll>
+      {autoPricing ? (
+        <div className="taw-banner taw-banner--info" role="status" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          <Spinner />
+          <span>Getting TripSure&apos;s live price for {autoPick.join(" + ")} and putting it in the itinerary…</span>
+        </div>
+      ) : null}
+      {autoOffer && autoFailed?.id === autoId ? (
+        <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          Couldn&apos;t price {autoPick.join(" + ")} automatically: {autoFailed.why}
+        </div>
+      ) : null}
       {autoPick && autoPick.length && !autoOffer && offers.length ? (
         <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
           {autoPick.join(" + ")} isn&apos;t in TripSure&apos;s results for this day — it may be sold out or not sold through TripSure. Pick another flight below.
@@ -1333,7 +1366,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
             onAddSwap({ ...flightCartItem(active.offer, [], { pax, pricing: p }), _searchDate: active.offer._searchDate });
             setQuote(null);
           }}
-          onClose={() => { setQuote(null); if (onAutoPickDone) onAutoPickDone(); }}
+          onClose={() => { setQuote(null); setAutoFailed(null); if (onAutoPickDone) onAutoPickDone(); }}
         />
       ) : null}
     </div>

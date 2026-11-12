@@ -24,6 +24,7 @@ import { paxText, requestChips } from "./flightRequests";
 import { hotelRequestChips, occText } from "./hotelOccupancy";
 import { AIRPORTS } from "./airports";
 import { addonLines } from "./flightAddons";
+import { flightNum } from "./livePriceRequest";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -428,13 +429,29 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
     route = route || "Date not set";
   }
 
-  const { days, day } = findOrCreateDay(base.days, iso, route);
+  // A live price for a Tara DRAFT stay / flight (Get live price): the draft it was searched for is taken out wherever it sits,
+  // and the live-priced item goes in its place, even when the draft has no hotel key / flight number to match on.
+  let removedDraft: any = null;
+  const baseDays = cartItem._replaces
+    ? (base.days || []).map((dd: any) => {
+        const i = (dd.items || []).findIndex((x: any) => x.id === cartItem._replaces && x.type === item.type && x.status !== "confirmed");
+        if (i < 0) return dd;
+        removedDraft = dd.items[i];
+        return { ...dd, items: dd.items.filter((_: any, k: number) => k !== i) };
+      })
+    : base.days;
+  const { days, day } = findOrCreateDay(baseDays, iso, route);
   const dayIdx = days.indexOf(day);
   // The same hotel (or flight) added again on the same day replaces the one
   // there — a new room or fare for the same stay, not a second booking.
   const sameAt = day.items.findIndex((x: any) => isSameBooking(x, item));
-  const old = sameAt >= 0 ? day.items[sameAt] : null;
-  const updatedDay = { ...day, items: old ? day.items.map((x: any, i: number) => (i === sameAt ? { ...item, id: x.id } : x)) : day.items.concat([item]) };
+  const old = sameAt >= 0 ? day.items[sameAt] : removedDraft;
+  const updatedDay = {
+    ...day,
+    items: sameAt >= 0
+      ? day.items.map((x: any, i: number) => (i === sameAt ? { ...item, id: x.id } : x))
+      : day.items.concat([removedDraft ? { ...item, id: removedDraft.id } : item]),
+  };
   const nextDays = days.slice();
   nextDays[dayIdx] = updatedDay;
   const oldPrice = old ? Number(old.price) || 0 : 0;
@@ -451,13 +468,16 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
 export function isSameBooking(a: any, b: any): boolean {
   if (!a || !b || a.type !== b.type || a.status === "confirmed") return false;
   if (a.type === "hotel") return !!a.hotelKey && a.hotelKey === b.hotelKey;
-  if (a.type === "flight") return !!a.flightNo && a.flightNo === b.flightNo && a.origin === b.origin && a.dest === b.dest;
+  // "AI 414 + AI 2863" (Search) and "414 + 2863" (Tara's draft) are the same flights.
+  const nos = (x: string) => String(x || "").split("+").map((n) => flightNum(n)).join("+");
+  if (a.type === "flight") return !!a.flightNo && nos(a.flightNo) === nos(b.flightNo) && a.origin === b.origin && a.dest === b.dest;
   return false;
 }
 
 // Whether adding this cart item would replace one already on its day.
 export function replacesExisting(data: any, cartItem: any): boolean {
   if (!data || !cartItem || cartItem.type === "visa") return false;
+  if (cartItem._replaces) return (data.days || []).some((d: any) => (d.items || []).some((x: any) => x.id === cartItem._replaces && x.status !== "confirmed"));
   const probe = addCartItemToItinerary({ ...data, days: [] }, cartItem);
   const item = probe.days[0] && probe.days[0].items[0];
   const iso = probe.days[0] && probe.days[0]._iso;

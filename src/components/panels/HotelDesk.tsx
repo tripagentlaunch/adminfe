@@ -14,6 +14,7 @@ import { hotelDistances, hotelFacts, hotelPlaces, hotelProperty, hotelRates, sea
 import { AutosuggestInput } from "../AutosuggestInput";
 import { HotelSearchBar } from "../orders/HotelSearchBar";
 import { HotelItineraryPopup, type HotelPopupSearch } from "../orders/HotelItineraryPopup";
+import { LIVE_HOTEL_EVENT, takeLiveHotelRequest, type LiveHotelRequest } from "../../lib/livePriceRequest";
 import { citySuggest } from "../../lib/citySuggest";
 import { rankLocationSuggestions } from "../../lib/locationSuggest";
 import { errText, toast, todayISO, fmtDate, hotelCartItem } from "../../lib/advisorHelpers";
@@ -899,6 +900,14 @@ export function HotelDesk(props: any) {
   const [modifyOpen, setModifyOpen] = useState(false);
   // Search opens the Add-a-hotel popup (the New Booking hotel flow) over the page; its last step adds to the itinerary.
   const [popup, setPopup] = useState<HotelPopupSearch | null>(null);
+  // "Get live price" on a Tara draft stay (Itinerary Builder): the popup opens on that city / dates and goes to that hotel's rooms;
+  // the room picked replaces the draft. Taken at mount too, for a request made before this desk was open.
+  const [priceReq, setPriceReq] = useState<LiveHotelRequest | null>(() => takeLiveHotelRequest());
+  useEffect(() => {
+    const on = () => setPriceReq(takeLiveHotelRequest());
+    window.addEventListener(LIVE_HOTEL_EVENT, on);
+    return () => window.removeEventListener(LIVE_HOTEL_EVENT, on);
+  }, []);
   // The full location object the advisor picked from the City typeahead
   // (id/name/type/coordinates/state/country) — set on AutosuggestInput's
   // onSelect, cleared whenever they type again. When present, runReal()
@@ -1401,6 +1410,22 @@ export function HotelDesk(props: any) {
   return (
     <div className="taw-fade-in taw-fdesk">
       {formView}
+      {priceReq ? (
+        <HotelItineraryPopup
+          key={priceReq.n}
+          search={{
+            city: priceReq.city, location: null, checkIn: priceReq.checkIn, checkOut: addDaysIso(priceReq.checkIn, Math.max(1, priceReq.nights)),
+            rooms: occ.map((r) => ({ adults: r.adults, childAges: r.childAges.slice() })),
+          }}
+          findName={priceReq.name}
+          onClose={() => setPriceReq(null)}
+          onAdd={(item) => {
+            props.onAdd({ ...item, _replaces: priceReq.itemId });
+            toast((item.hotelName || "Hotel") + (item.roomType ? " — " + item.roomType : "") + " live-priced at " + inr(item.baseNet) + " — replaced the draft in the itinerary", "success");
+            setPriceReq(null);
+          }}
+        />
+      ) : null}
       {popup ? (
         <HotelItineraryPopup
           search={popup}

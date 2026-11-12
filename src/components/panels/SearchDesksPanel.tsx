@@ -58,7 +58,7 @@
  * directly, CSS has no interpolation for it.
  * ===========================================================================*/
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { LIVE_PRICE_EVENT } from "../../lib/livePriceRequest";
+import { LIVE_PRICE_EVENT, LIVE_HOTEL_EVENT } from "../../lib/livePriceRequest";
 import { recallDesk, rememberDesk } from "../../lib/deskMemory";
 import { cx } from "../../lib/cx";
 import { Card, Dropdown, Icon } from "../ui";
@@ -84,8 +84,13 @@ export function SearchDesksPanel(props: any) {
   // "Get live price" in the Itinerary Builder: show the Flights desk (it takes the request on mount).
   useEffect(() => {
     const on = () => setDesk("flights");
+    const onHotel = () => setDesk("hotels");
     window.addEventListener(LIVE_PRICE_EVENT, on);
-    return () => window.removeEventListener(LIVE_PRICE_EVENT, on);
+    window.addEventListener(LIVE_HOTEL_EVENT, onHotel);
+    return () => {
+      window.removeEventListener(LIVE_PRICE_EVENT, on);
+      window.removeEventListener(LIVE_HOTEL_EVENT, onHotel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [expanded, setExpanded] = useState(false);

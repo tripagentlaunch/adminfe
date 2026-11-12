@@ -50,7 +50,7 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { PassengersPanel } from "./PassengersPanel";
 import { PaidTripHistory } from "./PaidTripHistory";
-import { requestLivePrice } from "../../lib/livePriceRequest";
+import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
 import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals } from "../../lib/itineraryFromCart";
@@ -898,6 +898,26 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                     origin: item.origin, dest: item.dest, date: day._iso, cabin: item.cabin || null,
                                     flightNos: (item.segments || []).map((sg: any) => sg.flightNo).filter(Boolean),
                                     pax: item.paxMix || null,
+                                  })}>
+                                  Get live price
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {item.type === "hotel" && item.status === "draft" && !item.hotelKey ? (
+                            // Tara's draft stay: no live room rate yet, so nothing for the proposal to price or pay online.
+                            <div className="taw-itin-reprice">
+                              <Icon name="alert" size={12} />
+                              <span>
+                                {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))
+                                  ? "Not live-priced yet — get TripSure's live room rates for this hotel (city, dates and hotel name filled in for you); pick the room and it replaces this draft."
+                                  : "Not live-priced yet — this draft doesn't say its city or check-in date clearly; search the hotel in Search and Add it."}
+                              </span>
+                              {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || "")) ? (
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--accent"
+                                  onClick={() => requestLiveHotelPrice({
+                                    itemId: String(item.id), name: String(item.title || ""), city: String(item.city || day.city),
+                                    checkIn: day._iso, nights: parseInt(String(item.duration || "1"), 10) || 1,
                                   })}>
                                   Get live price
                                 </button>

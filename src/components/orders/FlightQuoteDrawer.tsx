@@ -84,6 +84,35 @@ function readLock(r: any) {
   };
 }
 
+/** "Get live price" from the Itinerary Builder, with no drawer: TripSure's Create Itinerary on the flight exactly as it was searched
+ *  (its own fare option, no add-ons), so the advisor's one click ends with a live-checked price. Throws with a plain reason
+ *  (sold out / stale search / no price) so the caller can fall back to the drawer. */
+export async function autoPriceOffer(offer: any): Promise<FlightLivePrice> {
+  const d = offer.detail || {};
+  const item = fareItem(offer, "");
+  if (!item) throw new Error("This search has expired — search again.");
+  const got = readLock(await flightPriceCheck([item]));
+  const listPrice = Number(offer.base_net != null ? offer.base_net : offer.baseNet) || d.baseNet || 0;
+  return {
+    source: "tripsure_live",
+    checkedAt: got.checkedAt,
+    listPrice,
+    fare: got.fare,
+    baseFare: got.baseFare,
+    taxes: got.taxes,
+    otherCharges: got.otherCharges,
+    priceChanged: got.priceChanged || Math.abs(got.fare - listPrice) > 1,
+    fareId: String(item.fareSourceCode || ""),
+    fareName: "Searched fare",
+    refundable: !!d.refundable,
+    checkinKg: d.baggageKg ?? null,
+    extras: [],
+    extrasTotal: 0,
+    total: got.fare,
+    needs: got.needs,
+  };
+}
+
 export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, onClose, startTab = "fares", addLabel = "Add to itinerary" }: {
   offer: any;
   /** The final button's words: "Add as swap option" when pricing an option for an existing flight. */

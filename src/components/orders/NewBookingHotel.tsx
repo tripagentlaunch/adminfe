@@ -6,6 +6,7 @@
 import { HotelApiStatus } from "./HotelApiStatus";
 import { GuestNationality } from "./GuestNationality";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { sameHotelName } from "../../lib/livePriceRequest";
 import { Empty, Field, Icon, Spinner } from "../ui";
 import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
@@ -158,7 +159,7 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, onBack, onAdded, onError, mode = "booking", initial, autoSearch, onAddToItinerary }: {
+export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, onBack, onAdded, onError, mode = "booking", initial, autoSearch, findName, onAddToItinerary }: {
   /** Who the booking is for (booking mode; the itinerary mode has no customer). */
   customer?: Customer;
   /** Attach as a new itinerary on this order. */
@@ -175,6 +176,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   initial?: { city: string; location: any | null; checkIn: string; checkOut: string; rooms: RoomGuests[] };
   /** Run `initial` as a search as soon as this opens. */
   autoSearch?: boolean;
+  /** With autoSearch: open the room list of the hotel with this name as soon as the search returns it. */
+  findName?: string;
   onAddToItinerary?: (item: any) => void;
 }) {
   const itinerary = mode === "itinerary";
@@ -556,6 +559,24 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // "Get live price" on a Tara draft stay: that hotel's rooms open by themselves (once; hotels keep arriving after the first page).
+  const foundRef = useRef(false);
+  const [notFound, setNotFound] = useState(false);
+  useEffect(() => {
+    if (!findName || foundRef.current || sub !== "results") return;
+    const h = hotels.find((x: any) => sameHotelName(String((x.hotelInfo && x.hotelInfo.name) || x.name || ""), findName));
+    if (h) {
+      foundRef.current = true;
+      const t = setTimeout(() => pickHotel(h), 0);
+      return () => clearTimeout(t);
+    }
+    if (!busy && (!moreInfo || moreInfo.failed)) {
+      const t = setTimeout(() => setNotFound(true), 0);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotels, sub, busy, moreInfo]);
+
   // Skip: the advisor chose to keep the room on the order unlocked, so it shows in Orders now.
   function keepWithoutLock() {
     if (!added) return;
@@ -632,6 +653,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </span>
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => { stopMore(); setSub("search"); }}>Change search</button>
         </div>
+        {findName && notFound ? (
+          <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+            {findName} isn&apos;t in TripSure&apos;s results for these dates — it may be sold out or not sold through TripSure. Pick another hotel below; it replaces the draft.
+          </div>
+        ) : null}
         {offers.length > 0 ? (
           <div className="ow-fchips">
             {chip(layout === "list", "List", () => setLayout("list"), "list")}
