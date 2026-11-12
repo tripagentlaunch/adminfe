@@ -559,6 +559,30 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ...and then the rooms are priced by themselves too: the cheapest rate (the "from" price Tara quoted) is checked live with TripSure
+  // and added, so the draft is replaced with no clicks. A rate TripSure says is sold out is skipped for the next cheapest (up to 5);
+  // if none can be priced the room list stays open with the reason, for the advisor to pick by hand.
+  const autoRoomRef = useRef(false);
+  useEffect(() => {
+    if (!findName || autoRoomRef.current || !details || !hotel || sub !== "rooms" || !onAddToItinerary) return;
+    autoRoomRef.current = true;
+    const list = roomOptions(details).filter((o) => o.total > 0).sort((a, b) => a.total - b.total).slice(0, 5);
+    setTimeout(async () => {
+      let last: any = null;
+      for (const opt of list) {
+        try {
+          const chk = await runCheck(opt);
+          addToItinerary(opt, chk);
+          return;
+        } catch (e: any) {
+          last = e;
+        }
+      }
+      onError("Couldn't live-price " + findName + " automatically" + (last ? ": " + errText(last) : " — no room rates were listed") + ". Pick a room below.");
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details, hotel, sub]);
+
   // "Get live price" on a Tara draft stay: that hotel's rooms open by themselves (once; hotels keep arriving after the first page).
   const foundRef = useRef(false);
   const [notFound, setNotFound] = useState(false);

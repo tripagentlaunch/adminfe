@@ -910,7 +910,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                               <Icon name="alert" size={12} />
                               <span>
                                 {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))
-                                  ? "Not live-priced yet — get TripSure's live room rates for this hotel (city, dates and hotel name filled in for you); pick the room and it replaces this draft."
+                                  ? "Not live-priced yet — get TripSure's live room rates for this hotel (city, dates and hotel name filled in for you); the cheapest room is priced and replaces this draft."
                                   : "Not live-priced yet — this draft doesn't say its city or check-in date clearly; search the hotel in Search and Add it."}
                               </span>
                               {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || "")) ? (

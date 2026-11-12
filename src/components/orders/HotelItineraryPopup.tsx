@@ -14,7 +14,7 @@ export type HotelPopupSearch = { city: string; location: any | null; checkIn: st
 
 export function HotelItineraryPopup({ search, findName, onAdd, onClose }: {
   search: HotelPopupSearch;
-  /** Open this hotel's room list by itself once the search has it (Get live price on a Tara draft stay). */
+  /** Open this hotel's room list by itself once the search has it, price its cheapest room and add it (Get live price on a Tara draft stay). */
   findName?: string;
   /** The itinerary item for the room that was picked (same shape the Hotels desk has always passed to onAdd). */
   onAdd: (item: any) => void;
@@ -34,7 +34,7 @@ export function HotelItineraryPopup({ search, findName, onAdd, onClose }: {
         <div className="nb-mhead">
           <div className="nb-mtitle">
             <h2>Add a hotel to the itinerary</h2>
-            <span>Pick a hotel and a room - it is added to the itinerary and the proposal; nothing is booked</span>
+            <span>{findName ? "Getting TripSure's live rate for " + findName + " - the cheapest room is priced and replaces the draft; nothing is booked" : "Pick a hotel and a room - it is added to the itinerary and the proposal; nothing is booked"}</span>
           </div>
           <button type="button" className="nb-close" onClick={onClose} aria-label="Close">
             <Icon name="x" size={16} />
