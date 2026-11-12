@@ -587,7 +587,7 @@ function AccessRequestsSection() {
                 </div>
                 <div style={{ marginTop: 6 }}>
                   Code: <b style={{ fontFamily: "monospace" }}>{prettyCode(a.code)}</b>
-                  {a.seats > 1 ? ` — up to ${a.seats} people can join with it` : ""}
+                  {a.seats > 1 ? ` — for up to ${a.seats} people; add the others from the Approved requests tab` : ""}
                   {a.already_member
                     ? ` — their existing code (same ${a.matched_on || "details"}); they sign in with it.`
                     : !a.email_sent ? " — the email did not go out, so send it to them yourself:" : " — or send it to them yourself:"}

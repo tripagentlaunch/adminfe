@@ -1508,11 +1508,17 @@ function siteReissueInvite(id) {
 function siteSetInviteSeats(id, seats) {
   return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/seats", "POST", { seats: seats });
 }
-// Take back one person's seat (the code they joined with): their access ends and the place is free again.
-function siteRevokeInviteSeat(code) {
+// Add one more person to an approved invitation: { name, email, phone? }. They get an invitation of their own (their own link,
+// chat and login), emailed to them, and the claim page asks them nothing. -> { code, link, first_name, phone, email_sent, email_error }
+function siteAddInvitePerson(id, body) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/people", "POST", body || {});
+}
+// An added person's own invitation code: "resend" emails them again, "revoke" takes their place back (their access ends if they
+// had claimed, and the place is free again).
+function adminbeInviteCodeCall(code, action) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
-  return fetch(FASTAPI_BASE + "/admin/invite-codes/" + encodeURIComponent(code) + "/revoke", {
+  return fetch(FASTAPI_BASE + "/admin/invite-codes/" + encodeURIComponent(code) + "/" + action, {
     method: "POST",
     headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
     body: "{}",
@@ -1524,6 +1530,12 @@ function siteRevokeInviteSeat(code) {
       return data;
     });
   });
+}
+function siteResendInvitePerson(code) {
+  return adminbeInviteCodeCall(code, "resend");
+}
+function siteRevokeInviteSeat(code) {
+  return adminbeInviteCodeCall(code, "revoke");
 }
 
 // siteDenyAccessRequest(id, declineReason?) -> { ok: true }
@@ -3277,6 +3289,8 @@ export {
   siteReissueInvite,
   siteSetInviteSeats,
   siteRevokeInviteSeat,
+  siteAddInvitePerson,
+  siteResendInvitePerson,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 

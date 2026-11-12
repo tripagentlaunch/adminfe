@@ -77,6 +77,29 @@ export function daysLeftText(days: number | null | undefined): string {
   return days === 1 ? "1 day left" : `${days} days left`;
 }
 
+export interface PersonRow {
+  status?: string;
+  email_status?: string | null;
+  expired?: boolean;
+}
+
+/** Where a person added to an invitation stands. */
+export function personStatus(p: PersonRow): { tone: "ok" | "warn" | "bad"; text: string } {
+  if (p.status === "redeemed") return { tone: "ok", text: "Joined" };
+  if (p.status === "revoked") return { tone: "bad", text: "Access taken back" };
+  if (p.expired) return { tone: "bad", text: "Invitation ended" };
+  return { tone: "warn", text: "Invited, not claimed yet" };
+}
+
+/** What is wrong with the details typed for a new person, in words for the advisor; null when they are fine. */
+export function addPersonProblem(d: { name: string; email: string; phone: string }): string | null {
+  if (d.name.trim().length < 2) return "Enter their name.";
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.email.trim())) return "Enter a valid email address.";
+  const digits = d.phone.replace(/\D/g, "");
+  if (d.phone.trim() && (digits.length < 7 || digits.length > 15)) return "That phone number doesn't look right. Leave it blank if you don't have it.";
+  return null;
+}
+
 /** "2 of 3 places taken" for a shared invitation; "" for a personal one. */
 export function seatsText(r: InviteRow): string {
   const seats = r.seats || 1;

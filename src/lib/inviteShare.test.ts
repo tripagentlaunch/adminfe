@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SEAT_CHOICES, daysLeftText, emailNote, prettyCode, reminderNote, seatChoiceLabel, seatsText, shareMessage, waDigits, whatsappUrl } from "./inviteShare";
+import { SEAT_CHOICES, addPersonProblem, daysLeftText, personStatus, emailNote, prettyCode, reminderNote, seatChoiceLabel, seatsText, shareMessage, waDigits, whatsappUrl } from "./inviteShare";
 
 describe("prettyCode", () => {
   it("groups an 8-character code in fours and leaves anything else alone", () => {
@@ -71,5 +71,21 @@ describe("what the advisor is told", () => {
   });
   it("labels the seat choices", () => {
     expect(SEAT_CHOICES.map(seatChoiceLabel)).toEqual(["Just them", "Up to 2 people", "Up to 3 people", "Up to 5 people", "Up to 10 people"]);
+  });
+});
+
+describe("people added to an invitation", () => {
+  it("says where each person stands", () => {
+    expect(personStatus({ status: "unused" })).toEqual({ tone: "warn", text: "Invited, not claimed yet" });
+    expect(personStatus({ status: "redeemed" })).toEqual({ tone: "ok", text: "Joined" });
+    expect(personStatus({ status: "revoked" })).toEqual({ tone: "bad", text: "Access taken back" });
+    expect(personStatus({ status: "unused", expired: true })).toEqual({ tone: "bad", text: "Invitation ended" });
+  });
+  it("checks the details before they are sent", () => {
+    expect(addPersonProblem({ name: "M", email: "m@x.co", phone: "" })).toBe("Enter their name.");
+    expect(addPersonProblem({ name: "Meera", email: "meera", phone: "" })).toBe("Enter a valid email address.");
+    expect(addPersonProblem({ name: "Meera", email: "m@x.co", phone: "12" })).toContain("phone number");
+    expect(addPersonProblem({ name: "Meera", email: "m@x.co", phone: "" })).toBeNull();
+    expect(addPersonProblem({ name: "Meera", email: "m@x.co", phone: "+91 98765 43210" })).toBeNull();
   });
 });

@@ -8,10 +8,12 @@
  * ===========================================================================*/
 import { useState } from "react";
 import {
+  siteAddInvitePerson,
   siteCreateSuperKey,
   siteNudgeInvite,
   siteReissueInvite,
   siteResendInvite,
+  siteResendInvitePerson,
   siteRevokeInviteSeat,
   siteSetInviteSeats,
 } from "../../services/api";
@@ -20,7 +22,9 @@ import { errText, toast, fmtDate, fmtTime } from "../../lib/advisorHelpers";
 import { Empty, Spinner, Icon } from "../ui";
 import {
   SEAT_CHOICES,
+  addPersonProblem,
   daysLeftText,
+  personStatus,
   emailNote,
   prettyCode,
   reminderNote,
@@ -209,50 +213,76 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
               ) : null}
 
               {r.code && r.claim_status !== "expired" ? (
-                <div style={{ marginTop: 10, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <Icon name="people" size={13} />
-                  <label htmlFor={"seats-" + r.id}>Who can join with this invitation</label>
-                  <select
-                    id={"seats-" + r.id}
-                    className="taw-sel taw-sel--sm"
-                    value={r.seats}
-                    disabled={busy === r.id + ":seats"}
-                    onChange={(e) => run(r.id + ":seats", () => siteSetInviteSeats(r.id, Number(e.target.value)), (o: any) => (o.seats > 1 ? "Up to " + o.seats + " people can now join with " + r.name + "'s invitation." : "Only " + r.name + " can use this invitation."))}
-                  >
-                    {choices.map((n: number) => (
-                      <option key={n} value={n}>
-                        {seatChoiceLabel(n)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
+                <div style={{ marginTop: 10, fontSize: 12.5 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <Icon name="people" size={13} />
+                    <label htmlFor={"seats-" + r.id}>People this invitation is for</label>
+                    <select
+                      id={"seats-" + r.id}
+                      className="taw-sel taw-sel--sm"
+                      value={r.seats}
+                      disabled={busy === r.id + ":seats"}
+                      onChange={(e) => run(r.id + ":seats", () => siteSetInviteSeats(r.id, Number(e.target.value)), (o: any) => (o.seats > 1 ? "This invitation is now for up to " + o.seats + " people." : "Only " + r.name + " can use this invitation."))}
+                    >
+                      {choices.map((n: number) => (
+                        <option key={n} value={n}>
+                          {seatChoiceLabel(n)}
+                        </option>
+                      ))}
+                    </select>
+                    {r.seats > 1 ? <span style={{ color: "var(--taupe)" }}>{seats}</span> : null}
+                  </div>
 
-              {Array.isArray(r.joined) && r.joined.length ? (
-                <div style={{ marginTop: 8, fontSize: 12.5 }}>
-                  <div style={{ color: "var(--taupe)", marginBottom: 4 }}>Joined through this invitation</div>
-                  {r.joined.map((j: any) => (
-                    <div key={j.code} style={{ display: "flex", alignItems: "center", gap: 10, padding: "3px 0" }}>
-                      <span style={{ flex: 1 }}>
-                        <b>{j.name || "Guest"}</b>
-                        {j.email ? " · " + j.email : ""}
-                        {j.claimed_at ? " · " + fmtDate(j.claimed_at) : ""}
-                        {j.status === "revoked" ? " · access taken back" : ""}
-                      </span>
-                      {j.status !== "revoked" ? (
-                        <button
-                          className="taw-btn taw-btn--ghost taw-btn--sm"
-                          disabled={busy === j.code}
-                          onClick={() => {
-                            if (!window.confirm("Take back " + (j.name || "this person") + "'s access? They are signed out and cannot sign back in. The place becomes free.")) return;
-                            run(j.code, () => siteRevokeInviteSeat(j.code), () => (j.name || "Their") + " access has been taken back.");
-                          }}
-                        >
-                          {busy === j.code ? <Spinner /> : <Icon name="x" size={12} />} Take back
-                        </button>
-                      ) : null}
+                  {r.seats > 1 ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ padding: "3px 0" }}>
+                        <b>{r.name}</b> <span style={{ color: "var(--taupe)" }}>· main person</span>
+                      </div>
+                      {(r.joined || []).map((j: any) => {
+                        const st = personStatus(j);
+                        return (
+                          <div key={j.code} style={{ padding: "6px 0", borderTop: "1px solid var(--line, rgba(0,0,0,.06))" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              <span style={{ flex: 1, minWidth: 180 }}>
+                                <b>{j.name || "Guest"}</b>
+                                {j.email ? " · " + j.email : ""}
+                                {j.phone ? " · " + j.phone : ""}
+                              </span>
+                              <span className={cx("taw-status", "taw-status--" + (st.tone === "ok" ? "success" : st.tone === "bad" ? "danger" : "warn"))}>{st.text}</span>
+                            </div>
+                            {j.status === "unused" && j.link && !j.expired ? <ShareBar code={j.code} link={j.link} phone={j.phone} firstName={j.first_name} advisor={r.approved_by} /> : null}
+                            {j.status !== "revoked" ? (
+                              <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                                {j.status === "unused" && !j.expired ? (
+                                  <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy === j.code + ":resend"} onClick={() => run(j.code + ":resend", () => siteResendInvitePerson(j.code), () => "Invitation emailed again to " + (j.email || j.name) + ".")}>
+                                    {busy === j.code + ":resend" ? <Spinner /> : <Icon name="mail" size={12} />} Email again
+                                  </button>
+                                ) : null}
+                                <button
+                                  className="taw-btn taw-btn--ghost taw-btn--sm"
+                                  disabled={busy === j.code}
+                                  onClick={() => {
+                                    const ask = j.status === "redeemed" ? "Take back " + (j.name || "this person") + "'s access? They are signed out and cannot sign back in. The place becomes free." : "Remove " + (j.name || "this person") + " from this invitation? Their link stops working and the place becomes free.";
+                                    if (!window.confirm(ask)) return;
+                                    run(j.code, () => siteRevokeInviteSeat(j.code), () => (j.name || "Their") + (j.status === "redeemed" ? " access has been taken back." : " invitation has been removed."));
+                                  }}
+                                >
+                                  {busy === j.code ? <Spinner /> : <Icon name="x" size={12} />} {j.status === "redeemed" ? "Take back" : "Remove"}
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                      {r.can_add_person ? (
+                        <AddPersonForm requestId={r.id} onAdded={onChanged} />
+                      ) : (
+                        <div style={{ color: "var(--taupe)", marginTop: 6 }}>Every place is used. Raise the number of places to add someone else.</div>
+                      )}
                     </div>
-                  ))}
+                  ) : (
+                    <div style={{ color: "var(--taupe)", marginTop: 4 }}>Only {r.first_name || r.name}. Choose more places to add a spouse, assistant or family member.</div>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -260,6 +290,64 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
         })}
       </div>
     </>
+  );
+}
+
+// AddPersonForm: the advisor types the extra person's details, so the person is asked nothing: they get their own link,
+// emailed to them (and shareable on WhatsApp from the list), and claim it in one tap.
+function AddPersonForm({ requestId, onAdded }: { requestId: string; onAdded: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function add() {
+    const problem = addPersonProblem({ name, email, phone });
+    if (problem) {
+      toast(problem, "error");
+      return;
+    }
+    setBusy(true);
+    siteAddInvitePerson(requestId, { name: name.trim(), email: email.trim(), phone: phone.trim() || undefined })
+      .then((out: any) => {
+        setBusy(false);
+        setName("");
+        setEmail("");
+        setPhone("");
+        setOpen(false);
+        toast(
+          out.email_sent ? "Added " + out.name + ". Their invitation was emailed to " + out.email + "." : "Added " + out.name + ", but the email did not go through (" + (out.email_error || "unknown") + "). Send their link on WhatsApp from the list.",
+          out.email_sent ? "success" : "error"
+        );
+        onAdded();
+      })
+      .catch((e: any) => {
+        setBusy(false);
+        toast(errText(e), "error");
+      });
+  }
+
+  if (!open) {
+    return (
+      <button className="taw-btn taw-btn--accent taw-btn--sm" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
+        <Icon name="plus" size={13} /> Add a person
+      </button>
+    );
+  }
+  const box: any = { padding: "6px 10px", fontSize: 12.5 };
+  return (
+    <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+      <input className="taw-input" style={{ ...box, minWidth: 160 }} placeholder="Name" aria-label="Their name" value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />
+      <input className="taw-input" style={{ ...box, minWidth: 200 }} type="email" placeholder="Email" aria-label="Their email" value={email} onChange={(e) => setEmail(e.target.value)} />
+      <input className="taw-input" style={{ ...box, width: 150 }} type="tel" placeholder="Phone (optional)" aria-label="Their phone, optional" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busy} onClick={add}>
+        {busy ? <Spinner /> : <Icon name="send" size={13} />} Add and email invitation
+      </button>
+      <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={() => setOpen(false)}>
+        Cancel
+      </button>
+    </div>
   );
 }
 
