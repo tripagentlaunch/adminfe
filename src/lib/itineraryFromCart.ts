@@ -1082,3 +1082,35 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
   };
   return { data: next, ok: true, message: "Added as a swap option for " + (isFlight ? what : target.title) + "." };
 }
+
+// A price the advisor entered by hand for a flight or stay quoted OFFLINE (another vendor, not TripSure). It is the vendor's total for the
+// whole party / whole stay, so it is a real price like any other (totals, quote, proposal and PDF read item.price): not "from", not an
+// estimate, and no longer a draft. It carries no TripSure live price, so it is never offered for online payment. What the item looked
+// like before is kept in manualPrice.prev so "Back to the earlier price" restores it exactly. vendor/note stay internal.
+export type ManualPriceInput = { amount: number; vendor?: string; note?: string };
+
+export function applyManualPrice(item: any, v: ManualPriceInput, now: string = new Date().toISOString()): any {
+  const amount = Math.round(Number(v.amount) * 100) / 100;
+  if (!item || !(amount > 0) || item.status === "confirmed") return item;
+  const prev = item.manualPrice
+    ? item.manualPrice.prev
+    : { price: item.price ?? null, priceIsFrom: item.priceIsFrom, priceIsEstimate: item.priceIsEstimate, status: item.status, nextStep: item.nextStep, meta: item.meta };
+  const vendor = (v.vendor || "").trim(), note = (v.note || "").trim();
+  return {
+    ...item,
+    price: amount,
+    priceIsFrom: false,
+    priceIsEstimate: false,
+    status: item.status === "draft" ? "on_hold" : item.status,
+    nextStep: undefined,
+    meta: "Price entered manually" + (vendor ? " — quoted by " + vendor : " — quoted offline") + (note ? " · " + note : "") + " · not a TripSure live price",
+    manualPrice: { amount, vendor, note, at: now, prev },
+  };
+}
+
+export function clearManualPrice(item: any): any {
+  if (!item || !item.manualPrice) return item;
+  const { manualPrice, ...rest } = item;
+  const p = manualPrice.prev || {};
+  return { ...rest, price: p.price ?? null, priceIsFrom: p.priceIsFrom, priceIsEstimate: p.priceIsEstimate, status: p.status ?? item.status, nextStep: p.nextStep, meta: p.meta };
+}

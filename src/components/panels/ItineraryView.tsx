@@ -53,7 +53,7 @@ import { PaidTripHistory } from "./PaidTripHistory";
 import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, clearManualPrice } from "../../lib/itineraryFromCart";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -138,6 +138,72 @@ function EditableText({
 // attention statuses share the "warn" amber bucket, so the concrete
 // next step (not just the color) is what keeps them distinguishable,
 // and it has to live IN the pill so it survives a collapsed row (#2).
+// ManualPrice — for a flight or stay quoted OFFLINE by another vendor (not TripSure): the advisor types the vendor's total for the whole
+// party / whole stay and it becomes the item's price everywhere (totals, quote, proposal, PDF), so nothing has to be edited in the PDF
+// afterwards. Vendor and note are internal. "Back to the earlier price" restores what the item had before (e.g. Tara's draft figure).
+function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amount: number; vendor: string; note: string }) => void; onClear: () => void }) {
+  const mp = item.manualPrice || null;
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [vendor, setVendor] = useState("");
+  const [note, setNote] = useState("");
+  const [bad, setBad] = useState(false);
+  function start() {
+    setAmount(mp ? String(mp.amount) : "");
+    setVendor(mp ? mp.vendor || "" : "");
+    setNote(mp ? mp.note || "" : "");
+    setBad(false);
+    setOpen(true);
+  }
+  function save() {
+    const n = Number(String(amount).replace(/[,\s₹]/g, ""));
+    if (!(n > 0) || !Number.isFinite(n)) { setBad(true); return; }
+    onSave({ amount: n, vendor, note });
+    setOpen(false);
+  }
+  const what = item.type === "hotel" ? "the whole stay" : "all travellers";
+  return (
+    <div className="taw-itin-manual">
+      {mp && !open ? (
+        <div className="taw-itin-manual-row">
+          <span>
+            <b>Price entered manually: {inr(mp.amount)}</b> ({what}){mp.vendor ? " · " + mp.vendor : ""}{mp.note ? " · " + mp.note : ""}
+          </span>
+          <button type="button" className="taw-linkbtn" onClick={start}>Edit</button>
+          <button type="button" className="taw-linkbtn" onClick={onClear}>Back to the earlier price</button>
+        </div>
+      ) : null}
+      {!mp && !open ? (
+        <button type="button" className="taw-btn taw-btn--sm" onClick={start} title="For a price you got offline from another vendor">
+          Enter price manually
+        </button>
+      ) : null}
+      {open ? (
+        <div className="taw-itin-manual-form">
+          <label>
+            Total price for {what} (₹)
+            <input className="taw-itin-edit-input" inputMode="decimal" autoFocus value={amount} placeholder="e.g. 64500"
+              onChange={(e) => { setAmount(e.target.value); setBad(false); }} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+          </label>
+          <label>
+            Vendor (optional, internal)
+            <input className="taw-itin-edit-input" value={vendor} placeholder="Who quoted it" onChange={(e) => setVendor(e.target.value)} />
+          </label>
+          <label>
+            Note (optional, internal)
+            <input className="taw-itin-edit-input" value={note} placeholder="e.g. valid till Friday" onChange={(e) => setNote(e.target.value)} />
+          </label>
+          {bad ? <div className="taw-itin-manual-err" role="alert">Enter an amount above 0.</div> : null}
+          <div className="taw-itin-manual-btns">
+            <button type="button" className="taw-btn taw-btn--sm taw-btn--accent" onClick={save}>Save price</button>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setOpen(false)}>Cancel</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StatusPill({ status, nextStep }: { status: ItineraryItemStatus; nextStep?: string }) {
   const meta = STATUS_META[status];
   return (
@@ -290,6 +356,20 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       days: d.days.map((day: any) =>
         day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? { ...it, ...patch } : it)) }
       ),
+    }));
+  }
+
+  function setManualPrice(dayId: string, itemId: string, v: { amount: number; vendor: string; note: string }) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? applyManualPrice(it, v) : it)) })),
+    }));
+    toast("Price saved: " + inr(v.amount) + " — it is in the totals, the quote and the proposal", "success");
+  }
+  function clearItemManualPrice(dayId: string, itemId: string) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? clearManualPrice(it) : it)) })),
     }));
   }
 
@@ -882,7 +962,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
-                          {item.type === "flight" && !item.pricing && item.status !== "confirmed" ? (
+                          {item.type === "flight" && !item.pricing && !item.manualPrice && item.status !== "confirmed" ? (
                             // Not live-priced (Tara's draft, or added before live pricing): no live fare, no
                             // breakdown in the proposal and not payable online until priced from Search.
                             <div className="taw-itin-reprice">
@@ -923,6 +1003,9 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                 </button>
                               ) : null}
                             </div>
+                          ) : null}
+                          {(item.type === "hotel" || (item.type === "flight" && (!item.pricing || item.manualPrice))) && item.status !== "confirmed" && item.status !== "booked" ? (
+                            <ManualPrice item={item} onSave={(v) => setManualPrice(day.id, item.id, v)} onClear={() => clearItemManualPrice(day.id, item.id)} />
                           ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}
                           {item.facts ? <StayFacts facts={item.facts} /> : null}

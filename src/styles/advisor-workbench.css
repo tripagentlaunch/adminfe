@@ -2017,3 +2017,11 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 /* Conversation tab: the chat gets the wider column, so its header (title, Claude usage, Tara site, call, WhatsApp) sits on ONE row. */
 .taw-cols-2.taw-convo-grid{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);}
 @media(max-width:900px){.taw-cols-2.taw-convo-grid{grid-template-columns:1fr;}}
+
+.taw-itin-manual{margin-top:6px;font-size:12px;}
+.taw-itin-manual-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 9px;border-radius:8px;background:var(--ok-bg,#eaf6ee);color:var(--ok-ink,#1f6b3a);}
+.taw-itin-manual-row>span{flex:1 1 220px;min-width:0;}
+.taw-itin-manual-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;padding:8px 9px;border-radius:8px;border:1px solid var(--line,#e5e0d8);}
+.taw-itin-manual-form label{display:flex;flex-direction:column;gap:3px;color:var(--taupe,#7a7266);}
+.taw-itin-manual-err{grid-column:1/-1;color:var(--danger,#b3261e);}
+.taw-itin-manual-btns{grid-column:1/-1;display:flex;gap:8px;}

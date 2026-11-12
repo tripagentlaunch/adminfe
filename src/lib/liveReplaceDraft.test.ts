@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addCartItemToItinerary, replacesExisting } from "./itineraryFromCart";
+import { addCartItemToItinerary, applyManualPrice, clearManualPrice, itineraryTotals, replacesExisting } from "./itineraryFromCart";
 import { sameHotelName } from "./livePriceRequest";
 
 const draftFlight = { id: "f-0", type: "flight", status: "draft", flightNo: "414 + 2863", origin: "BLR", dest: "VIE", price: 50000, title: "Tara draft" };
@@ -52,5 +52,33 @@ describe("sameHotelName", () => {
     expect(sameHotelName("Hotel Sacher", "Hotel Sacher Wien")).toBe(true);
     expect(sameHotelName("Hotel Sacher", "Imperial Riding School")).toBe(false);
     expect(sameHotelName("", "Hotel Sacher")).toBe(false);
+  });
+});
+
+describe("manual (offline vendor) price", () => {
+  const draft = { id: "f-0", type: "flight", status: "draft", price: 18000, priceIsFrom: true, nextStep: "Not yet searched", meta: "From Tara's plan" };
+  it("sets a real price, no longer a draft/from, and keeps the old state", () => {
+    const m = applyManualPrice(draft, { amount: 64500, vendor: "Acme Travels", note: "valid till Fri" }, "2026-11-12T10:00:00Z");
+    expect(m.price).toBe(64500);
+    expect(m.priceIsFrom).toBe(false);
+    expect(m.status).toBe("on_hold");
+    expect(m.meta).toContain("Acme Travels");
+    expect(itineraryTotals({ days: [{ items: [m] }] }).grand).toBe(64500);
+  });
+  it("editing again keeps the ORIGINAL earlier price; clearing restores it", () => {
+    const once = applyManualPrice(draft, { amount: 64500 });
+    const twice = applyManualPrice(once, { amount: 70000, vendor: "X" });
+    expect(twice.price).toBe(70000);
+    const back = clearManualPrice(twice);
+    expect(back.price).toBe(18000);
+    expect(back.priceIsFrom).toBe(true);
+    expect(back.status).toBe("draft");
+    expect(back.manualPrice).toBeUndefined();
+  });
+  it("refuses zero / negative / confirmed items", () => {
+    expect(applyManualPrice(draft, { amount: 0 })).toBe(draft);
+    expect(applyManualPrice(draft, { amount: -5 })).toBe(draft);
+    const conf = { ...draft, status: "confirmed" };
+    expect(applyManualPrice(conf, { amount: 100 })).toBe(conf);
   });
 });
