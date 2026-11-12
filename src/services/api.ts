@@ -1472,6 +1472,11 @@ function siteSuperKeys() {
   return adminbeSuperKeyCall("", "GET");
 }
 
+// A new super key: { label, code? (8 letters/digits; one is made if blank), expires_in_days? } -> { code, label, active, expires_at }
+function siteCreateSuperKey(body) {
+  return adminbeSuperKeyCall("", "POST", body || {});
+}
+
 function siteSetSuperKeyActive(code, active) {
   return adminbeSuperKeyCall("/" + encodeURIComponent(code) + "/active", "POST", { active: !!active });
 }
@@ -1479,8 +1484,45 @@ function siteSetSuperKeyActive(code, active) {
 // siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
-function siteApproveAccessRequest(id) {
-  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", {});
+// opts (optional): { seats: 1-10 } lets that many people join with this one invitation (default: just them);
+// { expiry_days } sets how long they have to claim it. Returns { code, link, expires_at, email_sent, first_name, phone, seats }.
+function siteApproveAccessRequest(id, opts?) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", opts || {});
+}
+
+// Sharing an approved person's invitation (adminbe /admin/access-requests/{id}/...):
+//   resend  -> emails their live code again       nudge  -> a reminder email for one nobody has claimed
+//   reissue -> a new code (and 14 days); the old one stops working
+// each returns { code, link, email_sent, email_error, first_name, phone }.
+function siteResendInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/resend", "POST", {});
+}
+function siteNudgeInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/nudge", "POST", {});
+}
+function siteReissueInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/reissue", "POST", {});
+}
+// How many people in all can join with this invitation (1-10). -> { seats, seats_used }
+function siteSetInviteSeats(id, seats) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/seats", "POST", { seats: seats });
+}
+// Take back one person's seat (the code they joined with): their access ends and the place is free again.
+function siteRevokeInviteSeat(code) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/invite-codes/" + encodeURIComponent(code) + "/revoke", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: "{}",
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
+      }
+      return data;
+    });
+  });
 }
 
 // siteDenyAccessRequest(id, declineReason?) -> { ok: true }
@@ -3228,6 +3270,12 @@ export {
   siteAccessRequestsApproved,
   siteSuperKeys,
   siteSetSuperKeyActive,
+  siteCreateSuperKey,
+  siteResendInvite,
+  siteNudgeInvite,
+  siteReissueInvite,
+  siteSetInviteSeats,
+  siteRevokeInviteSeat,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 

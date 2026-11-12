@@ -28,6 +28,8 @@ import {
   siteSetSuperKeyActive,
   inr,
 } from "../../services/api";
+import { ApprovedRequestsList, NewSuperKeyForm, ShareBar, copyText } from "./ApprovedInvites";
+import { SEAT_CHOICES, prettyCode, seatChoiceLabel } from "../../lib/inviteShare";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelpers";
 import { Card, Empty, Spinner, Icon } from "../ui";
@@ -326,67 +328,11 @@ function EnquiryAssignSection(props: any) {
   );
 }
 
-// ApprovedRequestsList: requests an advisor approved, each with whether the person has
-// claimed their code yet: Claimed (with the date), Pending (code sent, not yet used,
-// with its expiry), Expired (the code ran out unclaimed) or No code.
-function ApprovedRequestsList({ rows, loading }: { rows: any[]; loading: boolean }) {
-  const claimed = rows.filter((r) => r.claim_status === "claimed").length;
-  const waiting = rows.filter((r) => r.claim_status === "pending").length;
-  const badge = (r: any) => {
-    if (r.claim_status === "claimed")
-      return { cls: "success", text: "Claimed" + (r.claimed_at ? " " + fmtDate(r.claimed_at) : "") };
-    if (r.claim_status === "pending")
-      return { cls: "warn", text: "Pending" + (r.expires_at ? ", code expires " + fmtDate(r.expires_at) : "") };
-    if (r.claim_status === "expired") return { cls: "danger", text: "Code expired, not claimed" };
-    return { cls: "info", text: "No code issued" };
-  };
-  if (loading && !rows.length) return <div className="taw-skel" style={{ height: 96 }} />;
-  if (!rows.length) return <Empty icon={<Icon name="inbox" size={28} />}>No approved requests yet.</Empty>;
-  return (
-    <>
-      <div style={{ fontSize: 12.5, color: "var(--taupe)", marginBottom: 10 }}>
-        {claimed} claimed · {waiting} waiting to claim · {rows.length} approved
-      </div>
-      <div className="taw-qlist">
-        {rows.map((r: any) => {
-          const b = badge(r);
-          return (
-            <div key={r.id} className="taw-qrow" style={{ display: "block" }}>
-              <div className="taw-qrow-top">
-                <span className="taw-qtype taw-icrow">
-                  <Icon name="user" size={13} />
-                  {r.name}
-                </span>
-                <span className={cx("taw-status", "taw-status--" + b.cls)}>{b.text}</span>
-              </div>
-              <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
-                {r.email} · {r.phone}
-                {r.city ? " · " + r.city : ""}
-              </div>
-              {r.destination || r.travel_date ? (
-                <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 5 }}>
-                  {r.destination ? "Wants to go: " + r.destination : ""}
-                  {r.destination && r.travel_date ? " · " : ""}
-                  {r.travel_date ? "When: " + r.travel_date : ""}
-                </div>
-              ) : null}
-              <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 5 }}>
-                Approved{r.approved_by ? " by " + r.approved_by : ""}
-                {r.approved_at ? " on " + fmtDate(r.approved_at) + " " + fmtTime(r.approved_at) : ""}
-                {r.code ? " · Code " : ""}
-                {r.code ? <b style={{ fontFamily: "monospace" }}>{r.code}</b> : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
 // SuperKeysList: fixed codes anyone can enter with no approval. Each shows how many
 // times it was used and the latest entries; an entry shows where the visitor came in from
 // when they pressed "Allow location" on the claim page. The switch turns a key off.
+const keyEnded = (k: any) => !!k.expires_at && new Date(k.expires_at).getTime() <= Date.now();
+
 function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loading: boolean; onToggle: (k: any) => void; busyCode: string | null }) {
   if (loading && !keys.length) return <div className="taw-skel" style={{ height: 96 }} />;
   if (!keys.length) return <Empty icon={<Icon name="shield" size={28} />}>No super keys yet.</Empty>;
@@ -405,14 +351,20 @@ function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loa
               <b style={{ fontFamily: "monospace" }}>{k.code}</b>
               {k.label ? " · " + k.label : ""}
             </span>
-            <span className={cx("taw-status", "taw-status--" + (k.active ? "success" : "danger"))}>{k.active ? "On" : "Off"}</span>
+            <span className={cx("taw-status", "taw-status--" + (k.active && !keyEnded(k) ? "success" : "danger"))}>{keyEnded(k) ? "Ended" : k.active ? "On" : "Off"}</span>
           </div>
           <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 7 }}>
             Entered <b>{k.total_entries}</b> {k.total_entries === 1 ? "time" : "times"}
             {k.last_entered_at ? " · last " + fmtDate(k.last_entered_at) + " " + fmtTime(k.last_entered_at) : ""}
             {k.total_entries ? " · " + k.located_entries + " shared a location" : ""}
+            {k.expires_at ? (keyEnded(k) ? " · ended " : " · ends ") + fmtDate(k.expires_at) : ""}
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {k.link ? (
+              <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => copyText(k.link, "Link copied")}>
+                <Icon name="note" size={13} /> Copy link
+              </button>
+            ) : null}
             <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busyCode === k.code} onClick={() => onToggle(k)}>
               {busyCode === k.code ? <Spinner /> : null}
               {k.active ? "Turn key off" : "Turn key on"}
@@ -526,9 +478,12 @@ function AccessRequestsSection() {
       });
   }
 
+  // How many people each pending request's invitation will admit (default: just them), picked before approving.
+  const [seatPick, setSeatPick] = useState<any>({});
+
   function approve(row: any) {
     setBusyId(row.id);
-    siteApproveAccessRequest(row.id)
+    siteApproveAccessRequest(row.id, { seats: seatPick[row.id] || 1 })
       .then((result: any) => {
         setBusyId(null);
         setJustApproved((prev: any) => ({ ...prev, [row.id]: { ...result, full_name: row.full_name, email: row.email } }));
@@ -624,17 +579,15 @@ function AccessRequestsSection() {
                   </span>
                 </div>
                 <div style={{ marginTop: 6 }}>
-                  Code: <b style={{ fontFamily: "monospace" }}>{a.code}</b>
-                  {a.link ? (
-                    <>
-                      {" "}
-                      — <a href={a.link} target="_blank" rel="noreferrer">{a.link}</a>
-                    </>
-                  ) : null}
+                  Code: <b style={{ fontFamily: "monospace" }}>{prettyCode(a.code)}</b>
+                  {a.seats > 1 ? ` — up to ${a.seats} people can join with it` : ""}
                   {a.already_member
                     ? ` — their existing code (same ${a.matched_on || "details"}); they sign in with it.`
-                    : !a.email_sent ? " — share this code with them directly." : ""}
+                    : !a.email_sent ? " — the email did not go out, so send it to them yourself:" : " — or send it to them yourself:"}
                 </div>
+                {!a.already_member && a.code && a.link ? (
+                  <ShareBar code={a.code} link={a.link} phone={a.phone} firstName={a.first_name} />
+                ) : null}
                 <button
                   className="taw-btn taw-btn--ghost taw-btn--sm"
                   style={{ position: "absolute", top: 10, right: 10 }}
@@ -686,6 +639,20 @@ function AccessRequestsSection() {
                       {r.reason ? <div style={{ fontSize: 12.5, color: "var(--taupe)", marginTop: 5 }}>{r.reason}</div> : null}
                     </div>
                     <div className="taw-qrow-actions">
+                      <select
+                        className="taw-sel taw-sel--sm"
+                        aria-label={"Who can use " + (r.first_name || r.full_name || "this") + "'s invitation"}
+                        title="Who can use this invitation"
+                        value={seatPick[r.id] || 1}
+                        disabled={busyId === r.id}
+                        onChange={(ev) => setSeatPick((p: any) => ({ ...p, [r.id]: Number(ev.target.value) }))}
+                      >
+                        {SEAT_CHOICES.map((n) => (
+                          <option key={n} value={n}>
+                            {seatChoiceLabel(n)}
+                          </option>
+                        ))}
+                      </select>
                       <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={busyId === r.id} onClick={() => approve(r)}>
                         {busyId === r.id ? <Spinner /> : <Icon name="check" size={13} />}
                         Approve
@@ -735,9 +702,12 @@ function AccessRequestsSection() {
         ) : null}
           </>
         ) : tab === "approved" ? (
-          <ApprovedRequestsList rows={approved} loading={loading} />
+          <ApprovedRequestsList rows={approved} loading={loading} onChanged={load} />
         ) : (
-          <SuperKeysList keys={superKeys} loading={loading} onToggle={toggleSuperKey} busyCode={busyKey} />
+          <>
+            <NewSuperKeyForm onCreated={load} />
+            <SuperKeysList keys={superKeys} loading={loading} onToggle={toggleSuperKey} busyCode={busyKey} />
+          </>
         )}
       </div>
     </Card>
