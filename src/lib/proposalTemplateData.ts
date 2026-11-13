@@ -244,6 +244,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         id: it.id,
         hotelKey: it.hotelKey || null,
         isOriginalChoice: !it.originalHotelKey || it.originalHotelKey === it.hotelKey,
+        originalHotelKey: it.originalHotelKey || null,   // after a swap, the alternative with this key is still "Our choice"
         alternatives: (it.alternatives || []).map((a: any) => ({
           hotelKey: a.hotelKey,
           name: a.name,

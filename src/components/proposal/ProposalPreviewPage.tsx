@@ -292,16 +292,18 @@ function StayDetails({ facts, skip = [] }: { facts: any; skip?: string[] }) {
   if (!facts) return null;
   const room = facts.room || {};
   const photos: string[] = [...(room.images || []), ...(facts.images || [])].filter((u, i, a) => a.indexOf(u) === i).slice(0, 10);
-  const lines: [string, string][] = [];
+  const lines: [string, string | string[]][] = [];
   if ((room.inclusions || []).length) lines.push(["Included", room.inclusions.join(" · ")]);
   const roomBits = [room.view, room.bed, room.size].filter(Boolean).join(" · ");
   if (roomBits) lines.push(["Room", roomBits]);
   if (facts.checkIn || facts.checkOut)
     lines.push(["Check-in / out", [facts.checkIn ? facts.checkIn + (facts.checkInUntil ? " – " + facts.checkInUntil : "") : null, facts.checkOut].filter(Boolean).join(" / ")]);
   if ((room.cancellation || []).length) lines.push(["Cancellation", room.cancellation[0]]);
-  if ((facts.highlights || []).length) lines.push(["Highlights", facts.highlights.slice(0, 6).join(" · ")]);
-  if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 3).join(" · ")]);
-  if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 4).join(" · ")]);
+  // Highlights, good to know and nearby are lists, shown as one item per line (chips for the highlights), not run together
+  // with " · " into one paragraph: that is what made the wide card's columns uneven.
+  if ((facts.highlights || []).length) lines.push(["Highlights", facts.highlights.slice(0, 8)]);
+  if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 4)]);
+  if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 5)]);
   if (facts.guestRating && facts.guestRating.rating) lines.push(["Guest rating", facts.guestRating.rating + (facts.guestRating.count ? " (" + facts.guestRating.count + " reviews)" : "")]);
   const shown = lines.filter(([k]) => !skip.includes(k));
   return (
@@ -317,7 +319,16 @@ function StayDetails({ facts, skip = [] }: { facts: any; skip?: string[] }) {
       {shown.length ? (
         <dl className="pv-stayfacts">
           {shown.map(([k, v]) => (
-            <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>
+                {Array.isArray(v) ? (
+                  <ul className={k === "Highlights" ? "pv-stayfacts-chips" : "pv-stayfacts-list"}>
+                    {v.map((x, i) => <li key={i}>{x}</li>)}
+                  </ul>
+                ) : v}
+              </dd>
+            </div>
           ))}
         </dl>
       ) : null}
@@ -487,6 +498,7 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         <img className="pv-altcard-photo" src={a.image} alt="" onError={hideBrokenImage} />
       ) : <div className="pv-altcard-photo" aria-hidden="true" />}
       <div className="pv-altcard-body">
+        {st.originalHotelKey && a.hotelKey === st.originalHotelKey ? <span className="pv-chip pv-chip--choice" style={{ alignSelf: "flex-start", marginBottom: 4 }}>Our choice</span> : null}
         <span className="pv-option-name pv-option-name--block">{a.name}</span>
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
         <div className="pv-altcard-foot">
@@ -508,6 +520,7 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         <img className="pv-option-thumb" src={a.image} alt="" onError={hideBrokenImage} />
       ) : null}
       <div className="pv-option-body">
+        {st.originalHotelKey && a.hotelKey === st.originalHotelKey ? <span className="pv-chip pv-chip--choice" style={{ alignSelf: "flex-start", marginBottom: 4 }}>Our choice</span> : null}
         <span className="pv-option-name pv-option-name--block">{a.name}</span>
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
       </div>

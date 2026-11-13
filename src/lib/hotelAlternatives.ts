@@ -1,6 +1,6 @@
 /* Swap options for a hotel added to the itinerary, and the live "from" prices they are ranked by.
    Shared by the Console's Hotels desk and the Add-a-hotel popup (components/orders/HotelItineraryPopup). */
-import { hotelRates } from "../services/api";
+import { hotelFacts, hotelRates } from "../services/api";
 import { straightKm } from "./hotelDistance";
 import { offerNet } from "./hotelListing";
 
@@ -64,15 +64,20 @@ export async function pricedAlternatives(alts: any[]): Promise<any[]> {
   }
   const withRates = alts.map(({ _handles, ...a }) => {
     const r = _handles ? rates[_handles.hotelId] : null;
-    if (!r) return a;
-    return {
+    const priced = !r ? a : {
       ...a,
       price: r.price,
       board: r.board || a.board,
       image: a.image || (r.images && r.images[0]) || null,
       images: r.images || [],
+      roomTitle: r.roomTitle || null,
       detail: [a.stars ? a.stars + "-star" : null, r.roomTitle, r.board].filter(Boolean).join(" · "),
     };
+    return { priced, handles: _handles };
   });
-  return withRates.filter((a) => a.price > 0).concat(withRates.filter((a) => !(a.price > 0))).slice(0, 3);
+  const kept = withRates.filter((x) => x.priced.price > 0).concat(withRates.filter((x) => !(x.priced.price > 0))).slice(0, 3);
+  // Each swap option keeps the stay's specifics (highlights, good to know, nearby, check-in window, photos) the way the chosen
+  // hotel does, so swapping to it later shows the same content in the proposal. A failed call just leaves that option without.
+  const facts = await Promise.all(kept.map((x) => (x.handles ? Promise.resolve(hotelFacts(x.handles)).catch(() => null) : Promise.resolve(null))));
+  return kept.map((x, i) => (facts[i] ? { ...x.priced, facts: facts[i] } : x.priced));
 }

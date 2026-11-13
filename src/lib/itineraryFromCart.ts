@@ -663,6 +663,14 @@ export function hotelBasesFromItinerary(data: any): HotelBase[] {
     run.push(day);
   }
   flush();
+  // The last stay lasts until the trip ends: an itinerary with one day built so far (Tue 08 Dec) but a trip that runs to
+  // Sat 12 Dec is searched for the real 4 nights, the same dates the Hotels search form opens on, not for one night.
+  const endIso = typeof data.endIso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.endIso) ? data.endIso : null;
+  const lastBase = bases[bases.length - 1];
+  if (endIso && lastBase && lastBase.checkOut > tripLastIso && endIso > lastBase.checkOut) {   // only when the trip's last day was not already trimmed off
+    lastBase.checkOut = endIso;
+    lastBase.nights = Math.round((Date.parse(endIso) - Date.parse(lastBase.checkIn)) / 86_400_000);
+  }
   return bases;
 }
 
@@ -797,10 +805,19 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           lat: it.lat ?? null,
           lng: it.lng ?? null,
           detail: null,
+          roomTitle: it.roomType ?? null, // its own room name, so swapping back restores it
           facts: it.facts ?? null, // the facts belong to this hotel: they swap with it
           images: (it.facts && it.facts.images) || [],
         };
-        const roomType = alt.stars ? `${alt.stars}-star` : null;
+        // The room the swap option was priced for (its cheapest live room), else just its star class.
+        const roomType = alt.roomTitle || (alt.stars ? `${alt.stars}-star` : null);
+        // "4 nights · from ₹X/night" is this hotel's, not the one it replaces.
+        const nightsN = parseInt(String(it.duration || ""), 10) || 0;
+        const roomsN = Array.isArray(it.occupancy) && it.occupancy.length ? it.occupancy.length : 1;
+        const detailRest = [
+          nightsN ? `${nightsN} night${nightsN === 1 ? "" : "s"}` : null,
+          nightsN && alt.price > 0 ? `from ₹${Math.round(alt.price / nightsN / roomsN).toLocaleString("en-IN")}/night` : null,
+        ].filter(Boolean).join(" · ");
         const { note: _staleNote, detailLine: _oldLine, ...rest } = it;
         void _staleNote;
         void _oldLine;
@@ -825,7 +842,8 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           // An alternative priced at add time brings its photos; full facts only if it had them.
           facts: alt.facts ?? (alt.images && alt.images.length ? { images: alt.images } : null),
           roomType,
-          sub: [roomType, alt.address, alt.board].filter(Boolean).join(" · "),
+          detailRest: detailRest || it.detailRest,
+          sub: [alt.stars ? `${alt.stars}-star` : null, alt.address, alt.board].filter(Boolean).join(" · "),
           alternatives: alts
             .map((a, i) => (i === idx ? demoted : a))
             .map((a) => ({ ...a, detail: backToOriginal ? detailsVsOriginal[a.hotelKey] ?? null : null })),

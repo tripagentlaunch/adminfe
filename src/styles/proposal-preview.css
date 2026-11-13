@@ -837,6 +837,10 @@
 .pv-stayfacts>div{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;}
 .pv-stayfacts dt{color:#8a8172;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding-top:2px;}
 .pv-stayfacts dd{margin:0;}
+.pv-stayfacts-list{margin:0;padding-left:17px;display:grid;gap:5px;}
+.pv-stayfacts-list li::marker{color:#b4a98f;}
+.pv-stayfacts-chips{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px;}
+.pv-stayfacts-chips li{background:#fff;border:1px solid #e3ddd0;border-radius:999px;padding:3px 11px;font-size:12px;line-height:1.5;}
 .pv-lightbox{position:fixed;inset:0;background:rgba(15,12,10,.82);display:grid;place-items:center;z-index:2000;cursor:zoom-out;padding:24px;}
 .pv-lightbox img{max-width:100%;max-height:100%;border-radius:12px;}
 @media (max-width:640px){.pv-stayfacts>div{grid-template-columns:1fr;gap:2px;}}
@@ -861,8 +865,11 @@
 .pv-stayfacts--quick>div{grid-template-columns:110px minmax(0,1fr);}
 .pv-staywide-more{padding:4px 24px 22px;}
 .pv-staywide-more .pv-staygallery{margin-top:16px;}
-.pv-staywide-more .pv-stayfacts{display:block;columns:2;column-gap:36px;margin-top:14px;}
-.pv-staywide-more .pv-stayfacts>div{break-inside:avoid;margin-bottom:12px;}
+/* The details of the chosen stay: one tidy block per fact (label above its text), laid out in aligned columns that fill
+   the width, instead of two newspaper columns that left the first one half empty. */
+.pv-staywide-more .pv-stayfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px 36px;margin-top:18px;align-items:start;}
+.pv-staywide-more .pv-stayfacts>div{display:block;border-top:1px solid #e3ddd0;padding-top:10px;}
+.pv-staywide-more .pv-stayfacts dt{margin-bottom:8px;padding-top:0;}
 .pv-altcards-wrap{margin-top:18px;}
 .pv-altcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
 .pv-altcard{border:1px solid #ececec;border-radius:12px;overflow:hidden;background:#fff;display:flex;flex-direction:column;}
@@ -871,7 +878,7 @@
 .pv-altcard-foot{margin-top:auto;padding-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
 @media (max-width:900px){
   .pv-staywide-top{grid-template-columns:1fr;}
-  .pv-staywide-more .pv-stayfacts{columns:1;}
+  .pv-staywide-more .pv-stayfacts{grid-template-columns:1fr;gap:16px;}
 }
 
 /* Live-priced flight: date, fare and add-ons lines; alternatives' facts; the cost line's
