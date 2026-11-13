@@ -18,6 +18,7 @@ import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { paxText, type PaxMix } from "../../lib/flightRequests";
 import { FlightQuoteDrawer, autoPriceOffer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { rankFlightOffers, withoutBudgetCarriers } from "../../lib/flightRank";
 import { LIVE_PRICE_EVENT, flightNum, takeLivePriceRequest, type LivePriceRequest } from "../../lib/livePriceRequest";
 import { Dropdown, Empty, Field, Spinner, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType } from "../../lib/mockFlightSearch";
@@ -98,7 +99,8 @@ function codeFromAsk(text: any): string | null {
 // shows the CURRENT option's own icon — giving them all the same one is
 // what makes it "always visible" without needing a separate prop for it).
 const SORT_OPTIONS = [
-  { key: "best", label: "Best", icon: "sort" },
+  { key: "recommended", label: "Recommended", icon: "sort" },
+  { key: "best", label: "Best value", icon: "sort" },
   { key: "cheapest", label: "Cheapest", icon: "sort" },
   { key: "fastest", label: "Fastest", icon: "sort" },
   { key: "earliest", label: "Earliest arrival", icon: "sort" },
@@ -301,8 +303,9 @@ export function FlightDesk(props: any) {
   const journeyUsedRef = useRef(false);
   // Shopping controls (FLT-011 filters / FLT-012 sort) — applied client-side
   // over the offers the search adapter returns. Reset whenever a new search runs.
-  const [view, setView] = useState<{ sort: string; stops: string; refundable: boolean; carrier: string; depWindow: string }>(
-    () => saved?.view || { sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" }
+  // Starts on the system's recommendation, full-service airlines only (lib/flightRank.ts); both can be changed in the strip.
+  const [view, setView] = useState<{ sort: string; stops: string; refundable: boolean; carrier: string; depWindow: string; premium?: boolean }>(
+    () => saved?.view || { sort: "recommended", stops: "any", refundable: false, carrier: "all", depWindow: "any", premium: true }
   );
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
@@ -592,7 +595,7 @@ export function FlightDesk(props: any) {
     setLeg("outbound");
     setSelectedChipDate(includeNearbyDates ? searchDate : null);
     setChipWindowStart(0);
-    setView({ sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" });
+    setView({ sort: "recommended", stops: "any", refundable: false, carrier: "all", depWindow: "any", premium: true });
 
     const originCode = form.originCode.toUpperCase().trim();
     const destCode = form.destCode.toUpperCase().trim();
@@ -1093,7 +1096,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
   }
   const autoPricing = !!autoOffer && autoFailed?.id !== autoId;
   const active = quote || (autoOffer && autoFailed?.id === autoId ? { offer: autoOffer, tab: "fares" as const } : null);
-  // A live-priced flight into the itinerary, with two swap options by default: the closest other
+  // A live-priced flight into the itinerary, with two swap options by default: the next best by the recommendation (else the closest) other
   // flights on the same route and day, at their fare for the same travellers (no add-ons — "fare
   // only"), bookable as they are. "+ Swap option" adds one priced live with its seats, meals and
   // bags when the customer is weighing options.
@@ -1102,7 +1105,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     const day = (x: any) => x._searchDate || (x.detail || {}).date;
     const alternatives = shown
       .filter((x: any) => x.id !== o.id && day(x) === day(o) && (x.detail || {}).flightNo !== (o.detail || {}).flightNo)
-      .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
+      .sort((a: any, b: any) => (a._rec && b._rec ? a._rec.rank - b._rec.rank : Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet)))
       .slice(0, 2)
       .map((alt: any) => {
         const ad = alt.detail || {};
@@ -1164,6 +1167,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     }
     return true;
   });
+  if (view.premium) shown = withoutBudgetCarriers(shown);
   // One card per flight. TripSure returns the same flight once per supplier it sells it through
   // (different price, baggage and fare families), which listed it twice. The card shows the
   // cheapest; the others stay one click away on it ("Also from another supplier").
@@ -1190,7 +1194,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     const p = t.split(":");
     return Number(p[0]) * 60 + Number(p[1] || 0);
   };
-  shown = shown.slice().sort((a: any, b: any) => {
+  shown = view.sort === "recommended" ? rankFlightOffers(shown) : shown.slice().sort((a: any, b: any) => {
     const da = a.detail || {},
       db = b.detail || {};
     if (view.sort === "cheapest") return offNet(a) - offNet(b);
@@ -1223,6 +1227,10 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
             <Dropdown value={view.carrier} options={carrierOptions} onChange={(v: any) => setV("carrier", v)} ariaLabel="Filter by carrier" triggerClassName="taw-filter-dd" />
           ) : null}
           <Dropdown value={view.stops} options={STOPS_OPTIONS} onChange={(v: any) => setV("stops", v)} ariaLabel="Filter by stops" triggerClassName="taw-filter-dd" />
+          <button type="button" className={cx("taw-btn", "taw-btn--sm", view.premium ? "taw-btn--accent" : "")} aria-pressed={!!view.premium}
+            onClick={() => setV("premium", !view.premium)} title="Hide budget carriers while a full-service airline flies the route">
+            Full-service airlines
+          </button>
           {/* No Refundable chip (2026-10-30, the user's call): each card already says Refundable /
               Non-ref, and the fare options in the pricing drawer show it per fare. */}
         </div>
@@ -1267,6 +1275,12 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                         </span>
                       ) : null}
                     </div>
+                    {view.sort === "recommended" && o._rec ? (
+                      <div className="taw-muted" style={{ fontSize: 12, margin: "4px 0 2px" }}>
+                        {o._rec.rank <= 3 ? <b>{`Recommended #${o._rec.rank}: `}</b> : null}
+                        {o._rec.reasons.slice(0, 5).join(" · ")}
+                      </div>
+                    ) : null}
                     <button className="taw-linkbtn" onClick={() => setQuote({ offer: o, tab: "timeline" })}>
                       <Icon name="chevron" size={12} />
                       {"Timeline · " + (fareCount(o) > 1 ? fareCount(o) + " fare options" : "fare options") + " · seats"}

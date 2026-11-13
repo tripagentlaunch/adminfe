@@ -1742,6 +1742,18 @@ function hotelRates(hotels) {
   return fastapiHotelCall("/hotels/rates", { method: "POST", body: { hotels: hotels } });
 }
 
+// hotelRatings(city, names[]) — POST /hotels/ratings: Google's guest rating for up to 15 hotels,
+// { name: { rating, reviews } | null }. Ranks the hotels the builder lists (never shown as TripSure's).
+function hotelRatings(city, names) {
+  return fastapiHotelCall("/hotels/ratings", { method: "POST", body: { city: city || null, names: names } });
+}
+
+// cityGuide(city) — GET /hotels/city-guide: the website's city page for a city (where to base yourself, and its
+// stay / eat / do / after-dark picks, best tier first), { guide: {...} | null }.
+function cityGuide(city) {
+  return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city), { method: "GET" });
+}
+
 // hotelPhoto(name, city) — GET /hotels/photo: a Google Places photo for a stay
 // with no TripSure image ({url} | {url: null}).
 function hotelPhoto(name, city) {
@@ -3191,6 +3203,8 @@ export {
   hotelDistances,
   hotelFacts,
   hotelRates,
+  hotelRatings,
+  cityGuide,
   hotelPhoto,
   hotelRecommendations,
   hotelSetWebsite,

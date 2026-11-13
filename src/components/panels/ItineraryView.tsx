@@ -58,6 +58,8 @@ import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
+import { CityGuidePanel } from "./CityGuidePanel";
+import { itineraryCityTexts } from "../../lib/cityGuideText";
 
 // editValue/type (2026-09-04) — added for the day date, the one field
 // here where the DISPLAYED text ("Thu 12 Oct") and the value that needs
@@ -373,6 +375,15 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     }));
   }
 
+  // A pick from the city guide goes into the day's description, which is what the proposal and its PDF show for that day.
+  function addGuideLineToDay(dayId: string, text: string) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, description: (day.description ? day.description.trim() + " " : "") + text })),
+    }));
+    toast("Added to the day: " + text.slice(0, 60) + (text.length > 60 ? "…" : ""), "success");
+  }
+
   function reorderItems(dayId: string, dragItemId: string, dropItemId: string) {
     if (dragItemId === dropItemId) return;
     setData((d: any) => ({
@@ -681,6 +692,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
           before it takes a flight's payment). Only when a flight has a live price. */}
       <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
+      <CityGuidePanel texts={itineraryCityTexts(data)} onAddToDay={addGuideLineToDay}
+        days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly

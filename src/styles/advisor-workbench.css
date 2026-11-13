@@ -2025,3 +2025,15 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-itin-manual-form label{display:flex;flex-direction:column;gap:3px;color:var(--taupe,#7a7266);}
 .taw-itin-manual-err{grid-column:1/-1;color:var(--danger,#b3261e);}
 .taw-itin-manual-btns{grid-column:1/-1;display:flex;gap:8px;}
+
+.taw-itin-guide{margin:10px 0;}
+.taw-itin-guide-body{margin-top:10px;display:flex;flex-direction:column;gap:18px;}
+.taw-itin-guide-city{border:1px solid var(--line,#e5e0d8);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.taw-itin-guide-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:14px;}
+.taw-itin-guide-head a{margin-left:auto;font-size:12px;}
+.taw-itin-guide-sec{margin-top:8px;display:flex;flex-direction:column;gap:10px;}
+.taw-itin-guide-eyebrow{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe,#7a7266);}
+.taw-itin-guide-pick{display:flex;flex-direction:column;gap:2px;font-size:12.5px;}
+.taw-itin-guide-tier{margin-left:8px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8a847a);}
+.taw-itin-guide-add{display:flex;gap:6px;align-items:center;margin-top:3px;}
+.taw-itin-guide-add select{max-width:260px;font-size:12px;}

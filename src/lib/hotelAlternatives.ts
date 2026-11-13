@@ -11,8 +11,8 @@ import { offerNet } from "./hotelListing";
 export const FROM_PRICES = new Map<string, { price: number; board: string | null; refundable: any } | null>();
 export const fromKey = (t: any) => t.hotelId + "|" + t.token;
 
-// Three swap options for a hotel, picked automatically: same star rating, closest
-// price (or nearest by straight line when unpriced). Removable in the builder.
+// Three swap options for a hotel, picked automatically: same star rating, the next best by
+// the recommendation (else closest price, or nearest by straight line when unpriced). Removable in the builder.
 // `_handles` lets addRoom price them live (POST /hotels/rates) — listings are
 // often unpriced, which used to save them at ₹0.
 // Shape = what swapHotelAlternative / the proposal read.
@@ -37,7 +37,8 @@ export function hotelAlternatives(shown: any[], o: any): any[] {
   return shown
     .filter((x: any) => x.id !== o.id && ((x.detail || {}).stars || 0) === (d0.stars || 0)
       && !(x._tripsure && x._tripsure.hotelId && FROM_PRICES.get(fromKey(x._tripsure)) === null))
-    .sort((a: any, b: any) => dist(a) - dist(b))
+    // The next best by the system's recommendation (lib/hotelRank.ts) when the list is ranked, else the closest price.
+    .sort((a: any, b: any) => (a._rec && b._rec ? a._rec.rank - b._rec.rank : dist(a) - dist(b)))
     .slice(0, ALT_CANDIDATES)
     .map((x: any) => {
       const d = x.detail || {};

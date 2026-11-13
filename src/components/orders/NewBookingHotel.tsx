@@ -16,6 +16,7 @@ import { mobileOk, nationalMobile, splitMobile } from "../../lib/phone";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
+import { cityGuide, hotelRatings } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { hotelCartItem } from "../../lib/advisorHelpers";
 import { hotelAlternatives, pricedAlternatives } from "../../lib/hotelAlternatives";
@@ -25,6 +26,7 @@ import {
   DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, sortHotels, viewKey, type HotelView,
 } from "../../lib/hotelListing";
 import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
+import { rankHotels, type HotelRankCtx, type Rating } from "../../lib/hotelRank";
 import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
 import { HotelLocationMap } from "../panels/HotelLocationMap";
 import {
@@ -253,7 +255,16 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // `hotels` are TripSure's hotels, each carrying the docKey/token of the response it came from
   // (`_session`): the first screen and every later page have their own, and details / price check
   // need the pair that came with the hotel.
-  const [view, setView] = useState<HotelView>(DEFAULT_HOTEL_VIEW);
+  // The advisor building an itinerary starts on the system's recommendation, luxury only (5-star, guests rate it very highly);
+  // both can be switched off from the chips below.
+  const initialView: HotelView = itinerary ? { ...DEFAULT_HOTEL_VIEW, sort: "recommended", luxury: true } : DEFAULT_HOTEL_VIEW;
+  const [view, setView] = useState<HotelView>(initialView);
+  // Where the search is centred, Google's guest ratings for the leading hotels, and the website's stay picks for the city:
+  // what the recommendation ranks on (lib/hotelRank.ts).
+  const [center, setCenter] = useState<{ lat: number; lon: number } | null>(null);
+  const [ratings, setRatings] = useState<Record<string, Rating | undefined>>({});
+  const [guideStays, setGuideStays] = useState<any[]>([]);
+  const askedRatings = useRef<Set<string>>(new Set());
   const setV = (k: keyof HotelView, v: any) => setView((f) => ({ ...f, [k]: v }));
   const [layout, setLayout] = useState<"list" | "map">("list");
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -271,7 +282,34 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     [hotels, nights, nRooms, intl]
   );
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
-  const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
+  const rankCtx: HotelRankCtx = useMemo(
+    () => ({ lat: center && center.lat, lon: center && center.lon, where: form.city, nights, rooms: nRooms, ratings, guide: guideStays, luxury: view.luxury }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [center, form.city, nights, nRooms, ratings, guideStays, view.luxury]
+  );
+  const shown = useMemo(() => sortHotels(filterHotels(offers, view, rankCtx), view, rankCtx), [offers, view, rankCtx]);
+
+  // The website's stay picks for the searched city, once per city.
+  const guideFor = useRef("");
+  useEffect(() => {
+    if (!itinerary || sub !== "results" || !form.city.trim() || guideFor.current === form.city.trim().toLowerCase()) return;
+    guideFor.current = form.city.trim().toLowerCase();
+    cityGuide(form.city.trim()).then((r: any) => setGuideStays((r && r.guide && r.guide.stay) || [])).catch(() => setGuideStays([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sub, form.city, itinerary]);
+  // Google's guest rating for the hotels that lead the ranking (up to 12 at a time, each hotel asked once), so the ranking
+  // and the "very good only" filter have it. Hotels arrive page by page, so this runs again as they do.
+  useEffect(() => {
+    if (!itinerary || sub !== "results" || !offers.length || (view.sort !== "recommended" && !view.luxury)) return;
+    const lead = rankHotels(offers.filter((o) => (o.detail.stars || 0) >= 4), { ...rankCtx, luxury: true }).slice(0, 12)
+      .map((o) => String(o.detail.hotelName || "")).filter((n) => n && !askedRatings.current.has(n));
+    if (!lead.length) return;
+    lead.forEach((n) => askedRatings.current.add(n));
+    hotelRatings(form.city.trim(), lead)
+      .then((r: any) => setRatings((m) => ({ ...m, ...lead.reduce((acc: any, n) => { acc[n] = (r && r[n]) || null; return acc; }, {}) })))
+      .catch(() => lead.forEach((n) => askedRatings.current.delete(n)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers.length, sub, view.sort, view.luxury]);
   const filterKey = viewKey(view);
   const nFilters = activeFilterCount(view);
   useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
@@ -286,7 +324,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
   const sessOf = (h: any) => (h && h._session) || session;
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
-  const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
+  const hReset = () => setView((f) => ({ ...initialView, sort: f.sort }));
 
   function runSearch() {
     onError(null);
@@ -307,6 +345,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     withLoc
       .then((top: any): Promise<any> | any => {
         const countryCode = top.country || "IN";
+        if (top.coordinates) setCenter({ lat: Number(top.coordinates.lat), lon: Number(top.coordinates.lon) });
         const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg), nationality]);
         searchKeyRef.current = key;
         const kept = keptSearch(key);
@@ -330,7 +369,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       })
       .then((out: any) => {
         stopMore();
-        setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
+        setView(initialView); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
         if (out.kept) {
           setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setIntl(!!out.kept.international); setHotels(out.kept.hotels); setSub("results");
           return;
@@ -686,6 +725,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <div className="ow-fchips">
             {chip(layout === "list", "List", () => setLayout("list"), "list")}
             {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
+            {itinerary ? chip(view.sort === "recommended", "Recommended", () => setV("sort", "recommended"), "star") : null}
+            {itinerary ? chip(view.luxury, "5-star, top-rated", () => setV("luxury", !view.luxury)) : null}
             {chip(view.sort === "best", "Best value", () => setV("sort", "best"))}
             {chip(view.sort === "cheapest", "Price ↑", () => setV("sort", view.sort === "cheapest" ? "best" : "cheapest"))}
             {chip(view.sort === "priceDesc", "Price ↓", () => setV("sort", view.sort === "priceDesc" ? "best" : "priceDesc"))}
@@ -761,6 +802,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
                       <span>{info.city || form.city}</span>
                     </div>
                     {info.address ? <div className="ow-hcard-addr">{info.address}</div> : null}
+                    {itinerary && view.sort === "recommended" && o._rec ? (
+                      <div className="ow-hcard-addr" style={{ opacity: 0.9 }}>
+                        {o._rec.rank <= 3 ? <b>{`Recommended #${o._rec.rank}: `}</b> : null}
+                        {o._rec.reasons.slice(0, 5).join(" · ")}
+                      </div>
+                    ) : null}
                     <div className="ow-fcard-tags" style={{ border: 0, paddingTop: 0 }}>
                       {hOpt(h, "freeCancellation") || (best && best.refundability === "Refundable") ? <span className="ow-tag ok">Free cancellation</span> : null}
                       {hOpt(h, "freeBreakfast") ? <span className="ow-tag ok">Breakfast included</span> : null}
