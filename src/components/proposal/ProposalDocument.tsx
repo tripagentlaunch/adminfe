@@ -13,7 +13,7 @@ import type { ReactNode } from "react";
 import { Document, Page, View, Text, StyleSheet, Svg, Path, Link, Image } from "@react-pdf/renderer";
 import { registerProposalFonts } from "../../lib/proposalFonts";
 import { inr } from "../../services/api";
-import { distanceText } from "../../lib/diningPlan";
+import { cardTags, distanceText } from "../../lib/diningPlan";
 
 registerProposalFonts();
 
@@ -403,7 +403,8 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   );
 }
 
-// EatPage: the screen's "Where to eat" tab, the restaurants from our city guide per city, with how far each is from the hotel.
+// EatPage: the screen's "Where to eat" tab: the restaurants from our city guide per city, each with the website's own details
+// (tag, every award, description, area) and how far it is from the hotel.
 function EatPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   return (
     <Page size="A4" style={s.page}>
@@ -412,7 +413,19 @@ function EatPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       {(data.whereToEat || []).map((g: any, i: number) => (
         <View key={g.city} style={{ marginBottom: 12 }}>
           <Text style={[s.eyebrow, { marginTop: i ? 10 : 0, marginBottom: 6 }]}>{`${g.city} · from our city guide, not booked`}</Text>
-          <View style={[s.panel, { padding: 13 }]}><EatRows entries={g.picks} /></View>
+          {g.picks.map((e: any, k: number) => {
+            const { headline, rest } = cardTags(e);
+            return (
+              <View key={e.id || k} wrap={false} style={[s.panel, { marginBottom: 8, padding: 12 }]}>
+                <Text style={{ fontSize: 12, fontWeight: 600 }}>{e.name}</Text>
+                {headline ? <Text style={[s.eyebrow, { marginTop: 3 }]}>{headline}</Text> : null}
+                {rest.map((c: string, j: number) => <Text key={j} style={s.dayBody}>{c}</Text>)}
+                {e.description ? <Text style={s.dayBody}>{e.description}</Text> : null}
+                {e.area ? <Text style={s.dayBody}>{e.area}</Text> : null}
+                {e.distance ? <Text style={[s.dayBody, { fontWeight: 600 }]}>{distanceText(e.distance)}</Text> : null}
+              </View>
+            );
+          })}
         </View>
       ))}
       {hasVisa ? null : <Footnote />}

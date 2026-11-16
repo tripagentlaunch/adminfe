@@ -38,7 +38,7 @@ export function diningEntry(item: EatItem, guide: Pick<EatGuide, "city" | "url">
     area: item.area || null,
     tier: item.tier || null,
     tag: item.tag || null,
-    credentials: (item.credentials || []).slice(0, 3),
+    credentials: (item.credentials || []).filter((c) => typeof c === "string" && c.trim()),
     description: item.description ? String(item.description).trim() : null,
     photo: item.photo || null,
     city: guide.city,
@@ -93,7 +93,7 @@ export function hotelForDay(days: any[], dayId: string): DayHotel | null {
 }
 
 /** The trip-wide "Where to eat" summary for the proposal's Plan tab: the dining entries of all days, grouped by city, once each. */
-export function whereToEatByCity(days: any[], perCity = 5): { city: string; url: string | null; picks: DiningEntry[] }[] {
+export function whereToEatByCity(days: any[], perCity = 60): { city: string; url: string | null; picks: DiningEntry[] }[] {
   const byCity = new Map<string, { city: string; url: string | null; picks: DiningEntry[] }>();
   for (const day of days || []) {
     for (const e of (day.dining || []) as DiningEntry[]) {
@@ -103,4 +103,28 @@ export function whereToEatByCity(days: any[], perCity = 5): { city: string; url:
     }
   }
   return Array.from(byCity.values());
+}
+
+/* The card the website's city page draws for a restaurant (pages/CityPage.tsx): one headline tag, then every award in its own box. */
+const TAG_MAX = 40;
+
+// "Established 1916 - a living institution" -> its shorter half, or the whole when it already fits.
+function headlineTag(full: string): string {
+  if (full.length <= TAG_MAX) return full;
+  const halves = full.split(/\s+[—–-]\s+|:\s+/).map((h) => h.trim()).filter((h) => h.length >= 6);
+  const fits = halves.filter((h) => h.length <= TAG_MAX).sort((a, b) => a.length - b.length);
+  return fits[0] ?? full;
+}
+
+/** The headline tag (the guide's own tag, else the first award shortened) and the awards listed under it. */
+export function cardTags(e: Pick<DiningEntry, "tag" | "credentials">): { headline: string | null; rest: string[] } {
+  const creds = e.credentials || [];
+  return { headline: e.tag || (creds[0] ? headlineTag(creds[0]) : null), rest: e.tag ? creds : creds.slice(1) };
+}
+
+/** The tiers present among restaurants, in the page's order (Destination, Fine, Smart, Casual, then any other). */
+export function tiersOf(entries: Pick<DiningEntry, "tier">[]): string[] {
+  const order = ["Destination", "Fine", "Smart", "Casual"];
+  const present = Array.from(new Set(entries.map((e) => e.tier || "Picks")));
+  return present.sort((a, b) => (order.indexOf(a) === -1 ? 99 : order.indexOf(a)) - (order.indexOf(b) === -1 ? 99 : order.indexOf(b)));
 }

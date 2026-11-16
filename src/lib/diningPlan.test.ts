@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diningEntry, distanceText, hotelForDay, whereToEatByCity, type EatItem } from "./diningPlan";
+import { cardTags, diningEntry, distanceText, hotelForDay, tiersOf, whereToEatByCity, type EatItem } from "./diningPlan";
 
 const FARM: EatItem = {
   id: "bengaluru:farmlore", name: "Farmlore", tier: "Fine", area: "Raju Layout", tag: "Condé Nast Traveller India",
@@ -12,7 +12,7 @@ describe("diningEntry", () => {
   it("copies the card and the distance from the hotel it was added for", () => {
     const e = diningEntry(FARM, GUIDE, { km: 3.24, minutes: 11, approx: false }, HOTEL);
     expect(e).toMatchObject({ id: "bengaluru:farmlore", name: "Farmlore", tier: "Fine", tag: "Condé Nast Traveller India", photo: "https://x/p.jpg", city: "Bengaluru", description: "A farm table.", url: GUIDE.url });
-    expect(e.credentials).toHaveLength(3);
+    expect(e.credentials).toHaveLength(4);                                       // every award is kept, as the city page lists them
     expect(e.distance).toEqual({ km: 3.24, minutes: 11, approx: false, hotel: "Taj West End" });
   });
   it("has no distance when it is not known, or there is no hotel to measure from", () => {
@@ -55,5 +55,25 @@ describe("whereToEatByCity", () => {
     expect(g).toHaveLength(1);
     expect(g[0].picks.map((p) => p.name)).toEqual(["Farmlore", "Karavalli"]);
     expect(g[0].url).toBe(GUIDE.url);
+  });
+});
+
+describe("cardTags", () => {
+  it("uses the guide's own tag and lists every award under it", () => {
+    const e = diningEntry(FARM, GUIDE);
+    expect(cardTags(e)).toEqual({ headline: "Condé Nast Traveller India", rest: e.credentials });
+  });
+  it("without a tag, shortens the first award and lists the rest", () => {
+    const t = cardTags({ tag: null, credentials: ["Condé Nast Traveller India Top Restaurant Awards 2024: No. 17 in the whole of the country", "La Liste 2026"] });
+    expect(t.headline).toBe("No. 17 in the whole of the country");   // as the website does: the shorter half that fits in 40 characters
+    expect(t.rest).toEqual(["La Liste 2026"]);
+    expect(cardTags({ tag: null, credentials: [] })).toEqual({ headline: null, rest: [] });
+  });
+});
+
+describe("tiersOf", () => {
+  it("lists the tiers present in the page's order, unknown ones last", () => {
+    expect(tiersOf([{ tier: "Smart" }, { tier: "Fine" }, { tier: "Fine" }, { tier: null }, { tier: "Odd" }])).toEqual(["Fine", "Smart", "Picks", "Odd"]);
+    expect(tiersOf([])).toEqual([]);
   });
 });

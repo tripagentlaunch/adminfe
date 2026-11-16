@@ -52,9 +52,44 @@ const readDebug = () => new URLSearchParams(window.location.search).get("debug")
 import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
-import { distanceText } from "../../lib/diningPlan";
+import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
+// "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
+// the restaurant's name, one headline tag, every award in its own box, the description, and the area; ours adds how far it is from the hotel.
+function EatCards({ entries }: { entries: any[] }) {
+  const tiers = tiersOf(entries);
+  const [picked, setPicked] = useState<string>("");
+  const tier = tiers.includes(picked) ? picked : tiers[0];
+  const shown = tiers.length > 1 ? entries.filter((e) => (e.tier || "Picks") === tier) : entries;
+  return (
+    <>
+      {tiers.length > 1 ? (
+        <div className="pv-eatt" role="tablist" aria-label="Kind of place">
+          {tiers.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={t === tier} className={"pv-eatt-btn" + (t === tier ? " is-active" : "")} onClick={() => setPicked(t)}>{t}</button>
+          ))}
+        </div>
+      ) : null}
+      <div className="pv-eatg">
+        {shown.map((e: any) => {
+          const { headline, rest } = cardTags(e);
+          return (
+            <article className="pv-eatc" key={e.id}>
+              <h3 className="pv-eatc-name">{e.name}</h3>
+              {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
+              {rest.map((c: string, i: number) => <span className="pv-eatc-cred" key={i}>{c}</span>)}
+              {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
+              {e.area ? <div className="pv-eatc-loc"><span aria-hidden="true">◎</span> {e.area}</div> : null}
+              {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
+            </article>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 // The restaurant's photo from the city page; when it can't be loaded the space is not left empty.
 function EatPhoto({ src, name }: { src: string; name: string }) {
   const [bad, setBad] = useState(false);
@@ -1176,7 +1211,7 @@ export function ProposalPreviewPage({
                         <span className="pv-recgroup-title">{g.city}</span>
                         {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
                       </div>
-                      <EatList entries={g.picks} />
+                      <EatCards entries={g.picks} />
                     </div>
                   ))}
                 </>
