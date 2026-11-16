@@ -8,6 +8,7 @@ import { whereToEat, whereToEatDistances } from "../../services/api";
 import { Icon } from "../ui";
 import { diningEntry, distanceText, type DayHotel, type DiningEntry, type EatDistance, type EatGuide, type EatItem } from "../../lib/diningPlan";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
+import { eatPlaceholder } from "../../lib/eatPlaceholder";
 export { itineraryCityTexts };
 
 export type GuideDay = { id: string; label: string };
@@ -23,11 +24,10 @@ function EatCard({ item, guide, added, dayLabel, distance, distanceNote, hotel, 
   const headline = item.tag || (item.credentials && item.credentials[0]) || null;
   return (
     <article className="taw-eat-card">
-      <div className={"taw-eat-card-photo" + (photoOk && item.photo ? "" : " is-bare")}>
-        {item.photo && photoOk ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.photo} alt={item.name} loading="lazy" onError={() => setPhotoOk(false)} />
-        ) : null}
+      <div className="taw-eat-card-photo">
+        {/* the restaurant's photo; a placeholder when it has none or it can't be loaded */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={item.photo && photoOk ? item.photo : eatPlaceholder(item.name)} alt={item.name} loading="lazy" onError={() => setPhotoOk(false)} />
         {item.tier ? <span className="taw-eat-card-badge">{item.tier}</span> : null}
         <button type="button" className={"taw-eat-card-add" + (added ? " is-added" : "")} disabled={added || !dayLabel}
           aria-label={added ? `${item.name} is already on ${dayLabel}` : `Add ${item.name} to ${dayLabel}`}

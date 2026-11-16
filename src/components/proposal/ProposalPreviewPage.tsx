@@ -53,6 +53,7 @@ import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
 import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
+import { eatPlaceholder } from "../../lib/eatPlaceholder";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
 // "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
@@ -90,12 +91,11 @@ function EatCards({ entries }: { entries: any[] }) {
   );
 }
 
-// The restaurant's photo from the city page; when it can't be loaded the space is not left empty.
-function EatPhoto({ src, name }: { src: string; name: string }) {
+// The restaurant's photo from the city page; a placeholder picture when it has none or it can't be loaded.
+function EatPhoto({ src, name }: { src: string | null; name: string }) {
   const [bad, setBad] = useState(false);
-  if (bad) return null;
   // eslint-disable-next-line @next/next/no-img-element
-  return <img className="pv-eat-photo" src={src} alt={name} loading="lazy" onError={() => setBad(true)} />;
+  return <img className="pv-eat-photo" src={src && !bad ? src : eatPlaceholder(name, 300, 300)} alt={name} loading="lazy" onError={() => setBad(true)} />;
 }
 
 // "3.2 km from Taj West End · 11 min drive"
@@ -106,7 +106,7 @@ function EatList({ entries }: { entries: any[] }) {
     <div className="pv-eat-list">
       {entries.map((e: any) => (
         <div className="pv-eat-row" key={e.id}>
-          {e.photo ? <EatPhoto src={e.photo} name={e.name} /> : null}
+          <EatPhoto src={e.photo || null} name={e.name} />
           <div className="pv-eat-text">
             <div className="pv-eat-name">
               {e.name}
