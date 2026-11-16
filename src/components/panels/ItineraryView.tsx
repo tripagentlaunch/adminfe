@@ -206,6 +206,9 @@ function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amoun
             Note (optional, internal)
             <input className="taw-itin-edit-input" value={note} placeholder="e.g. valid till Friday" onChange={(e) => setNote(e.target.value)} />
           </label>
+          {item.pricing || (mp && mp.prev && mp.prev.pricing) ? (
+            <div className="taw-itin-manual-live">This flight has a live TripSure price. An offline price replaces it, is held for 12 hours, and isn&apos;t re-checked when the customer pays. &ldquo;Back to the earlier price&rdquo; brings the live price back.</div>
+          ) : null}
           {bad ? <div className="taw-itin-manual-err" role="alert">Enter an amount above 0.</div> : null}
           <div className="taw-itin-manual-btns">
             <button type="button" className="taw-btn taw-btn--sm taw-btn--accent" onClick={save}>Save price</button>
@@ -1052,7 +1055,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                               ) : null}
                             </div>
                           ) : null}
-                          {(item.type === "hotel" || (item.type === "flight" && (!item.pricing || item.manualPrice))) && item.status !== "confirmed" && item.status !== "booked" ? (
+                          {(item.type === "hotel" || item.type === "flight") && item.status !== "confirmed" && item.status !== "booked" ? (
                             <ManualPrice item={item} onSave={(v) => setManualPrice(day.id, item.id, v)} onClear={() => clearItemManualPrice(day.id, item.id)} />
                           ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}

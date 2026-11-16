@@ -2073,3 +2073,4 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-itin-offline.is-expired{border-color:rgba(176,52,52,.4);background:#fbecec;color:#8a2323;}
 .taw-itin-manual-hold{display:block;font-size:12px;margin-top:4px;color:var(--warn-ink,#6b4e12);}
 .taw-itin-manual-hold.is-expired{color:#a02a2a;font-weight:600;}
+.taw-itin-manual-live{font-size:12px;line-height:1.5;color:var(--warn-ink,#6b4e12);background:var(--warn-bg,#fbf3e2);border-radius:8px;padding:8px 10px;}

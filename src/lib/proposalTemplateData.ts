@@ -382,7 +382,8 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // A live-priced flight lists only options priced live too (fare + that airline's own seats,
         // meals, bags for every traveller), so swapping never shows a price that isn't real.
         // altIndex: the option's place in the itinerary (Swap acts on it).
-        alternatives: (it.alternatives || []).map((a: any, altIndex: number) => ({ a, altIndex }))
+        // An offline-priced flight (entered by hand) has no swap options: their prices would move a total that was never a live price
+        alternatives: (it.manualPrice ? [] : (it.alternatives || [])).map((a: any, altIndex: number) => ({ a, altIndex }))
           .filter(({ a }: any) => !it.pricing || a.pricing)
           .map(({ a, altIndex }: any) => ({
           carrier: a.carrier, flightNo: a.flightNo, depTime: clockTime(a.depTime), arrTime: clockTime(a.arrTime), stops: a.stops ?? 0,

@@ -137,4 +137,14 @@ describe("buildProposalTemplateData — offline prices", () => {
     const old = trip(); old.days[0].items[0].manualPrice = manual(105000, 14);
     expect((buildProposalTemplateData(old, null, null, null) as any).offlineNotice.expired).toBe(true);
   });
+
+  it("gives an offline-priced flight no swap options, and keeps them for a live one", () => {
+    const alt = { carrier: "Air India", flightNo: "AI 2819", depTime: "15:00", arrTime: "17:45", stops: 0, price: 14557, pricing: { source: "tripsure_live", total: 14557 } };
+    const live = { id: "f1", type: "flight", title: "AI 427", price: 18000, status: "on_hold", origin: "DEL", dest: "BLR", segments: [{ flightNo: "AI 427" }], pricing: { source: "tripsure_live", total: 18000 }, alternatives: [alt] };
+    const mk = (f: any) => buildProposalTemplateData({ days: [{ id: "d1", _iso: "2026-12-07", route: "DEL → BLR", label: "Day 1", items: [f] }] }, null, null, null) as any;
+    expect(mk(live).flights[0].alternatives).toHaveLength(1);
+    const off = { ...live, price: 15500, pricing: undefined, manualPrice: manual(15500, 1) };
+    expect(mk(off).flights[0].alternatives).toEqual([]);
+    expect(mk(off).flights[0].offline).toBe(true);
+  });
 });
