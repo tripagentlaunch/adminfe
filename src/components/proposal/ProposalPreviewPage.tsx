@@ -52,20 +52,28 @@ const readDebug = () => new URLSearchParams(window.location.search).get("debug")
 import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
+import { distanceText } from "../../lib/diningPlan";
 
-// Restaurants from our city guide: name, which meal, the area, and the award or credential that earned the place its spot.
+// Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
+// "3.2 km from Taj West End · 11 min drive"
+const distanceLine = (d: any) => distanceText(d);
+
 function EatList({ entries }: { entries: any[] }) {
   return (
     <div className="pv-eat-list">
       {entries.map((e: any) => (
         <div className="pv-eat-row" key={e.id}>
-          <div className="pv-eat-name">
-            {e.name}
-            {e.meal ? <span className="pv-eat-meal">{e.meal === "lunch" ? "Lunch" : "Dinner"}</span> : null}
+          {e.photo ? <div className="pv-eat-photo" style={{ backgroundImage: `url("${e.photo}")` }} role="img" aria-label={e.name} /> : null}
+          <div className="pv-eat-text">
+            <div className="pv-eat-name">
+              {e.name}
+              {e.meal ? <span className="pv-eat-meal">{e.meal === "lunch" ? "Lunch" : "Dinner"}</span> : null}
+            </div>
+            {e.area ? <div className="pv-eat-area">{e.area}</div> : null}
+            {e.distance ? <div className="pv-eat-dist">{distanceLine(e.distance)}</div> : null}
+            {e.tag || (e.credentials && e.credentials.length) ? <div className="pv-eat-cred">{e.tag || e.credentials[0]}</div> : null}
+            {e.description ? <div className="pv-eat-desc">{e.description}</div> : null}
           </div>
-          {e.area ? <div className="pv-eat-area">{e.area}</div> : null}
-          {e.credentials && e.credentials.length ? <div className="pv-eat-cred">{e.credentials.join(" · ")}</div> : null}
-          {e.description ? <div className="pv-eat-desc">{e.description}</div> : null}
         </div>
       ))}
     </div>

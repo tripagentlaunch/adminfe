@@ -1750,6 +1750,18 @@ function hotelRatings(city, names) {
 
 // cityGuide(city) — GET /hotels/city-guide: the website's city page for a city (where to base yourself, and its
 // stay / eat / do / after-dark picks, best tier first), { guide: {...} | null }.
+// whereToEat(city) — GET /hotels/where-to-eat: the website's "Where to eat" for a city exactly as its city page lists it
+// (photo, tag, awards, area; best tier first), { guide: {city, slug, url, source, items: [...]} | null }.
+function whereToEat(city) {
+  return fastapiHotelCall("/hotels/where-to-eat?city=" + encodeURIComponent(city), { method: "GET" });
+}
+
+// whereToEatDistances({ origin: {lat, lng}, items: [{id, place_id}] }) — POST /hotels/where-to-eat/distances: how far each
+// restaurant is from the hotel, { results: { id: {km, minutes, approx} | null }, note }.
+function whereToEatDistances(payload) {
+  return fastapiHotelCall("/hotels/where-to-eat/distances", { method: "POST", body: payload });
+}
+
 // `limit` (default 8, max 20) is how many picks of each kind to return.
 function cityGuide(city, limit?: number) {
   return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city) + (limit ? "&limit=" + limit : ""), { method: "GET" });
@@ -3206,6 +3218,8 @@ export {
   hotelRates,
   hotelRatings,
   cityGuide,
+  whereToEat,
+  whereToEatDistances,
   hotelPhoto,
   hotelRecommendations,
   hotelSetWebsite,

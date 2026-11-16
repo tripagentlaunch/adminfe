@@ -1,72 +1,59 @@
 import { describe, expect, it } from "vitest";
-import { diningEntry, isBar, isMealDay, suggestDining, whereToEatByCity, type DiningGuide } from "./diningPlan";
+import { diningEntry, distanceText, hotelForDay, whereToEatByCity, type EatItem } from "./diningPlan";
 
-const BLR: DiningGuide = {
-  city: "Bengaluru", slug: "bengaluru", url: "https://www.tripagent.vip/city-bengaluru",
-  eat: [
-    { name: "Farmlore", area: "North Bengaluru", tier: "Destination", credentials: ["Asia's 50 Best Restaurants 2025: No. 68"], description: "A farm table." },
-    { name: "Karavalli", area: "Residency Road", tier: "Fine", credentials: ["The World's 50 Best Discovery"], description: "Coastal food." },
-    { name: "Copitas", area: "Bellary Road", tier: "Fine", credentials: ["Asia's 50 Best Bars (No. 38, 2023)"], description: "A bar." },
-    { name: "Wabi Sabi", area: "MG Road", tier: "Fine", credentials: [], description: "Japanese." },
-    { name: "Bar Spirit Forward", area: "Lavelle Road", tier: "Smart", credentials: ["Asia's 50 Best Bars 2025: No. 37"], description: "Cocktails." },
-    { name: "MTR", area: "Lalbagh", tier: "Casual", credentials: [], description: "Idli." },
-  ],
+const FARM: EatItem = {
+  id: "bengaluru:farmlore", name: "Farmlore", tier: "Fine", area: "Raju Layout", tag: "Condé Nast Traveller India",
+  credentials: ["Condé Nast Traveller India Top Restaurant Awards 2024: No. 17", "b", "c", "d"], description: " A farm table. ", photo: "https://x/p.jpg", place_id: "ChIJ1",
 };
-const guideFor = (t: string) => (/bengaluru|bangalore/i.test(t) ? BLR : undefined);
-const day = (id: string, iso: string, extra: any = {}) => ({ id, _iso: iso, route: "Bengaluru", items: [{ type: "hotel", city: "Bengaluru" }], ...extra });
+const GUIDE = { city: "Bengaluru", url: "https://www.tripagent.vip/city-bengaluru" };
+const HOTEL = { name: "Taj West End", city: "Bengaluru", lat: 12.98, lng: 77.58 };
 
-describe("isBar", () => {
-  it("knows a bar from a restaurant", () => {
-    expect(isBar(BLR.eat![2])).toBe(true);   // credential: Best Bars
-    expect(isBar(BLR.eat![4])).toBe(true);   // name starts with "Bar"
-    expect(isBar(BLR.eat![0])).toBe(false);
+describe("diningEntry", () => {
+  it("copies the card and the distance from the hotel it was added for", () => {
+    const e = diningEntry(FARM, GUIDE, { km: 3.24, minutes: 11, approx: false }, HOTEL);
+    expect(e).toMatchObject({ id: "bengaluru:farmlore", name: "Farmlore", tier: "Fine", tag: "Condé Nast Traveller India", photo: "https://x/p.jpg", city: "Bengaluru", description: "A farm table.", url: GUIDE.url });
+    expect(e.credentials).toHaveLength(3);
+    expect(e.distance).toEqual({ km: 3.24, minutes: 11, approx: false, hotel: "Taj West End" });
+  });
+  it("has no distance when it is not known, or there is no hotel to measure from", () => {
+    expect(diningEntry(FARM, GUIDE).distance).toBeNull();
+    expect(diningEntry(FARM, GUIDE, { km: 3, minutes: null, approx: true }, null).distance).toBeNull();
   });
 });
 
-describe("isMealDay", () => {
-  it("is a dated day that is not flight-only", () => {
-    expect(isMealDay(day("a", "2026-12-07"))).toBe(true);
-    expect(isMealDay({ id: "a", _iso: "unscheduled", items: [] })).toBe(false);
-    expect(isMealDay({ id: "a", _iso: "2026-12-07", items: [{ type: "flight" }] })).toBe(false);
-    expect(isMealDay({ id: "a", _iso: "2026-12-07", items: [{ type: "flight" }, { type: "hotel" }] })).toBe(true);
+describe("distanceText", () => {
+  it("names the hotel and says how it was measured", () => {
+    expect(distanceText({ km: 3.24, minutes: 11, approx: false, hotel: "Taj West End" })).toBe("3.2 km from Taj West End · 11 min drive");
+    expect(distanceText({ km: 12.4, minutes: null, approx: false, hotel: "Taj West End" })).toBe("12 km from Taj West End");
+    expect(distanceText({ km: 7.14, minutes: null, approx: true, hotel: "Taj West End" })).toBe("about 7.1 km (straight line) from Taj West End");
+    expect(distanceText(null)).toBe("");
   });
 });
 
-describe("suggestDining", () => {
-  it("gives each day a dinner from the best tier, a lunch when a casual pick is left, no bars, no repeats", () => {
-    const days = [day("d1", "2026-12-07"), day("d2", "2026-12-08"), day("d3", "2026-12-09"), day("d4", "2026-12-10")];
-    const out = suggestDining(days, guideFor);
-    expect(out.d1.map((e) => [e.meal, e.name])).toEqual([["lunch", "MTR"], ["dinner", "Farmlore"]]);
-    expect(out.d2.map((e) => [e.meal, e.name])).toEqual([["dinner", "Karavalli"]]);
-    expect(out.d3.map((e) => e.name)).toEqual(["Wabi Sabi"]);
-    expect(out.d4).toBeUndefined();                       // the picks ran out: nothing invented
-    const names = Object.values(out).flat().map((e) => e.name);
-    expect(new Set(names).size).toBe(names.length);
-    expect(names).not.toContain("Copitas");
+describe("hotelForDay", () => {
+  const stay = (iso: string, title: string, nights: string, lat: any = 12.9, lng: any = 77.6) => ({ id: "d" + iso, _iso: iso, items: [{ type: "hotel", title, duration: nights, lat, lng, city: "Bengaluru" }] });
+  const days = [stay("2026-12-07", "Taj West End", "2"), { id: "d2026-12-08", _iso: "2026-12-08", items: [] }, { id: "d2026-12-09", _iso: "2026-12-09", items: [] }, stay("2026-12-10", "The Leela", "1", 13, 77.7)];
+  it("is the stay whose nights cover the day", () => {
+    expect(hotelForDay(days, "d2026-12-08")!.name).toBe("Taj West End");
   });
-  it("leaves a day the advisor already filled, and does not suggest its restaurant again", () => {
-    const kept = diningEntry(BLR.eat![0], BLR, "dinner");
-    const out = suggestDining([day("d1", "2026-12-07", { dining: [kept] }), day("d2", "2026-12-08")], guideFor);
-    expect(out.d1).toBeUndefined();
-    expect(out.d2.some((e) => e.name === "Farmlore")).toBe(false);
+  it("falls back to the trip's first hotel for a day no stay covers", () => {
+    expect(hotelForDay(days, "d2026-12-09")!.name).toBe("Taj West End"); // the Taj's two nights are the 7th and 8th; nothing starts on the 9th
   });
-  it("skips travel days and cities without a guide", () => {
-    const out = suggestDining([{ id: "t", _iso: "2026-12-07", route: "Bengaluru", items: [{ type: "flight" }] }, day("x", "2026-12-08", { route: "Atlantis", items: [] })], guideFor);
-    expect(out).toEqual({});
+  it("is the hotel on the day itself", () => {
+    expect(hotelForDay(days, "d2026-12-10")!.name).toBe("The Leela");
   });
-  it("uses casual picks as dinners when a city has nothing better", () => {
-    const g: DiningGuide = { city: "Hampi", slug: "hampi", eat: [{ name: "Mango Tree", tier: "Casual" }] };
-    expect(suggestDining([day("d1", "2026-12-07")], () => g).d1.map((e) => [e.meal, e.name])).toEqual([["dinner", "Mango Tree"]]);
+  it("ignores hotels without a map position, and is null when none has one", () => {
+    expect(hotelForDay([stay("2026-12-07", "No coords", "1", null, null)], "d2026-12-07")).toBeNull();
+    expect(hotelForDay([{ id: "a", _iso: "2026-12-07", items: [] }], "a")).toBeNull();
   });
 });
 
 describe("whereToEatByCity", () => {
   it("groups the trip's dining by city, each restaurant once", () => {
-    const e = diningEntry(BLR.eat![0], BLR, "dinner");
-    const g = whereToEatByCity([{ dining: [e] }, { dining: [e, diningEntry(BLR.eat![1], BLR, "dinner")] }]);
+    const e = diningEntry(FARM, GUIDE);
+    const g = whereToEatByCity([{ dining: [e] }, { dining: [e, diningEntry({ ...FARM, id: "bengaluru:karavalli", name: "Karavalli" }, GUIDE)] }]);
     expect(g).toHaveLength(1);
-    expect(g[0].city).toBe("Bengaluru");
     expect(g[0].picks.map((p) => p.name)).toEqual(["Farmlore", "Karavalli"]);
-    expect(g[0].url).toBe("https://www.tripagent.vip/city-bengaluru");
+    expect(g[0].url).toBe(GUIDE.url);
   });
 });

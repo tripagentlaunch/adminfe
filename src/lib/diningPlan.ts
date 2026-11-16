@@ -1,46 +1,58 @@
-/* "Where to eat" in an itinerary (2026-11-16). The restaurants come from our own city guides (GET /hotels/city-guide, the website's
-   city pages), never from anywhere else. A pick is copied onto the day as a `dining` entry (name, area, tier, credentials, one line),
-   so a proposal that was already sent does not change when the guide does. suggestDining() spreads a city's picks over its days. */
-import type { Pick } from "./cityGuideText";
+/* "Where to eat" in an itinerary. The restaurants are the ones our website's city page lists (GET /hotels/where-to-eat); the advisor
+   adds one to a day with the "+" on its card, and nothing is ever added for them. An added restaurant is copied onto the day as a
+   `dining` entry, with how far it is from the hotel the advisor was looking at (a snapshot: a proposal that was already sent does
+   not change when the guide does). */
+
+export type EatItem = {
+  id: string; name: string; tier?: string | null; area?: string | null; tag?: string | null; credentials?: string[];
+  description?: string | null; photo?: string | null; place_id?: string | null;
+};
+export type EatGuide = { city: string; slug: string; url: string; source?: string; items: EatItem[] };
+export type EatDistance = { km: number; minutes: number | null; approx: boolean };
 
 export type DiningEntry = {
   id: string;
   name: string;
   area: string | null;
   tier: string | null;
+  tag: string | null;
   credentials: string[];
   description: string | null;
+  photo: string | null;
   city: string;
   /** The website's page for the city. */
   url: string | null;
-  meal: "lunch" | "dinner" | null;
+  /** How far it is from the hotel the advisor added it for; null when that is not known. */
+  distance: { km: number; minutes: number | null; approx: boolean; hotel: string } | null;
+  /** Older entries (before 2026-11-17) carried the meal. */
+  meal?: "lunch" | "dinner" | null;
 };
 
-export type DiningGuide = { city: string; slug: string; url?: string | null; eat?: Pick[] };
+export type DayHotel = { name: string; city: string; lat: number; lng: number };
 
-const slugOf = (s: string) => s.toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-
-/** A bar rather than a place to eat: the guide lists a few of them among its restaurants. */
-export function isBar(p: Pick): boolean {
-  const name = String(p.name || "");
-  return /^bar\b/i.test(name) || /\bbar$/i.test(name) || (p.credentials || []).some((c) => /best bars?/i.test(c));
-}
-
-const lunchTier = (p: Pick) => p.tier === "Smart" || p.tier === "Casual";
-
-/** One guide pick as a day's dining entry. */
-export function diningEntry(p: Pick, guide: DiningGuide, meal: DiningEntry["meal"] = null): DiningEntry {
+/** A card of the city page as a day's dining entry. */
+export function diningEntry(item: EatItem, guide: Pick<EatGuide, "city" | "url">, distance?: EatDistance | null, hotel?: DayHotel | null): DiningEntry {
   return {
-    id: `${guide.slug}:${slugOf(p.name)}`,
-    name: p.name,
-    area: p.area || null,
-    tier: p.tier || null,
-    credentials: (p.credentials || []).slice(0, 3),
-    description: p.description ? String(p.description).trim() : null,
+    id: item.id,
+    name: item.name,
+    area: item.area || null,
+    tier: item.tier || null,
+    tag: item.tag || null,
+    credentials: (item.credentials || []).slice(0, 3),
+    description: item.description ? String(item.description).trim() : null,
+    photo: item.photo || null,
     city: guide.city,
     url: guide.url || null,
-    meal,
+    distance: distance && hotel ? { km: distance.km, minutes: distance.minutes, approx: distance.approx, hotel: hotel.name } : null,
   };
+}
+
+/** "3.2 km from Taj West End · 11 min drive", or "about 7.1 km (straight line) from ..." when there is no road answer. */
+export function distanceText(d: DiningEntry["distance"] | (EatDistance & { hotel?: string }) | null | undefined, hotelName?: string): string {
+  if (!d) return "";
+  const hotel = (d as any).hotel || hotelName || "the hotel";
+  const km = d.km < 10 ? d.km.toFixed(1) : String(Math.round(d.km));
+  return d.approx ? `about ${km} km (straight line) from ${hotel}` : `${km} km from ${hotel}${d.minutes ? ` · ${d.minutes} min drive` : ""}`;
 }
 
 /** The texts that can name a day's city: its own city, its route, and the cities of its hotels. */
@@ -53,49 +65,31 @@ export function dayCityTexts(day: any): string[] {
   return out;
 }
 
-/** Days a restaurant suggestion makes sense for: a dated day that is not a flight-only travel day. */
-export function isMealDay(day: any): boolean {
-  if (!day || !/^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))) return false;
-  const items: any[] = day.items || [];
-  return !(items.some((it) => it.type === "flight") && !items.some((it) => it.type === "hotel"));
-}
+const addDays = (iso: string, n: number) => {
+  const t = Date.parse(iso + "T00:00:00Z");
+  return Number.isNaN(t) ? iso : new Date(t + n * 86_400_000).toISOString().slice(0, 10);
+};
 
 /**
- * Restaurants for the days that have none yet: day by day, one dinner from the city's best-tier picks, and a lunch when the
- * guide has a Smart / Casual pick left. Nothing repeats and nothing is invented: when a city's picks run out, its later days
- * get no suggestion. A day that already has dining is left exactly as the advisor set it. `guideFor(text)` is the guide a city
- * text names (or undefined). Returns dayId -> entries (only days that got some).
+ * The hotel a restaurant is measured from for one day of the trip: the hotel on that day, else the stay whose nights cover it,
+ * else the trip's first hotel. Only hotels with a map position count (never a guessed one). null when there is none.
  */
-export function suggestDining(days: any[], guideFor: (text: string) => DiningGuide | undefined): Record<string, DiningEntry[]> {
-  const used = new Set<string>();
-  (days || []).forEach((d) => (d.dining || []).forEach((e: DiningEntry) => used.add(e.id)));
-  const pools = new Map<string, { dinner: Pick[]; lunch: Pick[] }>();
-  const poolOf = (g: DiningGuide) => {
-    let p = pools.get(g.slug);
-    if (!p) {
-      const food = (g.eat || []).filter((x) => !isBar(x) && !used.has(`${g.slug}:${slugOf(x.name)}`));
-      const lunch = food.filter(lunchTier);
-      const dinner = food.filter((x) => !lunchTier(x));
-      p = dinner.length ? { dinner, lunch } : { dinner: lunch.slice(), lunch: [] }; // a city with only casual picks: they are the dinners
-      pools.set(g.slug, p);
+export function hotelForDay(days: any[], dayId: string): DayHotel | null {
+  const stays: { from: string; to: string; hotel: DayHotel }[] = [];
+  for (const d of days || []) {
+    for (const it of d.items || []) {
+      const lat = Number(it.lat), lng = Number(it.lng);
+      if (it.type !== "hotel" || it.lat == null || it.lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const iso = /^\d{4}-\d{2}-\d{2}$/.test(d._iso || "") ? d._iso : "";
+      const nights = parseInt(String(it.duration || "1"), 10) || 1;
+      stays.push({ from: iso, to: iso ? addDays(iso, nights) : "", hotel: { name: String(it.title || "Your hotel"), city: String(it.city || it.cityName || ""), lat, lng } });
     }
-    return p;
-  };
-  const out: Record<string, DiningEntry[]> = {};
-  for (const day of days || []) {
-    if ((day.dining && day.dining.length) || !isMealDay(day)) continue;
-    let guide: DiningGuide | undefined;
-    for (const t of dayCityTexts(day)) { guide = guideFor(t); if (guide) break; }
-    if (!guide) continue;
-    const pool = poolOf(guide);
-    const picks: DiningEntry[] = [];
-    const lunch = pool.lunch.shift();
-    if (lunch) picks.push(diningEntry(lunch, guide, "lunch"));
-    const dinner = pool.dinner.shift();
-    if (dinner) picks.push(diningEntry(dinner, guide, "dinner"));
-    if (picks.length) out[day.id] = picks;
   }
-  return out;
+  if (!stays.length) return null;
+  const day = (days || []).find((d) => d.id === dayId);
+  const iso = day && /^\d{4}-\d{2}-\d{2}$/.test(day._iso || "") ? day._iso : "";
+  const cover = iso ? stays.find((s) => s.from && iso >= s.from && iso < s.to) || stays.find((s) => s.from === iso) : null;
+  return (cover || stays[0]).hotel;
 }
 
 /** The trip-wide "Where to eat" summary for the proposal's Plan tab: the dining entries of all days, grouped by city, once each. */

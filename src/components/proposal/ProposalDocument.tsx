@@ -13,6 +13,7 @@ import type { ReactNode } from "react";
 import { Document, Page, View, Text, StyleSheet, Svg, Path, Link, Image } from "@react-pdf/renderer";
 import { registerProposalFonts } from "../../lib/proposalFonts";
 import { inr } from "../../services/api";
+import { distanceText } from "../../lib/diningPlan";
 
 registerProposalFonts();
 
@@ -295,7 +296,8 @@ function EatRows({ entries }: { entries: any[] }) {
         <View key={e.id || i} wrap={false} style={{ marginTop: i ? 6 : 0 }}>
           <Text style={{ fontSize: 10, fontWeight: 600 }}>{e.name + (e.meal ? ` · ${e.meal === "lunch" ? "Lunch" : "Dinner"}` : "")}</Text>
           {e.area ? <Text style={s.dayBody}>{e.area}</Text> : null}
-          {e.credentials && e.credentials.length ? <Text style={s.dayBody}>{e.credentials.join(" · ")}</Text> : null}
+          {e.distance ? <Text style={s.dayBody}>{distanceText(e.distance)}</Text> : null}
+          {e.tag || (e.credentials && e.credentials.length) ? <Text style={s.dayBody}>{e.tag || e.credentials[0]}</Text> : null}
         </View>
       ))}
     </View>
