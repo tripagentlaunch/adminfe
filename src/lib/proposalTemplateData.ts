@@ -583,7 +583,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     const lines: { label: string; sell: number }[] = [];
     for (const type of order) {
       for (const item of itemQueuesByType[type] || []) {
-        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, breakdown: flightBreakdown(item, item.price || 0), offline: !!item.manualPrice } as any);
+        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, type, breakdown: flightBreakdown(item, item.price || 0), offline: !!item.manualPrice } as any);
       }
     }
     return lines;

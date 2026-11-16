@@ -1016,3 +1016,5 @@
 .pv-pchg-lines-n{font-size:12px;opacity:.65;display:block !important;}
 .pv-offnote{margin-top:6px;color:#5f4510;}
 .pv-pchg-off{margin:8px 0 0;font-size:13.5px;color:#5f4510;}
+.pv-was{margin-right:8px;opacity:.55;font-weight:400;}
+.pv-final-tag{font-weight:400;font-size:12px;opacity:.65;}

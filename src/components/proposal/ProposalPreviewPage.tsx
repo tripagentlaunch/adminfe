@@ -56,6 +56,7 @@ import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 import { leftText, untilText } from "../../lib/offlineBanner";
 import { payCheckWords } from "../../lib/payCheckWords";
+import { finalPriceView } from "../../lib/finalPrice";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
 // Small outline icons for the kinds of place, as on the website's tabs (a wine glass for Fine, a shirt for Smart).
@@ -821,6 +822,12 @@ export function ProposalPreviewPage({
     : data.offlineNotice ? { validUntil: data.offlineNotice.validUntil, expired: !!data.offlineNotice.expired, offsetMs: 0 } : null;
   // What Pay now says it is checking: only the online (live) items; vendor-quoted ones are said not to change.
   const words = payCheckWords(flightQuote);
+  // One price table: once the live check is back, "What it costs" itself shows the final price (a moved line shows its old price struck
+  // through), so a line never has two prices on the page.
+  const finalView = check.status === "ready" && check.data && check.data.trip_total != null
+    ? finalPriceView(data.costLines || [], check.data.lines, Number(data.grandTotal) || 0, Number(check.data.trip_total))
+    : null;
+  const costRows: any[] = finalView ? finalView.lines : data.costLines || [];
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
   const previewPayable = !payToken && !data._locked && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
@@ -892,17 +899,17 @@ export function ProposalPreviewPage({
             <p>{words.changedIntro} We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
             {words.offlineUnchanged ? <p className="pv-pchg-off">{words.offlineUnchanged}</p> : null}
             <div className="pv-pchg-rows">
-              <div><span>In your proposal</span><s>{inr(chargedBefore)}</s></div>
-              <div className="now"><span>Final price now</span><b>{inr(chargeOf(priceChange))}</b></div>
-              <div className="diff"><span>{chargeOf(priceChange) > chargedBefore ? "Increase" : "Decrease"}</span><span>{inr(Math.abs(chargeOf(priceChange) - chargedBefore))}</span></div>
+              <div><span>In your proposal</span><s>{inr(finalView ? finalView.was ?? chargedBefore : chargedBefore)}</s></div>
+              <div className="now"><span>Final price now</span><b>{inr(finalView ? finalView.total : chargeOf(priceChange))}</b></div>
+              <div className="diff"><span>{(finalView ? finalView.total : chargeOf(priceChange)) > (finalView ? finalView.was ?? chargedBefore : chargedBefore) ? "Increase" : "Decrease"}</span><span>{inr(Math.abs((finalView ? finalView.total : chargeOf(priceChange)) - (finalView ? finalView.was ?? chargedBefore : chargedBefore)))}</span></div>
             </div>
-            {(priceChange.lines || []).some((l: any) => l.changed) ? (
+            {finalView && finalView.moved.length ? (
               <div className="pv-pchg-lines">
                 <div className="pv-pchg-lines-h">What moved</div>
-                {(priceChange.lines || []).filter((l: any) => l.changed).map((l: any, i: number) => (
+                {finalView.moved.map((l, i) => (
                   <div key={i}><span>{l.label}</span><span><s>{inr(l.was)}</s> → <b>{inr(l.now)}</b></span></div>
                 ))}
-                <div className="pv-pchg-lines-n">Our service fee and GST move with these prices.</div>
+                <div className="pv-pchg-lines-n">Our service fee and GST move with it. The table below now shows the final prices.</div>
               </div>
             ) : null}
             <div className="pv-pchg-actions">
@@ -1106,13 +1113,14 @@ export function ProposalPreviewPage({
                     <>
                       <h2 className="pv-section-title">What it costs</h2>
                       <div className="pv-costtable">
-                        {data.costLines.map((ln: any, i: number) =>
-                          ln.breakdown?.length ? (
+                        {costRows.map((ln: any, i: number) =>
+                          // a line that moved at the live check no longer matches its fare breakdown, so it shows as a plain row
+                          ln.breakdown?.length && ln.was == null ? (
                             // A live-priced flight: its line opens into what the price is made of.
                             <details className="pv-costrow-wrap" key={i}>
                               <summary className="pv-costrow pv-costrow--open">
                                 <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}<span className="pv-costrow-caret" aria-hidden="true" /></span>
-                                <span>{inr(ln.sell)}</span>
+                                <span>{ln.was != null ? <s className="pv-was">{inr(ln.was)}</s> : null}{inr(ln.sell)}</span>
                               </summary>
                               <div className="pv-costbreak">
                                 {ln.breakdown.map((b: any, j: number) => (
@@ -1126,13 +1134,13 @@ export function ProposalPreviewPage({
                           ) : (
                             <div className="pv-costrow" key={i}>
                               <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}</span>
-                              <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
+                              <span>{ln.was != null ? <s className="pv-was">{inr(ln.was)}</s> : null}{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
                             </div>
                           ),
                         )}
                         <div className="pv-costrow pv-costrow--total">
-                          <span>Trip total</span>
-                          <span>{inr(data.grandTotal)}</span>
+                          <span>{finalView ? "Final trip total" : "Trip total"}{finalView ? <small className="pv-final-tag"> · checked live just now</small> : null}</span>
+                          <span>{finalView && finalView.was != null ? <s className="pv-was">{inr(finalView.was)}</s> : null}{inr(finalView ? finalView.total : data.grandTotal)}</span>
                         </div>
                       </div>
                       {data.costRange && (data.costRange.unpriced.length || data.costRange.budgetCap) ? (
@@ -1199,24 +1207,16 @@ export function ProposalPreviewPage({
                   ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
-                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (() => {
-                    // One summary: the same parts before the check (as quoted) and after it (the final price), adding up to the amount charged.
-                    const v: any = check.status === "ready" && check.data ? check.data : flightQuote;
-                    const final = check.status === "ready" && !!check.data;
-                    const whole = !!(v.pays_trip_total ?? flightQuote.pays_trip_total);
-                    const total = whole ? chargeOf(v) : Number(v.trip_total ?? flightQuote.trip_total ?? data.grandTotal);
-                    return (
-                      <div className="pv-paysum" role="group" aria-label={final ? "Final price" : "Quoted price"}>
-                        <div className="pv-paysum-h">{final ? "Final price, checked live just now" : "Quoted price"}</div>
-                        <div><span>{words.liveRow}</span><span>{inr(v.amount ?? flightQuote.amount)}</span></div>
-                        {Number(v.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <div><span>TripAgent service fee</span><span>{inr(v.service_fee ?? flightQuote.service_fee)}</span></div> : null}
-                        {Number(v.tax ?? flightQuote.tax ?? 0) > 0 ? <div><span>GST</span><span>{inr(v.tax ?? flightQuote.tax)}</span></div> : null}
-                        {Number(v.other ?? flightQuote.other ?? 0) > 0 ? <div><span>{words.otherRow}</span><span>{inr(v.other ?? flightQuote.other)}</span></div> : null}
-                        <div className="pv-paysum-total"><span>{whole ? (final ? "You pay" : "You pay (confirmed when you press Pay now)") : "Trip total"}</span><b>{inr(total)}</b></div>
-                        {!final ? <div className="pv-paysum-n">{words.summaryNote}</div> : null}
-                      </div>
-                    );
-                  })() : null}
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
+                    // The price table above is the one price: it says what is final once the live check is back.
+                    check.status === "ready" && check.data ? (
+                      Number(check.data.pays_trip_total ?? flightQuote.pays_trip_total) ? null : (
+                        <div className="pv-actions-note">Pay now {inr(check.data.amount ?? flightQuote.amount)} covers the airline and hotel fares; our service fee, GST and any other items are settled with your advisor.</div>
+                      )
+                    ) : (
+                      <div className="pv-actions-note">{words.summaryNote}</div>
+                    )
+                  ) : null}
                   {payToken && flightQuote && !flightQuote.payable && flightQuote.reason && payment !== "success" && check.status !== "paid" ? (
                     <div className="pv-actions-note is-err" role="status">{flightQuote.reason}</div>
                   ) : null}

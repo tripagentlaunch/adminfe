@@ -30,7 +30,7 @@ export function payCheckWords(q: Quote) {
     checking: `Checking live ${live} prices with ${supplier}…`,
     ready: `✓ Live ${live} prices confirmed`,
     idle: `Secure payment · ${live} prices are re-checked with ${supplier} when you press Pay now`,
-    summaryNote: `${cap(live)} prices are checked live when you press Pay now; the final price is shown before you pay.`,
+    summaryNote: `${cap(live)} prices are checked live when you press Pay now; the final price then replaces the prices above, before you pay.`,
     changedIntro: `Since your proposal was prepared, ${supplier} has changed the ${live} price.`,
     /** Said beside the live check: the vendor-quoted items are not part of it. */
     offlineLine: off ? `The ${off} ${many ? "prices are" : "price is"} quoted by our vendor, so ${many ? "they don't" : "it doesn't"} change when you pay${until ? `: held until ${until}` : ""}.` : null,
