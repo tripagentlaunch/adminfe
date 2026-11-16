@@ -1,63 +1,33 @@
 "use client";
-/* The website's city page for each city of the itinerary, inside the Itinerary Builder (2026-11-13): where to base yourself, and
-   its stay / eat / do / after-dark picks with their credentials, best tier first. The advisor does not have to know the best
-   restaurant in Sydney: the picks come from our own city guides (GET /hotels/city-guide), and one click adds a pick to a day's
-   description, which is what the proposal and its PDF show for that day. A city the website has no page for shows nothing. */
+/* "Where to eat" for the cities of the itinerary, from our own city guides (GET /hotels/city-guide, the website's city pages).
+   It opens in a drawer at the side of the screen, so the itinerary stays in view: only the restaurants are listed (best tier first,
+   with their awards), and one click puts a restaurant on a day. A city the website has no page for shows nothing. */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cityGuide } from "../../services/api";
 import { Icon } from "../ui";
-import { itineraryCityTexts, pickLine, type Pick } from "../../lib/cityGuideText";
-import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
+import { firstSentence, itineraryCityTexts, type Pick } from "../../lib/cityGuideText";
+import { diningEntry, isBar, type DiningEntry } from "../../lib/diningPlan";
 export { itineraryCityTexts };
 
-type Guide = {
-  city: string; slug: string; country?: string | null; tagline?: string | null; url: string;
-  base?: { name: string; description?: string | null }[];
-  stay?: Pick[]; eat?: Pick[]; do?: Pick[]; party?: Pick[];
-};
+type Guide = { city: string; slug: string; country?: string | null; url: string; eat?: Pick[] };
 export type GuideDay = { id: string; label: string };
 
-const SECTIONS: { key: "stay" | "eat" | "do" | "party"; title: string; addable: boolean }[] = [
-  { key: "stay", title: "Where we would stay", addable: false },
-  { key: "eat", title: "Where to eat", addable: true },
-  { key: "do", title: "What to do", addable: true },
-  { key: "party", title: "After dark", addable: true },
-];
-
-function PickRow({ p, days, addable, onAdd }: { p: Pick; days: GuideDay[]; addable: boolean; onAdd: (dayId: string) => void }) {
-  const [dayId, setDayId] = useState(days[0] ? days[0].id : "");
-  const day = days.some((d) => d.id === dayId) ? dayId : days[0] ? days[0].id : "";
-  return (
-    <div className="taw-itin-guide-pick">
-      <div>
-        <b>{p.name}</b>
-        {p.area ? <span className="taw-muted">{" · " + p.area}</span> : null}
-        {p.tier ? <span className="taw-itin-guide-tier">{p.tier}</span> : null}
-      </div>
-      {p.credentials && p.credentials.length ? <div className="taw-itin-item-meta">{p.credentials.join(" · ")}</div> : null}
-      {p.description ? <div className="taw-itin-item-sub">{p.description}</div> : null}
-      {addable && days.length ? (
-        <div className="taw-itin-guide-add">
-          <select value={day} onChange={(e) => setDayId(e.target.value)} aria-label={"Day to add " + p.name + " to"}>
-            {days.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
-          </select>
-          <button type="button" className="taw-btn taw-btn--sm" onClick={() => onAdd(day)}>Add to this day</button>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-export function CityGuidePanel({ texts, days, onAddToDay, onAddDining }: {
-  texts: string[]; days: GuideDay[]; onAddToDay: (dayId: string, text: string) => void;
-  /** A "Where to eat" pick goes onto the day as a restaurant of its own (shown in the proposal's Days and Plan tabs), not as a sentence. */
-  onAddDining?: (dayId: string, entry: DiningEntry) => void;
+export function CityGuidePanel({ texts, days, dining, onAddDining }: {
+  texts: string[];
+  days: GuideDay[];
+  /** dayId -> ids of the restaurants already on that day. */
+  dining: Record<string, string[]>;
+  onAddDining: (dayId: string, entry: DiningEntry) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dayId, setDayId] = useState("");
   const asked = useRef<Map<string, Guide | null>>(new Map());
   const key = useMemo(() => texts.join("|"), [texts]);
+  const day = days.some((d) => d.id === dayId) ? dayId : days[0] ? days[0].id : "";
+
   useEffect(() => {
     if (!open) return;
     let alive = true;
@@ -71,48 +41,78 @@ export function CityGuidePanel({ texts, days, onAddToDay, onAddDining }: {
       });
       if (alive) setGuides(out.slice(0, 4));
     };
-    if (!todo.length) { collect(); return; }
-    Promise.all(todo.map((t) => cityGuide(t).then((r: any) => asked.current.set(t, (r && r.guide) || null)).catch(() => asked.current.set(t, null))))
+    if (!todo.length) { collect(); setLoading(false); return; }
+    setLoading(true);
+    Promise.all(todo.map((t) => cityGuide(t, 20).then((r: any) => asked.current.set(t, (r && r.guide) || null)).catch(() => asked.current.set(t, null))))
       .finally(() => { collect(); if (alive) setLoading(false); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, key]);
-  return (
-    <div className="taw-itin-guide">
-      <button type="button" className="taw-btn taw-btn--sm" aria-expanded={open} onClick={() => { setOpen(!open); setLoading(true); }}>
-        <Icon name="pin" size={13} /> {open ? "Hide the city guide" : "City guide: where to stay, eat and what to do"}
-      </button>
-      {open ? (
-        <div className="taw-itin-guide-body">
-          {loading && !guides.length ? <div className="taw-muted">Looking up our city pages…</div> : null}
-          {!loading && !guides.length ? <div className="taw-muted">Our website has no city page for this itinerary&apos;s cities yet.</div> : null}
-          {guides.map((g) => (
-            <div key={g.slug} className="taw-itin-guide-city">
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  const onDay = new Set(dining[day] || []);
+  const drawer = open ? (
+    <aside className="taw-eat-drawer" role="dialog" aria-label="Where to eat">
+      <div className="taw-eat-drawer-head">
+        <b>Where to eat</b>
+        <button type="button" className="taw-btn taw-btn--sm" aria-label="Close where to eat" onClick={() => setOpen(false)}><Icon name="x" size={13} /> Close</button>
+      </div>
+      {days.length ? (
+        <label className="taw-eat-drawer-day">
+          <span>Add to</span>
+          <select value={day} onChange={(e) => setDayId(e.target.value)}>
+            {days.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
+          </select>
+        </label>
+      ) : <div className="taw-muted">Add a flight or hotel first: restaurants are added to a day of the trip.</div>}
+      <div className="taw-eat-drawer-body">
+        {loading && !guides.length ? <div className="taw-muted">Looking up our city pages…</div> : null}
+        {!loading && !guides.length ? <div className="taw-muted">Our website has no city page for this itinerary&apos;s cities yet.</div> : null}
+        {guides.map((g) => {
+          const picks = (g.eat || []).filter((p) => !isBar(p));
+          return picks.length ? (
+            <section key={g.slug} className="taw-eat-drawer-city">
               <div className="taw-itin-guide-head">
                 <b>{g.city}</b>
-                {g.country ? <span className="taw-muted">{" · " + g.country}</span> : null}
                 <a href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a>
               </div>
-              {g.tagline ? <div className="taw-itin-item-sub">{g.tagline}</div> : null}
-              {g.base && g.base.length ? (
-                <div className="taw-itin-item-sub"><b>Where to base yourself: </b>{g.base.slice(0, 2).map((b) => (b.description ? `${b.name} (${b.description})` : b.name)).join(" · ")}</div>
-              ) : null}
-              {SECTIONS.map((s) => {
-                const picks = ((g as any)[s.key] || []).slice(0, s.key === "stay" ? 4 : 6) as Pick[];
-                return picks.length ? (
-                  <div key={s.key} className="taw-itin-guide-sec">
-                    <div className="taw-itin-guide-eyebrow">{s.title}</div>
-                    {picks.map((p, i) => (
-                      <PickRow key={i} p={p} days={days} addable={s.addable}
-                        onAdd={(dayId) => (s.key === "eat" && onAddDining ? onAddDining(dayId, diningEntry(p, g)) : onAddToDay(dayId, pickLine(p)))} />
-                    ))}
+              {picks.map((p) => {
+                const entry = diningEntry(p, g);
+                const added = onDay.has(entry.id);
+                return (
+                  <div className="taw-eat-pick" key={entry.id}>
+                    <div style={{ minWidth: 0 }}>
+                      <b>{p.name}</b>
+                      {p.tier ? <span className="taw-itin-guide-tier">{p.tier}</span> : null}
+                      {p.area ? <div className="taw-muted" style={{ fontSize: 12 }}>{p.area}</div> : null}
+                      {p.credentials && p.credentials.length ? <div className="taw-itin-item-meta">{p.credentials.slice(0, 2).join(" · ")}</div> : null}
+                      {p.description ? <div className="taw-itin-item-sub">{firstSentence(p.description)}</div> : null}
+                    </div>
+                    <button type="button" className="taw-btn taw-btn--sm" disabled={!day || added} onClick={() => onAddDining(day, entry)}>
+                      {added ? "Added" : "Add"}
+                    </button>
                   </div>
-                ) : null;
+                );
               })}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
+            </section>
+          ) : null;
+        })}
+      </div>
+    </aside>
+  ) : null;
+
+  return (
+    <>
+      <button type="button" className="taw-btn taw-btn--sm" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Icon name="pin" size={13} /> {open ? "Hide where to eat" : "Browse where to eat"}
+      </button>
+      {drawer && typeof document !== "undefined" ? createPortal(drawer, document.body) : null}
+    </>
   );
 }

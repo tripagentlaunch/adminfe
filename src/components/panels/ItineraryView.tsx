@@ -378,15 +378,6 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     }));
   }
 
-  // A pick from the city guide goes into the day's description, which is what the proposal and its PDF show for that day.
-  function addGuideLineToDay(dayId: string, text: string) {
-    setData((d: any) => ({
-      ...d,
-      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, description: (day.description ? day.description.trim() + " " : "") + text })),
-    }));
-    toast("Added to the day: " + text.slice(0, 60) + (text.length > 60 ? "…" : ""), "success");
-  }
-
   // "Where to eat": restaurants from our city guides, kept on the day as `dining` (the proposal's Days and Plan tabs show them).
   function addDiningToDay(dayId: string, entry: DiningEntry) {
     setData((d: any) => ({
@@ -725,14 +716,14 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
           before it takes a flight's payment). Only when a flight has a live price. */}
       <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
-      <div className="taw-itin-guide">
+      <div className="taw-itin-diningbar">
         <button type="button" className="taw-btn taw-btn--sm" disabled={suggesting} onClick={suggestWhereToEat}>
           <Icon name="pin" size={13} /> {suggesting ? "Looking up our city guides…" : "Suggest where to eat"}
         </button>
-        <span className="taw-muted" style={{ marginLeft: 8, fontSize: 12 }}>Fills days that have no restaurant yet, from our city guides.</span>
-      </div>
-      <CityGuidePanel texts={itineraryCityTexts(data)} onAddToDay={addGuideLineToDay} onAddDining={addDiningToDay}
+      <CityGuidePanel texts={itineraryCityTexts(data)} onAddDining={addDiningToDay}
+        dining={Object.fromEntries((data.days || []).map((d: any) => [d.id, (d.dining || []).map((e: DiningEntry) => e.id)]))}
         days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
+      </div>
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly
