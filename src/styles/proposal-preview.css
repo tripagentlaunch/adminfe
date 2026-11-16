@@ -982,16 +982,18 @@
 .pv-eat-dist{font-size:12.5px;font-weight:600;margin-top:2px;}
 
 /* "Where to eat" tab: the website's city-page cards. */
-.pv-eatt{display:flex;gap:8px;margin:0 0 18px;flex-wrap:wrap;}
-.pv-eatt-btn{padding:9px 18px;border:1px solid var(--pv-line,rgba(0,0,0,.15));background:#fff;font:inherit;font-size:12px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;}
-.pv-eatt-btn.is-active{border-color:#171310;box-shadow:inset 0 0 0 1px #171310;}
-.pv-eatg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:34px 28px;margin-top:8px;}
+.pv-eatt{display:flex;gap:10px;margin:0 0 30px;flex-wrap:wrap;}
+.pv-eatt-btn{display:inline-flex;align-items:center;gap:9px;padding:13px 20px;border:1px solid var(--pv-line,rgba(0,0,0,.18));background:#fff;font:inherit;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#5a544c;cursor:pointer;}
+.pv-eatt-btn.is-active{border-color:#171310;box-shadow:inset 0 0 0 1px #171310;color:#171310;}
+.pv-eatg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px 36px;margin-top:8px;}
 @media (max-width:900px){.pv-eatg{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:560px){.pv-eatg{grid-template-columns:1fr;}}
-.pv-eatc{display:flex;flex-direction:column;align-items:flex-start;gap:8px;min-width:0;}
-.pv-eatc-name{font-family:"Proposal Serif",serif;font-weight:400;font-size:22px;line-height:1.2;margin:0;}
-.pv-eatc-tag{display:inline-block;padding:3px 9px;border:1px solid #8a2c3a;color:#7a1f2e;font-size:11px;letter-spacing:.08em;text-transform:uppercase;}
-.pv-eatc-cred{display:block;width:100%;box-sizing:border-box;padding:5px 11px;border:1px solid var(--pv-line,rgba(0,0,0,.18));color:#5a544c;font-size:11px;line-height:1.4;letter-spacing:.07em;text-transform:uppercase;}
-.pv-eatc-desc{margin:0;font-size:15.5px;line-height:1.55;}
-.pv-eatc-loc{display:flex;gap:6px;align-items:baseline;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:#6b655c;}
-.pv-eatc-dist{font-size:12.5px;font-weight:600;}
+.pv-eatc{display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:0;}
+.pv-eatc-photo{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#e9e2d6;margin-bottom:6px;}
+.pv-eatc-name{font-family:inherit;font-weight:400;font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:0;}
+.pv-eatc-tag{display:inline-block;padding:4px 11px;border:1px solid #8a2c3a;color:#7a1f2e;font-size:12px;letter-spacing:.09em;text-transform:uppercase;}
+.pv-eatc-cred{display:block;width:100%;box-sizing:border-box;padding:6px 12px;border:1px solid var(--pv-line,rgba(0,0,0,.2));color:#5a544c;font-size:11.5px;line-height:1.45;letter-spacing:.08em;text-transform:uppercase;}
+.pv-eatc-desc{margin:0;font-size:17px;line-height:1.55;}
+.pv-eatc-loc{display:flex;gap:8px;align-items:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6b655c;}
+.pv-eatc-loc svg{flex:0 0 auto;}
+.pv-eatc-dist{font-size:13px;font-weight:600;}

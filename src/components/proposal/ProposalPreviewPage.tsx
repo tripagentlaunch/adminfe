@@ -56,6 +56,23 @@ import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
+// Small outline icons for the kinds of place, as on the website's tabs (a wine glass for Fine, a shirt for Smart).
+function TierIcon({ tier }: { tier: string }) {
+  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (tier === "Fine") return <svg {...common}><path d="M8 3h8v5a4 4 0 0 1-8 0V3z" /><path d="M12 12v8M8.5 20h7" /></svg>;
+  if (tier === "Smart") return <svg {...common}><path d="M8 4 3 7l2 4 2-1v10h10V10l2 1 2-4-5-3a4 4 0 0 1-8 0z" /></svg>;
+  if (tier === "Destination") return <svg {...common}><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" /></svg>;
+  if (tier === "Casual") return <svg {...common}><path d="M5 8h11v6a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 9h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2" /></svg>;
+  return null;
+}
+
+// The picture on a card: the restaurant's photo, or a placeholder when it has none or can't be loaded.
+function EatCardPhoto({ src, name }: { src: string | null; name: string }) {
+  const [bad, setBad] = useState(false);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className="pv-eatc-photo" src={src && !bad ? src : eatPlaceholder(name, 900, 600)} alt={name} loading="lazy" onError={() => setBad(true)} />;
+}
+
 // "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
 // the restaurant's name, one headline tag, every award in its own box, the description, and the area; ours adds how far it is from the hotel.
 function EatCards({ entries }: { entries: any[] }) {
@@ -68,7 +85,9 @@ function EatCards({ entries }: { entries: any[] }) {
       {tiers.length > 1 ? (
         <div className="pv-eatt" role="tablist" aria-label="Kind of place">
           {tiers.map((t) => (
-            <button key={t} type="button" role="tab" aria-selected={t === tier} className={"pv-eatt-btn" + (t === tier ? " is-active" : "")} onClick={() => setPicked(t)}>{t}</button>
+            <button key={t} type="button" role="tab" aria-selected={t === tier} className={"pv-eatt-btn" + (t === tier ? " is-active" : "")} onClick={() => setPicked(t)}>
+              <TierIcon tier={t} /> {t}
+            </button>
           ))}
         </div>
       ) : null}
@@ -77,11 +96,17 @@ function EatCards({ entries }: { entries: any[] }) {
           const { headline, rest } = cardTags(e);
           return (
             <article className="pv-eatc" key={e.id}>
+              <EatCardPhoto src={e.photo || null} name={e.name} />
               <h3 className="pv-eatc-name">{e.name}</h3>
               {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
               {rest.map((c: string, i: number) => <span className="pv-eatc-cred" key={i}>{c}</span>)}
               {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
-              {e.area ? <div className="pv-eatc-loc"><span aria-hidden="true">◎</span> {e.area}</div> : null}
+              {e.area ? (
+                <div className="pv-eatc-loc">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21z" /><circle cx="12" cy="10" r="2.5" /></svg>
+                  <span>{e.area}</span>
+                </div>
+              ) : null}
               {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
             </article>
           );
