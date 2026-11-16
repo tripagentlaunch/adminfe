@@ -771,8 +771,8 @@ export function ProposalPreviewPage({
     proposalFlightPayQuote(payToken)
       .then((q: any) => {
         setFlightQuote(q);
-        // ?pay=open is a Pay now press: check, then pay.
-        if (q && q.payable && payment !== "success" && wantPayRef.current) runCheck();
+        // ?pay=open is a Pay now press: the same traveller details window as pressing Pay now.
+        if (q && q.payable && payment !== "success" && wantPayRef.current) { want(false); setPayingFlights(true); }
       })
       .catch(() => { want(false); setFlightQuote(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -793,7 +793,9 @@ export function ProposalPreviewPage({
     setPayErr(null);
     // The airline needs every passenger's details before it takes payment. When we don't hold them yet the customer enters them now
     // (Next saves them, checks the live price and shows the final price), instead of waiting for the advisor.
-    if (flightQuote && flightQuote.passengers_ready === false) { setPayingFlights(true); return; }
+    // Every Pay now press (and ?pay=open) is the same flow: the traveller details window (pre-filled, or showing what we hold to
+    // check), then Next runs the live check once and shows the final price, then Pay.
+    if (flightQuote && flightQuote.payable) { setPayingFlights(true); return; }
     want(true);
     runCheck();
   }
@@ -927,7 +929,9 @@ export function ProposalPreviewPage({
         </div>
       ) : null}
       {payToken && payingFlights && flightQuote ? (
-        <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)} />
+        <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)}
+          // the live check is back (Next): the prices on the page behind show the final price too, and the old popup stays quiet
+          onChecked={(r) => { setChangeSeen(true); setCheck({ status: "ready", data: r }); }} />
       ) : null}
       {payToken && payingStay ? (
         <ProposalPayModal
