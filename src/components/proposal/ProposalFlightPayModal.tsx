@@ -18,6 +18,7 @@ import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
 import { PayTimer } from "./PayTimer";
 import { addonLines } from "../../lib/flightAddons";
+import { payCheckWords } from "../../lib/payCheckWords";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
@@ -62,6 +63,7 @@ const fmtDate = (iso: string) => {
 export { MOCK_PAY_KEY } from "../../lib/proposalPayment";
 
 export function ProposalFlightPayModal({ token, quote, onClose }: { token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void }) {
+  const words = payCheckWords(quote);
   const router = useRouter();
   const [step, setStep] = useState<"form" | "working" | "changed" | "done">("form");
   const [err, setErr] = useState<string | null>(null);
@@ -223,11 +225,11 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                 <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                   <button type="button" onClick={() => onClose(false)} disabled={busy} style={btn(false)}>Cancel</button>
                   <button type="button" onClick={prepare} disabled={!ready || !quote.gateway_configured || busy} style={{ ...btn(true), opacity: !ready || busy ? 0.6 : 1 }}>
-                    {busy ? <><Spinner /> Checking the live price…</> : `Pay ${inr(quote.amount)}`}
+                    {busy ? <><Spinner /> {words.buttonChecking}</> : `Pay ${inr(quote.amount)}`}
                   </button>
                 </div>
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
-                  Secure payment. Price includes taxes and fees; it is re-checked with the airline{stays.length ? " and the hotel" : ""} when you press Pay.
+                  Secure payment. Price includes taxes and fees; it is re-checked with {words.supplier} when you press Pay.{words.offlineLine ? " " + words.offlineLine : ""}
                 </p>
               </>
             )}

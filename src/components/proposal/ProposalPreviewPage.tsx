@@ -55,6 +55,7 @@ import { LiveCheckTrace } from "./LiveCheckTrace";
 import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 import { leftText, untilText } from "../../lib/offlineBanner";
+import { payCheckWords } from "../../lib/payCheckWords";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
 // Small outline icons for the kinds of place, as on the website's tabs (a wine glass for Fine, a shirt for Smart).
@@ -818,6 +819,8 @@ export function ProposalPreviewPage({
   const offlineNotice: OfflineNotice | null = flightQuote && flightQuote.offline
     ? { validUntil: flightQuote.offline.valid_until, expired: !!flightQuote.offline.expired, offsetMs: Date.parse(flightQuote.offline.now) - Date.now() || 0 }
     : data.offlineNotice ? { validUntil: data.offlineNotice.validUntil, expired: !!data.offlineNotice.expired, offsetMs: 0 } : null;
+  // What Pay now says it is checking: only the online (live) items; vendor-quoted ones are said not to change.
+  const words = payCheckWords(flightQuote);
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
   const previewPayable = !payToken && !data._locked && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
@@ -886,7 +889,8 @@ export function ProposalPreviewPage({
         <div className="pv-pchg-back" role="dialog" aria-modal="true" aria-label="Price change">
           <div className="pv-pchg">
             <h2>The price has changed</h2>
-            <p>Since your proposal was prepared, the airline or hotel has changed the price. We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
+            <p>{words.changedIntro} We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
+            {words.offlineUnchanged ? <p className="pv-pchg-off">{words.offlineUnchanged}</p> : null}
             <div className="pv-pchg-rows">
               <div><span>In your proposal</span><s>{inr(chargedBefore)}</s></div>
               <div className="now"><span>Final price now</span><b>{inr(chargeOf(priceChange))}</b></div>
@@ -1153,7 +1157,7 @@ export function ProposalPreviewPage({
                       <button type="button" className="pv-cta pv-cta--pay" onClick={startPay} disabled={check.status === "checking" || paying}
                         aria-busy={check.status === "checking" || paying}>
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
-                          : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
+                          : check.status === "checking" && wantPay ? words.buttonChecking : "Pay now"}
                         {/* the amount only once the live check has confirmed it: before that it is not final */}
                         {!paying && !(check.status === "checking" && wantPay) && check.status === "ready" && check.data ? (
                           <span className="pv-cta-amt">{inr(chargeOf(check.data))}</span>
@@ -1179,15 +1183,19 @@ export function ProposalPreviewPage({
                   {payToken && flightQuote?.payable && payment !== "success" ? (
                     <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
                       {payErr ? payErr
-                        : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
+                        : check.status === "checking" ? <><span className="pv-dot" /> {words.checking}</>
                         : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
+                        : check.status === "ready" ? <>{words.ready}{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
                             {Number(check.data?.addons_by_advisor || 0) > 0 ? " · your seats, meals and bags are included — your advisor confirms them with the airline right after booking" : ""}
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
                         : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={startPay}>Try again</button></>
-                        : "Secure payment · prices are re-checked with the airline and hotel when you press Pay now"}
+                        : words.idle}
                     </div>
+                  ) : null}
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && words.offlineLine ? (
+                    // the vendor-quoted items are not part of the live check, so the page says they don't change
+                    <div className="pv-actions-note pv-offnote" role="note">{words.offlineLine}</div>
                   ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
@@ -1200,12 +1208,12 @@ export function ProposalPreviewPage({
                     return (
                       <div className="pv-paysum" role="group" aria-label={final ? "Final price" : "Quoted price"}>
                         <div className="pv-paysum-h">{final ? "Final price, checked live just now" : "Quoted price"}</div>
-                        <div><span>Airline &amp; hotel</span><span>{inr(v.amount ?? flightQuote.amount)}</span></div>
+                        <div><span>{words.liveRow}</span><span>{inr(v.amount ?? flightQuote.amount)}</span></div>
                         {Number(v.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <div><span>TripAgent service fee</span><span>{inr(v.service_fee ?? flightQuote.service_fee)}</span></div> : null}
                         {Number(v.tax ?? flightQuote.tax ?? 0) > 0 ? <div><span>GST</span><span>{inr(v.tax ?? flightQuote.tax)}</span></div> : null}
-                        {Number(v.other ?? flightQuote.other ?? 0) > 0 ? <div><span>Quoted offline &amp; other items, confirmed by your advisor</span><span>{inr(v.other ?? flightQuote.other)}</span></div> : null}
+                        {Number(v.other ?? flightQuote.other ?? 0) > 0 ? <div><span>{words.otherRow}</span><span>{inr(v.other ?? flightQuote.other)}</span></div> : null}
                         <div className="pv-paysum-total"><span>{whole ? (final ? "You pay" : "You pay (confirmed when you press Pay now)") : "Trip total"}</span><b>{inr(total)}</b></div>
-                        {!final ? <div className="pv-paysum-n">Airline and hotel prices are checked live when you press Pay now; the final price is shown before you pay.</div> : null}
+                        {!final ? <div className="pv-paysum-n">{words.summaryNote}</div> : null}
                       </div>
                     );
                   })() : null}
