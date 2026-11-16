@@ -2894,6 +2894,8 @@ function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/
 function proposalFlightPayTrace(token) { return fastapiFlightCall("/proposal-share/" + encodeURIComponent(token) + "/pay/flights/trace", { method: "GET" }); }
 function proposalFlightPayChoose(token, flightId, key) { return proposalPublicCall(token, "/pay/flights/choose", { method: "POST", body: { flight_id: flightId, key: key } }); }
 function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
+// The traveller details window opened: the server starts the slow supplier lookups now (returns at once), so Next is faster.
+function proposalFlightPayWarm(token) { return proposalPublicCall(token, "/pay/flights/warm", { method: "POST" }); }
 function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
 function proposalFlightPayStart(token, orderId) { return proposalPublicCall(token, "/pay/flights/order/" + encodeURIComponent(orderId) + "/start", { method: "POST" }); }
 function proposalFlightPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/flights/confirm", { method: "POST", body: payload }); }
@@ -3146,6 +3148,7 @@ export {
   proposalFlightPayRefresh,
   proposalFlightPayChoose,
   proposalFlightPayTrace,
+  proposalFlightPayWarm,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
   proposalFlightPayConfirm,

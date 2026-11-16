@@ -10,9 +10,9 @@
  *   3. Razorpay checkout -> POST /pay/flights/confirm (signature + captured check)
  * The amount always comes from the server; nothing here prices anything.
  * ===========================================================================*/
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { proposalFlightPayPrepare, inr } from "../../services/api";
+import { proposalFlightPayPrepare, proposalFlightPayWarm, inr } from "../../services/api";
 import { payHeldOrder } from "../../lib/proposalPayment";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
@@ -65,6 +65,8 @@ export { MOCK_PAY_KEY } from "../../lib/proposalPayment";
 
 export function ProposalFlightPayModal({ token, quote, onClose }: { token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void }) {
   const words = payCheckWords(quote);
+  // The slow supplier lookups start now, while the customer types their details: Next then only has the short steps left.
+  useEffect(() => { proposalFlightPayWarm(token).catch(() => { /* a cold start is just slower */ }); }, [token]);
   const router = useRouter();
   // form -> (Next) checking -> review (the final price) -> (Pay) paying -> done. The live price check runs once, on Next.
   const [step, setStep] = useState<"form" | "checking" | "review" | "paying" | "done">("form");
@@ -247,6 +249,11 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                     {step === "checking" ? <><Spinner /> {words.buttonChecking}</> : "Next"}
                   </button>
                 </div>
+                {step === "checking" ? (
+                  <p style={{ color: "#555", fontSize: 12.5, marginTop: 10, textAlign: "center" }} role="status">
+                    Holding your booking with {words.supplier}. This usually takes about 20 seconds; please keep this window open.
+                  </p>
+                ) : null}
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
                   Secure payment. Price includes taxes and fees; it is re-checked with {words.supplier} when you press Pay.{words.offlineLine ? " " + words.offlineLine : ""}
                 </p>
