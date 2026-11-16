@@ -65,9 +65,9 @@ export { MOCK_PAY_KEY } from "../../lib/proposalPayment";
 export function ProposalFlightPayModal({ token, quote, onClose }: { token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void }) {
   const words = payCheckWords(quote);
   const router = useRouter();
-  const [step, setStep] = useState<"form" | "working" | "changed" | "done">("form");
+  const [step, setStep] = useState<"form" | "working" | "review" | "done">("form");
   const [err, setErr] = useState<string | null>(null);
-  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null } | null>(null);
+  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null; pay_amount?: number; trip_total?: number; price_changed?: boolean } | null>(null);
   const [paidRef, setPaidRef] = useState<string | null>(null);
   const stays = quote.stays || [];
   const kinds: Pax["pax_type"][] = quote.travellers === "lead" ? ["adult"] : [
@@ -103,9 +103,8 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
       }));
       const r: any = await proposalFlightPayPrepare(token, { travellers, pan: stays.length && pan ? pan : null });
       setPrep(r);
-      // The airline's price moved since the proposal: show it before taking any money.
-      if (r.price_changed) { setStep("changed"); return; }
-      await pay(r);
+      // Details saved and the live check is back: show the final price first (Next), then the customer presses Pay.
+      setStep("review");
     } catch (e) {
       setErr(errText(e));
       setStep("form");
@@ -122,7 +121,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
       setStep("done");
     } catch (e) {
       setErr(errText(e));
-      setStep(prep && prep.amount !== prep.quoted ? "changed" : "form");
+      setStep(prep ? "review" : "form");
     }
   }
 
@@ -141,7 +140,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
           </div>
         ) : (
           <>
-            <h2 style={{ margin: "0 0 6px" }}>{quote.flights.length && stays.length ? "Pay for your trip" : quote.flights.length ? "Pay for your flights" : "Pay for your stay"}</h2>
+            <h2 style={{ margin: "0 0 6px" }}>{step === "review" ? "Confirm and pay" : quote.flights.length && stays.length ? "Traveller details for your trip" : quote.flights.length ? "Traveller details for your flights" : "Pay for your stay"}</h2>
             <div style={{ display: "grid", gap: 8, margin: "0 0 14px" }}>
               {quote.flights.map((f) => (
                 <div key={f.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
@@ -162,22 +161,32 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
             {quote.mock ? <div style={banner("info")}>Test server: payment opens a mock payment page instead of Razorpay. No money moves.</div> : null}
             {err ? <div style={banner("err")}>{err}</div> : null}
 
-            {step === "changed" && prep ? (
-              <>
-                <PayTimer payBy={prep.pay_by} onExpire={() => { setPrep(null); setStep("form"); setErr("Your 15 minutes ran out and the booking was released. Press Pay to start again with a fresh price."); }} />
-                <div style={banner("warn")}>
-                  The airline&apos;s price has changed since your proposal: was <s>{inr(prep.quoted)}</s>, now <b>{inr(prep.amount)}</b>.
-                  The same flight, fare and add-ons are held for you at the new price.
-                </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                  <button type="button" onClick={() => onClose(false)} style={btn(false)}>Not now</button>
-                  <button type="button" onClick={() => pay(prep)} style={btn(true)}>Pay {inr(prep.amount)}</button>
-                </div>
-              </>
-            ) : (
+            {step === "review" && prep ? (() => {
+              // What Pay takes: the whole-trip amount when it is one payment (our fee and GST in it), else the airline and hotel part.
+              const charge = Number(prep.pay_amount ?? prep.trip_total ?? prep.amount);
+              const before = Number(quote.pay_amount ?? quote.trip_total ?? prep.quoted);
+              const moved = Math.abs(charge - before) >= 1;
+              return (
+                <>
+                  <PayTimer payBy={prep.pay_by} onExpire={() => { setPrep(null); setStep("form"); setErr("Your 15 minutes ran out and the booking was released. Press Next to start again with a fresh price."); }} />
+                  <div style={banner(moved ? "warn" : "info")}>
+                    {moved ? (
+                      <>The price has changed since your proposal: was <s>{inr(before)}</s>, now <b>{inr(charge)}</b>. The same flight, fare and add-ons are held for you at the new price.</>
+                    ) : (
+                      <>Your {words.live} price is confirmed live: <b>{inr(charge)}</b>. The same flight, fare and add-ons are held for you.</>
+                    )}
+                    {words.offlineUnchanged ? <div style={{ marginTop: 6 }}>{words.offlineUnchanged}</div> : null}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                    <button type="button" onClick={() => { setPrep(null); setStep("form"); }} style={btn(false)}>Back</button>
+                    <button type="button" onClick={() => pay(prep)} style={btn(true)}>Pay {inr(charge)}</button>
+                  </div>
+                </>
+              );
+            })() : (
               <>
                 <p style={{ color: "#555", fontSize: 13, margin: "0 0 10px" }}>
-                  Names exactly as on {intl ? "the passport" : "a government ID"}. We check the live price with the airline before you pay.
+                  Names exactly as on {intl ? "the passport" : "a government ID"}. Press Next: we save the details, check the live price with the airline, and show you the final price before you pay.
                 </p>
                 <div style={{ display: "grid", gap: 14 }}>
                   {pax.map((p, i) => (
@@ -225,7 +234,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                 <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                   <button type="button" onClick={() => onClose(false)} disabled={busy} style={btn(false)}>Cancel</button>
                   <button type="button" onClick={prepare} disabled={!ready || !quote.gateway_configured || busy} style={{ ...btn(true), opacity: !ready || busy ? 0.6 : 1 }}>
-                    {busy ? <><Spinner /> {words.buttonChecking}</> : `Pay ${inr(quote.amount)}`}
+                    {busy ? <><Spinner /> {words.buttonChecking}</> : "Next"}
                   </button>
                 </div>
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>

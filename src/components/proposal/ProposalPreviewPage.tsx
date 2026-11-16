@@ -756,7 +756,7 @@ export function ProposalPreviewPage({
         want(false);
         // A changed price is shown first (the popup); otherwise straight on to payment.
         if (next.status === "ready" && !r.price_changed) void payNow(next);
-        else if (next.status === "needs_details") setPayingFlights(true);
+        else if (next.status === "needs_details" || next.status === "needs_passengers") setPayingFlights(true);   // the customer enters the traveller details
       })
       .catch((e: any) => { want(false); setCheck({ status: "error", message: errText(e) }); });
   }
@@ -791,6 +791,9 @@ export function ProposalPreviewPage({
   function startPay() {
     if (!payToken || paying || check.status === "checking") return;
     setPayErr(null);
+    // The airline needs every passenger's details before it takes payment. When we don't hold them yet the customer enters them now
+    // (Next saves them, checks the live price and shows the final price), instead of waiting for the advisor.
+    if (flightQuote && flightQuote.passengers_ready === false) { setPayingFlights(true); return; }
     want(true);
     runCheck();
   }
@@ -1194,7 +1197,7 @@ export function ProposalPreviewPage({
                     <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
                       {payErr ? payErr
                         : check.status === "checking" ? <><span className="pv-dot" /> {words.checking}</>
-                        : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
+                        : check.status === "needs_passengers" ? <>We need the traveller details before you can pay. <button type="button" className="pv-linkbtn" onClick={() => setPayingFlights(true)}>Enter traveller details</button></>
                         : check.status === "ready" ? <>{words.ready}{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
                             {Number(check.data?.addons_by_advisor || 0) > 0 ? " · your seats, meals and bags are included — your advisor confirms them with the airline right after booking" : ""}
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
