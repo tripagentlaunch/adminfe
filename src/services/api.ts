@@ -1750,8 +1750,9 @@ function hotelRatings(city, names) {
 
 // cityGuide(city) — GET /hotels/city-guide: the website's city page for a city (where to base yourself, and its
 // stay / eat / do / after-dark picks, best tier first), { guide: {...} | null }.
-function cityGuide(city) {
-  return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city), { method: "GET" });
+// `limit` (default 8, max 20) is how many picks of each kind to return.
+function cityGuide(city, limit?: number) {
+  return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city) + (limit ? "&limit=" + limit : ""), { method: "GET" });
 }
 
 // hotelPhoto(name, city) — GET /hotels/photo: a Google Places photo for a stay

@@ -53,6 +53,25 @@ import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
 
+// Restaurants from our city guide: name, which meal, the area, and the award or credential that earned the place its spot.
+function EatList({ entries }: { entries: any[] }) {
+  return (
+    <div className="pv-eat-list">
+      {entries.map((e: any) => (
+        <div className="pv-eat-row" key={e.id}>
+          <div className="pv-eat-name">
+            {e.name}
+            {e.meal ? <span className="pv-eat-meal">{e.meal === "lunch" ? "Lunch" : "Dinner"}</span> : null}
+          </div>
+          {e.area ? <div className="pv-eat-area">{e.area}</div> : null}
+          {e.credentials && e.credentials.length ? <div className="pv-eat-cred">{e.credentials.join(" · ")}</div> : null}
+          {e.description ? <div className="pv-eat-desc">{e.description}</div> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const TABS = ["Plan", "Days", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
 
@@ -913,6 +932,21 @@ export function ProposalPreviewPage({
                     </>
                   ) : null}
 
+                  {data.whereToEat?.length ? (
+                    <>
+                      <h2 className="pv-section-title">Where to eat</h2>
+                      {data.whereToEat.map((g: any) => (
+                        <div className="pv-recgroup" key={g.city}>
+                          <div className="pv-recgroup-head">
+                            <span className="pv-recgroup-title">{g.city}</span>
+                            {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                          </div>
+                          <EatList entries={g.picks} />
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+
                   {/* One "What it costs" for the customer: the priced quote (costLines,
                       with markup and taxes) when there is one; the as-chosen supplier
                       prices only until the quote has been priced. */}
@@ -1078,9 +1112,11 @@ export function ProposalPreviewPage({
                   </h2>
                   {data.dayPlan?.length ? (
                     <>
-                      <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
-                        AI-drafted day plan — suggestions only, not checked against availability or booked.
-                      </div>
+                      {data.dayPlan.some((d: any) => d.description) ? (
+                        <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+                          AI-drafted day plan — suggestions only, not checked against availability or booked.
+                        </div>
+                      ) : null}
                       <div className="pv-days">
                         {data.dayPlan.map((d: any, i: number) => (
                           <div className="pv-day" key={i}>
@@ -1092,6 +1128,12 @@ export function ProposalPreviewPage({
                                   {d.date ? ` · ${d.date}` : ""}
                                 </div>
                                 {d.description ? <div className="pv-day-body">{d.description}</div> : null}
+                                {d.dining && d.dining.length ? (
+                                  <div className="pv-eat">
+                                    <div className="pv-eat-title">Where to eat <span>· from our {d.dining[0].city} guide, not booked</span></div>
+                                    <EatList entries={d.dining} />
+                                  </div>
+                                ) : null}
                               </div>
                               {d.photoQuery ? <DayPhoto query={d.photoQuery} /> : null}
                             </div>

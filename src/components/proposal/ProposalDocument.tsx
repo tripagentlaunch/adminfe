@@ -287,6 +287,21 @@ function StayGroup({ st, heading }: { st: any; heading?: ReactNode }) {
   );
 }
 
+// Restaurants from our city guide (name, meal, area, award): used on the Plan page per city and on the Days page per day.
+function EatRows({ entries }: { entries: any[] }) {
+  return (
+    <View>
+      {entries.map((e: any, i: number) => (
+        <View key={e.id || i} wrap={false} style={{ marginTop: i ? 6 : 0 }}>
+          <Text style={{ fontSize: 10, fontWeight: 600 }}>{e.name + (e.meal ? ` · ${e.meal === "lunch" ? "Lunch" : "Dinner"}` : "")}</Text>
+          {e.area ? <Text style={s.dayBody}>{e.area}</Text> : null}
+          {e.credentials && e.credentials.length ? <Text style={s.dayBody}>{e.credentials.join(" · ")}</Text> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function Footnote() {
   const prepared = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
   return <Text style={s.footnote}>{`Prepared ${prepared}. Nothing is booked, held or paid unless noted above.`}</Text>;
@@ -321,6 +336,18 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
         <View>
           {data.stays.map((st: any, i: number) => (
             <StayGroup key={i} st={st} heading={i === 0 ? <SectionTitle>Where you stay</SectionTitle> : undefined} />
+          ))}
+        </View>
+      ) : null}
+
+      {data.whereToEat?.length ? (
+        <View>
+          {data.whereToEat.map((g: any, i: number) => (
+            <View key={g.city} wrap={false}>
+              {i === 0 ? <SectionTitle>Where to eat</SectionTitle> : null}
+              <Text style={[s.eyebrow, { marginTop: i ? 10 : 0, marginBottom: 4 }]}>{`${g.city} · from our city guide`}</Text>
+              <EatRows entries={g.picks} />
+            </View>
           ))}
         </View>
       ) : null}
@@ -370,6 +397,17 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           </View>
         );
       })}
+      {(data.dayPlan || []).some((d: any) => d.dining && d.dining.length) ? (
+        <View>
+          <SectionTitle>Where to eat, day by day</SectionTitle>
+          {(data.dayPlan || []).filter((d: any) => d.dining && d.dining.length).map((d: any, i: number) => (
+            <View key={i} wrap={false} style={[s.panel, { marginBottom: 8, padding: 11 }]}>
+              <Text style={s.eyebrow}>{[d.label, d.date].filter(Boolean).join(" · ")}</Text>
+              <View style={{ marginTop: 4 }}><EatRows entries={d.dining} /></View>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {hasVisa ? null : <Footnote />}
     </Page>
   );

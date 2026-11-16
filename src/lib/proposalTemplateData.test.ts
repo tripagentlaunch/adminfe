@@ -69,3 +69,38 @@ describe("buildProposalTemplateData — flight alternatives", () => {
     expect(t.grandTotal).toBe(11640);
   });
 });
+
+describe("buildProposalTemplateData — where to eat", () => {
+  const eat = (id: string, name: string, meal: "lunch" | "dinner") => ({
+    id, name, area: "MG Road", tier: "Fine", credentials: ["Asia's 50 Best Restaurants 2025: No. 68"], description: "A farm table.",
+    city: "Bengaluru", url: "https://www.tripagent.vip/city-bengaluru", meal,
+  });
+  const trip = () => ({
+    days: [
+      { id: "d1", _iso: "2026-12-07", route: "Bengaluru", label: "Day 1", items: [], dining: [eat("bengaluru:farmlore", "Farmlore", "dinner")] },
+      { id: "d2", _iso: "2026-12-08", route: "Bengaluru", label: "Day 2", items: [], dining: [eat("bengaluru:farmlore", "Farmlore", "dinner"), eat("bengaluru:karavalli", "Karavalli", "lunch")] },
+      { id: "d3", _iso: "2026-12-09", route: "Bengaluru", label: "Day 3", items: [] },
+    ],
+  });
+
+  it("puts each day's restaurants in the day plan, even for a day with no other text", () => {
+    const t = buildProposalTemplateData(trip(), null, null, null);
+    expect(t.dayPlan.map((d: any) => [d.label, d.dining.map((e: any) => e.name)])).toEqual([
+      ["Day 1", ["Farmlore"]],
+      ["Day 2", ["Farmlore", "Karavalli"]],
+    ]);
+  });
+
+  it("groups the trip's restaurants by city, once each, with the website's city page", () => {
+    const t = buildProposalTemplateData(trip(), null, null, null);
+    expect(t.whereToEat).toHaveLength(1);
+    expect(t.whereToEat[0]).toMatchObject({ city: "Bengaluru", url: "https://www.tripagent.vip/city-bengaluru" });
+    expect(t.whereToEat[0].picks.map((p: any) => p.name)).toEqual(["Farmlore", "Karavalli"]);
+  });
+
+  it("shows nothing when no day has a restaurant", () => {
+    const t = buildProposalTemplateData({ days: [{ id: "d1", _iso: "2026-12-07", route: "Bengaluru", label: "Day 1", items: [] }] }, null, null, null);
+    expect(t.whereToEat).toEqual([]);
+    expect(t.dayPlan).toEqual([]);
+  });
+});

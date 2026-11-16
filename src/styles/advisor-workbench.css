@@ -2037,3 +2037,7 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-itin-guide-tier{margin-left:8px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8a847a);}
 .taw-itin-guide-add{display:flex;gap:6px;align-items:center;margin-top:3px;}
 .taw-itin-guide-add select{max-width:260px;font-size:12px;}
+
+/* Itinerary Builder: the restaurants on a day ("Where to eat", from the city guide). */
+.taw-itin-dining{margin:8px 0 2px;padding:10px 12px;border:1px solid var(--line,#e5e0d8);border-radius:10px;display:flex;flex-direction:column;gap:8px;}
+.taw-itin-dining-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}

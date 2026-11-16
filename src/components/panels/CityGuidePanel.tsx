@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cityGuide } from "../../services/api";
 import { Icon } from "../ui";
 import { itineraryCityTexts, pickLine, type Pick } from "../../lib/cityGuideText";
+import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
 export { itineraryCityTexts };
 
 type Guide = {
@@ -23,7 +24,7 @@ const SECTIONS: { key: "stay" | "eat" | "do" | "party"; title: string; addable: 
   { key: "party", title: "After dark", addable: true },
 ];
 
-function PickRow({ p, days, addable, onAdd }: { p: Pick; days: GuideDay[]; addable: boolean; onAdd: (dayId: string, text: string) => void }) {
+function PickRow({ p, days, addable, onAdd }: { p: Pick; days: GuideDay[]; addable: boolean; onAdd: (dayId: string) => void }) {
   const [dayId, setDayId] = useState(days[0] ? days[0].id : "");
   const day = days.some((d) => d.id === dayId) ? dayId : days[0] ? days[0].id : "";
   return (
@@ -40,14 +41,18 @@ function PickRow({ p, days, addable, onAdd }: { p: Pick; days: GuideDay[]; addab
           <select value={day} onChange={(e) => setDayId(e.target.value)} aria-label={"Day to add " + p.name + " to"}>
             {days.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
           </select>
-          <button type="button" className="taw-btn taw-btn--sm" onClick={() => onAdd(day, pickLine(p))}>Add to this day</button>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={() => onAdd(day)}>Add to this day</button>
         </div>
       ) : null}
     </div>
   );
 }
 
-export function CityGuidePanel({ texts, days, onAddToDay }: { texts: string[]; days: GuideDay[]; onAddToDay: (dayId: string, text: string) => void }) {
+export function CityGuidePanel({ texts, days, onAddToDay, onAddDining }: {
+  texts: string[]; days: GuideDay[]; onAddToDay: (dayId: string, text: string) => void;
+  /** A "Where to eat" pick goes onto the day as a restaurant of its own (shown in the proposal's Days and Plan tabs), not as a sentence. */
+  onAddDining?: (dayId: string, entry: DiningEntry) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [loading, setLoading] = useState(false);
@@ -97,7 +102,10 @@ export function CityGuidePanel({ texts, days, onAddToDay }: { texts: string[]; d
                 return picks.length ? (
                   <div key={s.key} className="taw-itin-guide-sec">
                     <div className="taw-itin-guide-eyebrow">{s.title}</div>
-                    {picks.map((p, i) => <PickRow key={i} p={p} days={days} addable={s.addable} onAdd={onAddToDay} />)}
+                    {picks.map((p, i) => (
+                      <PickRow key={i} p={p} days={days} addable={s.addable}
+                        onAdd={(dayId) => (s.key === "eat" && onAddDining ? onAddDining(dayId, diningEntry(p, g)) : onAddToDay(dayId, pickLine(p)))} />
+                    ))}
                   </div>
                 ) : null;
               })}

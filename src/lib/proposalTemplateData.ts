@@ -22,6 +22,7 @@ import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
 import { addonCount, addonLines, addonTable } from "./flightAddons";
 import { flightKeyOf } from "./itineraryFromCart";
+import { whereToEatByCity } from "./diningPlan";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -660,8 +661,14 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     costRange: computeCostRange(days, data.pax || 1, data.costSummary?.budgetCap),
     // Day-by-day narrative of a generated itinerary — AI-drafted, unverified. Empty for cart-built ones.
     dayPlan: days
-      .filter((d: any) => d.title || d.description)
-      .map((d: any) => ({ label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null })),
+      .filter((d: any) => d.title || d.description || (d.dining && d.dining.length))
+      .map((d: any) => ({
+        label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null,
+        // "Where to eat" for the day: restaurants the advisor took from our city guide (lib/diningPlan.ts)
+        dining: Array.isArray(d.dining) ? d.dining : [],
+      })),
+    // The trip's restaurants grouped by city, for the Plan tab and the PDF (derived from the days' dining, nothing else)
+    whereToEat: whereToEatByCity(days),
     stays,
     flights,
     visa: visa

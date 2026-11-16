@@ -60,6 +60,9 @@ import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
 import { CityGuidePanel } from "./CityGuidePanel";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
+import { dayCityTexts, isMealDay, suggestDining, type DiningEntry } from "../../lib/diningPlan";
+import { guidesForTexts } from "../../lib/cityGuideCache";
+import { DayDining } from "./DayDining";
 
 // editValue/type (2026-09-04) — added for the day date, the one field
 // here where the DISPLAYED text ("Thu 12 Oct") and the value that needs
@@ -384,6 +387,36 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     toast("Added to the day: " + text.slice(0, 60) + (text.length > 60 ? "…" : ""), "success");
   }
 
+  // "Where to eat": restaurants from our city guides, kept on the day as `dining` (the proposal's Days and Plan tabs show them).
+  function addDiningToDay(dayId: string, entry: DiningEntry) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId || (day.dining || []).some((e: DiningEntry) => e.id === entry.id) ? day : { ...day, dining: (day.dining || []).concat([entry]) })),
+    }));
+    toast("Added to the day: " + entry.name, "success");
+  }
+  function removeDining(dayId: string, entryId: string) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, dining: (day.dining || []).filter((e: DiningEntry) => e.id !== entryId) })) }));
+  }
+  const [suggesting, setSuggesting] = useState(false);
+  async function suggestWhereToEat() {
+    setSuggesting(true);
+    try {
+      const days: any[] = data.days || [];
+      const guides = await guidesForTexts(days.filter(isMealDay).flatMap(dayCityTexts));
+      const picked = suggestDining(days, (t) => guides.get(t));
+      const count = Object.keys(picked).length;
+      if (!count) {
+        toast(guides.size ? "Every day already has its restaurants, or the guide has no more to suggest." : "Our website has no city guide for this itinerary's cities yet.", "info");
+        return;
+      }
+      setData((d: any) => ({ ...d, days: d.days.map((day: any) => (picked[day.id] && !(day.dining || []).length ? { ...day, dining: picked[day.id] } : day)) }));
+      toast("Added where to eat on " + count + " day" + (count === 1 ? "" : "s") + ": change or remove any of them.", "success");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   function reorderItems(dayId: string, dragItemId: string, dropItemId: string) {
     if (dragItemId === dropItemId) return;
     setData((d: any) => ({
@@ -692,7 +725,13 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
           before it takes a flight's payment). Only when a flight has a live price. */}
       <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
-      <CityGuidePanel texts={itineraryCityTexts(data)} onAddToDay={addGuideLineToDay}
+      <div className="taw-itin-guide">
+        <button type="button" className="taw-btn taw-btn--sm" disabled={suggesting} onClick={suggestWhereToEat}>
+          <Icon name="pin" size={13} /> {suggesting ? "Looking up our city guides…" : "Suggest where to eat"}
+        </button>
+        <span className="taw-muted" style={{ marginLeft: 8, fontSize: 12 }}>Fills days that have no restaurant yet, from our city guides.</span>
+      </div>
+      <CityGuidePanel texts={itineraryCityTexts(data)} onAddToDay={addGuideLineToDay} onAddDining={addDiningToDay}
         days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
@@ -1082,6 +1121,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                     </div>
                   );
                 })}
+                {category === "all" && day.dining && day.dining.length ? <DayDining entries={day.dining} onRemove={(id) => removeDining(day.id, id)} /> : null}
               </div>
             ) : null}
           </div>
