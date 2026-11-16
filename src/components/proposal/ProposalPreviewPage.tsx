@@ -31,7 +31,7 @@
  *      only ever shows the real visa record, and is omitted entirely when
  *      there is none.
  * ===========================================================================*/
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -54,6 +54,7 @@ import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
 import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
+import { leftText, untilText } from "../../lib/offlineBanner";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
 // Small outline icons for the kinds of place, as on the website's tabs (a wine glass for Fine, a shirt for Smart).
@@ -147,6 +148,38 @@ function EatList({ entries }: { entries: any[] }) {
     </div>
   );
 }
+
+// Offline prices: a flight or stay the advisor priced by hand because another vendor quoted it. They are held for 12 hours and are
+// never re-checked with the airline or hotel, so the page says until when. On the customer's link the time comes from the server
+// (offsetMs = server clock - this computer's), so a wrong computer clock changes nothing.
+type OfflineNotice = { validUntil: string | null; expired: boolean; offsetMs: number };
+
+function OfflineBanner({ notice }: { notice: OfflineNotice }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const msLeft = notice.validUntil ? Date.parse(notice.validUntil) - (now + notice.offsetMs) : 0;
+  const expired = notice.expired || !(msLeft > 0);
+  return (
+    <div className={"pv-offline" + (expired ? " is-expired" : "")} role="status">
+      {expired ? (
+        <>
+          <b>The offline prices in this proposal are no longer held.</b>
+          <span>Lines marked &ldquo;Quoted offline&rdquo; were quoted by your advisor from another vendor. Please ask your advisor to confirm them again before you pay.</span>
+        </>
+      ) : (
+        <>
+          <b>Offline prices held until {untilText(notice.validUntil)} · {leftText(msLeft)}</b>
+          <span>Lines marked &ldquo;Quoted offline&rdquo; were quoted by your advisor from another vendor. They aren&apos;t live prices: they&apos;re held for 12 hours, and your advisor confirms them with you.</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+const OfflineTag = () => <span className="pv-offtag" title="Quoted by your advisor from another vendor: held for 12 hours, not a live price">Quoted offline</span>;
 
 const TABS = ["Plan", "Days", "Where to eat", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
@@ -777,6 +810,14 @@ export function ProposalPreviewPage({
     }
   }
   const priceChange = check.status === "ready" && check.data?.price_changed && !changeSeen ? check.data : null;
+  // What is charged, before and after the live check: the whole-trip amount Pay now takes (our fee and GST included), so the popup,
+  // the button and the summary all say the same number.
+  const chargeOf = (d: any) => Number(d?.pay_amount ?? d?.trip_total ?? d?.amount ?? 0);
+  const chargedBefore = Number(flightQuote?.pay_amount ?? flightQuote?.trip_total ?? data.grandTotal ?? 0);
+  // Offline prices (entered by hand): on the link the server's own clock and the live trip decide; else what this proposal was built with.
+  const offlineNotice: OfflineNotice | null = flightQuote && flightQuote.offline
+    ? { validUntil: flightQuote.offline.valid_until, expired: !!flightQuote.offline.expired, offsetMs: Date.parse(flightQuote.offline.now) - Date.now() || 0 }
+    : data.offlineNotice ? { validUntil: data.offlineNotice.validUntil, expired: !!data.offlineNotice.expired, offsetMs: 0 } : null;
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
   const previewPayable = !payToken && !data._locked && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
@@ -847,14 +888,23 @@ export function ProposalPreviewPage({
             <h2>The price has changed</h2>
             <p>Since your proposal was prepared, the airline or hotel has changed the price. We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
             <div className="pv-pchg-rows">
-              <div><span>In your proposal</span><s>{inr(priceChange.quoted)}</s></div>
-              <div className="now"><span>Now</span><b>{inr(priceChange.amount)}</b></div>
-              <div className="diff"><span>{priceChange.amount > priceChange.quoted ? "Increase" : "Decrease"}</span><span>{inr(Math.abs(priceChange.amount - priceChange.quoted))}</span></div>
+              <div><span>In your proposal</span><s>{inr(chargedBefore)}</s></div>
+              <div className="now"><span>Final price now</span><b>{inr(chargeOf(priceChange))}</b></div>
+              <div className="diff"><span>{chargeOf(priceChange) > chargedBefore ? "Increase" : "Decrease"}</span><span>{inr(Math.abs(chargeOf(priceChange) - chargedBefore))}</span></div>
             </div>
+            {(priceChange.lines || []).some((l: any) => l.changed) ? (
+              <div className="pv-pchg-lines">
+                <div className="pv-pchg-lines-h">What moved</div>
+                {(priceChange.lines || []).filter((l: any) => l.changed).map((l: any, i: number) => (
+                  <div key={i}><span>{l.label}</span><span><s>{inr(l.was)}</s> → <b>{inr(l.now)}</b></span></div>
+                ))}
+                <div className="pv-pchg-lines-n">Our service fee and GST move with these prices.</div>
+              </div>
+            ) : null}
             <div className="pv-pchg-actions">
               <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setChangeSeen(true)}>Not now</button>
               <button type="button" className="pv-cta pv-cta--pay" onClick={() => { setChangeSeen(true); void payNow(); }}>
-                Pay <span className="pv-cta-amt">{inr(priceChange.amount)}</span>
+                Pay <span className="pv-cta-amt">{inr(chargeOf(priceChange))}</span>
               </button>
             </div>
           </div>
@@ -942,6 +992,7 @@ export function ProposalPreviewPage({
             ) : payment === "failed" ? (
               <div className="pv-paid-note pv-paid-note--err" role="status">The payment didn&apos;t go through and you haven&apos;t been charged. You can try again with Pay now below.</div>
             ) : null}
+            {offlineNotice ? <OfflineBanner notice={offlineNotice} /> : null}
             <div className="pv-tabs">
               <span className="pv-tab-indicator" style={{ transform: `translateX(${indicator.left}px)`, width: indicator.width }} />
               {visibleTabs.map((t) => (
@@ -990,7 +1041,10 @@ export function ProposalPreviewPage({
                     <>
                       <h2 className="pv-section-title">Getting there</h2>
                       {data.flights.map((f: any, i: number) =>
-                        f.depTime ? (f.alternatives?.length ? <FlightGroup key={i} f={f} onSwap={onSwapFlight} /> : <RecommendedFlightRow key={i} f={f} />) : <PendingFlightRow key={i} f={f} />
+                        <Fragment key={i}>
+                          {f.offline ? <div style={{ marginTop: 6 }}><OfflineTag /></div> : null}
+                          {f.depTime ? (f.alternatives?.length ? <FlightGroup f={f} onSwap={onSwapFlight} /> : <RecommendedFlightRow f={f} />) : <PendingFlightRow f={f} />}
+                        </Fragment>
                       )}
                     </>
                   ) : null}
@@ -1001,7 +1055,7 @@ export function ProposalPreviewPage({
                       {enrichedData.stays.map((st: any, i: number) => (
                         <div className="pv-recgroup" key={i}>
                           <div className="pv-recgroup-head">
-                            <span className="pv-recgroup-title">{st.area ? `${st.city} · ${st.area}` : st.city}</span>
+                            <span className="pv-recgroup-title">{st.area ? `${st.city} · ${st.area}` : st.city}{st.offline ? <> <OfflineTag /></> : null}</span>
                             {st.dateRange ? <span className="pv-recgroup-sub">{st.dateRange}</span> : null}
                           </div>
                           {st.alternatives?.length ? <StayGroup st={st} onSwap={onSwapHotel} /> : <RecommendedStayRow st={st} />}
@@ -1053,7 +1107,7 @@ export function ProposalPreviewPage({
                             // A live-priced flight: its line opens into what the price is made of.
                             <details className="pv-costrow-wrap" key={i}>
                               <summary className="pv-costrow pv-costrow--open">
-                                <span>{ln.label}<span className="pv-costrow-caret" aria-hidden="true" /></span>
+                                <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}<span className="pv-costrow-caret" aria-hidden="true" /></span>
                                 <span>{inr(ln.sell)}</span>
                               </summary>
                               <div className="pv-costbreak">
@@ -1067,7 +1121,7 @@ export function ProposalPreviewPage({
                             </details>
                           ) : (
                             <div className="pv-costrow" key={i}>
-                              <span>{ln.label}</span>
+                              <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}</span>
                               <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
                             </div>
                           ),
@@ -1100,8 +1154,9 @@ export function ProposalPreviewPage({
                         aria-busy={check.status === "checking" || paying}>
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
                           : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
-                        {!paying && !(check.status === "checking" && wantPay) ? (
-                          <span className="pv-cta-amt">{inr(check.status === "ready" && check.data ? (check.data.pay_amount ?? check.data.amount) : (flightQuote.pay_amount ?? flightQuote.amount))}</span>
+                        {/* the amount only once the live check has confirmed it: before that it is not final */}
+                        {!paying && !(check.status === "checking" && wantPay) && check.status === "ready" && check.data ? (
+                          <span className="pv-cta-amt">{inr(chargeOf(check.data))}</span>
                         ) : null}
                       </button>
                     ) : payToken && !data._locked && payQuote?.payable && !flightQuote?.payable ? (
@@ -1136,27 +1191,26 @@ export function ProposalPreviewPage({
                   ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
                     <div className="pv-actions-note">Secure payment · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
-                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && (check.data?.pays_trip_total ?? flightQuote.pays_trip_total) ? (
-                    // One payment for the whole trip (TripAgent's Razorpay): the fee and GST are in it.
-                    <div className="pv-actions-note">
-                      Pay now {inr(check.data?.pay_amount ?? flightQuote.pay_amount ?? 0)} is the whole trip in one payment
-                      {Number(check.data?.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <> — incl. TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} and GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</> : null}
-                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)} are settled with them</> : null}.
-                    </div>
-                  ) : payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
-                    // The three parts that make the trip total: the airline / hotel amount paid now through
-                    // TripSure, our service fee, and the GST on the trip.
-                    <div className="pv-actions-note">
-                      Pay now {inr(check.data?.amount ?? flightQuote.amount)} covers the airline and hotel fares
-                      {(check.data?.service_fee ?? flightQuote.service_fee) != null ? (
-                        <> · TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} · GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</>
-                      ) : " and TripAgent service fee & GST " + inr(check.data?.fee ?? flightQuote.fee ?? 0)}
-                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? (
-                        // Items on the proposal that aren't paid online (your advisor confirms them).
-                        <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)}</>
-                      ) : null}
-                      {" "}= trip total {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)}.
-                    </div>
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (() => {
+                    // One summary: the same parts before the check (as quoted) and after it (the final price), adding up to the amount charged.
+                    const v: any = check.status === "ready" && check.data ? check.data : flightQuote;
+                    const final = check.status === "ready" && !!check.data;
+                    const whole = !!(v.pays_trip_total ?? flightQuote.pays_trip_total);
+                    const total = whole ? chargeOf(v) : Number(v.trip_total ?? flightQuote.trip_total ?? data.grandTotal);
+                    return (
+                      <div className="pv-paysum" role="group" aria-label={final ? "Final price" : "Quoted price"}>
+                        <div className="pv-paysum-h">{final ? "Final price, checked live just now" : "Quoted price"}</div>
+                        <div><span>Airline &amp; hotel</span><span>{inr(v.amount ?? flightQuote.amount)}</span></div>
+                        {Number(v.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <div><span>TripAgent service fee</span><span>{inr(v.service_fee ?? flightQuote.service_fee)}</span></div> : null}
+                        {Number(v.tax ?? flightQuote.tax ?? 0) > 0 ? <div><span>GST</span><span>{inr(v.tax ?? flightQuote.tax)}</span></div> : null}
+                        {Number(v.other ?? flightQuote.other ?? 0) > 0 ? <div><span>Quoted offline &amp; other items, confirmed by your advisor</span><span>{inr(v.other ?? flightQuote.other)}</span></div> : null}
+                        <div className="pv-paysum-total"><span>{whole ? (final ? "You pay" : "You pay (confirmed when you press Pay now)") : "Trip total"}</span><b>{inr(total)}</b></div>
+                        {!final ? <div className="pv-paysum-n">Airline and hotel prices are checked live when you press Pay now; the final price is shown before you pay.</div> : null}
+                      </div>
+                    );
+                  })() : null}
+                  {payToken && flightQuote && !flightQuote.payable && flightQuote.reason && payment !== "success" && check.status !== "paid" ? (
+                    <div className="pv-actions-note is-err" role="status">{flightQuote.reason}</div>
                   ) : null}
                   {payToken && debug ? (
                     <LiveCheckTrace token={payToken} version={`${check.status}:${choiceVersion}:${payErr || ""}:${paying}`}

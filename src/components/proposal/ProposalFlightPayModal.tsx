@@ -41,6 +41,10 @@ export type FlightPayQuote = {
   /** What Pay now charges: the whole trip (one payment on TripAgent's Razorpay), else the suppliers' part. */
   pay_amount?: number;
   pays_trip_total?: boolean;
+  /** Offline-priced items (entered by hand): held 12 hours on the server's clock; `now` is that clock. null when none. */
+  offline?: { hours: number; now: string; valid_until: string | null; expired: boolean; items: { id: string; type: string; title: string; valid_until: string | null; expired: boolean }[] } | null;
+  /** Why the trip can't be paid right now (nothing payable online, or offline prices no longer held). */
+  reason?: string | null;
 };
 
 type Pax = {

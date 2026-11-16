@@ -53,7 +53,9 @@ import { PaidTripHistory } from "./PaidTripHistory";
 import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, clearManualPrice } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, clearManualPrice, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
+import { leftText, untilText } from "../../lib/offlineBanner";
+import { useMinuteClock } from "../../lib/deskMemory";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
@@ -147,6 +149,8 @@ function EditableText({
 // afterwards. Vendor and note are internal. "Back to the earlier price" restores what the item had before (e.g. Tara's draft figure).
 function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amount: number; vendor: string; note: string }) => void; onClear: () => void }) {
   const mp = item.manualPrice || null;
+  const now = useMinuteClock();
+  const hold = mp ? manualPriceState(mp, now) : null; // an offline price is held for 12 hours from when it was entered
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [vendor, setVendor] = useState("");
@@ -173,6 +177,11 @@ function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amoun
           <span>
             <b>Price entered manually: {inr(mp.amount)}</b> ({what}){mp.vendor ? " · " + mp.vendor : ""}{mp.note ? " · " + mp.note : ""}
           </span>
+          {hold ? (
+            <span className={"taw-itin-manual-hold" + (hold.expired ? " is-expired" : "")} title="An offline price is held for 12 hours from when it was entered. Edit it, or use Refresh offline prices, to hold it for 12 more hours.">
+              {hold.expired ? "Offline price expired: confirm it with the vendor and refresh it" : `Held until ${untilText(hold.validUntil)} · ${leftText(hold.msLeft)}`}
+            </span>
+          ) : null}
           <button type="button" className="taw-linkbtn" onClick={start}>Edit</button>
           <button type="button" className="taw-linkbtn" onClick={onClear}>Back to the earlier price</button>
         </div>
@@ -306,6 +315,9 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // open it — clicking "Send to Proposal" should be reversible without
   // side effects until they commit.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Offline prices (entered by hand) are held for 12 hours: the banner below counts it down.
+  const nowTick = useMinuteClock();
+  const offlineNow = offlineNoticeOf(data.days || [], nowTick);
   function sendToProposal() {
     // No longer refuses a draft hotel (2026-10-21, direct request): the summary modal still warns
     // about it (hasDraftHotel), but the advisor may continue to the Proposal Composer anyway.
@@ -384,6 +396,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       days: d.days.map((day: any) => (day.id !== dayId || (day.dining || []).some((e: DiningEntry) => e.id === entry.id) ? day : { ...day, dining: (day.dining || []).concat([entry]) })),
     }));
     toast("Added to the day: " + entry.name, "success");
+  }
+  // Offline prices are held for 12 hours; this restarts the clock once the advisor has re-confirmed them with the vendors.
+  function refreshOfflinePrices() {
+    setData((d: any) => refreshManualPrices(d));
+    toast("Offline prices are held for 12 more hours.", "success");
   }
   function removeDining(dayId: string, entryId: string) {
     setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, dining: (day.dining || []).filter((e: DiningEntry) => e.id !== entryId) })) }));
@@ -696,6 +713,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
           before it takes a flight's payment). Only when a flight has a live price. */}
       <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
+      {offlineNow ? (
+        <div className={"taw-itin-offline" + (offlineNow.expired ? " is-expired" : "")} role="status">
+          <span>
+            {offlineNow.expired
+              ? "Some offline prices are no longer held. Customers can't pay until you confirm them with the vendors and refresh them."
+              : `Offline prices are held until ${untilText(offlineNow.validUntil)} · ${leftText(Date.parse(offlineNow.validUntil || "") - nowTick)}. The proposal and PDF say so.`}
+          </span>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={refreshOfflinePrices}>Refresh offline prices</button>
+        </div>
+      ) : null}
       <div className="taw-itin-diningbar">
       <CityGuidePanel texts={itineraryCityTexts(data)} onAddDining={addDiningToDay}
         dayTexts={Object.fromEntries((data.days || []).map((d: any) => [d.id, dayCityTexts(d)]))} hotelForDay={(id) => hotelForDay(data.days || [], id)}

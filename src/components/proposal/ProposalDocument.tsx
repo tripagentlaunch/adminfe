@@ -14,6 +14,7 @@ import { Document, Page, View, Text, StyleSheet, Svg, Path, Link, Image } from "
 import { registerProposalFonts } from "../../lib/proposalFonts";
 import { inr } from "../../services/api";
 import { cardTags, distanceText } from "../../lib/diningPlan";
+import { untilText } from "../../lib/offlineBanner";
 
 registerProposalFonts();
 
@@ -304,6 +305,26 @@ function EatRows({ entries }: { entries: any[] }) {
   );
 }
 
+// Offline prices (flights and stays the advisor priced by hand, quoted by another vendor): held for 12 hours from when they were entered.
+// A PDF is fixed, so it says the time they are held until, and when it was prepared, not a countdown.
+function OfflineBanner({ data }: { data: any }) {
+  const n = data.offlineNotice;
+  if (!n) return null;
+  const expired = !!n.expired;   // judged when the proposal was built (offlineNoticeOf), so a PDF render does not depend on the clock
+  return (
+    <View wrap={false} style={{ marginTop: 14, padding: 12, borderWidth: 0.75, borderColor: expired ? "#B03434" : "#B08428", borderRadius: 8, backgroundColor: expired ? "#FBECEC" : "#FBF3E2" }}>
+      <Text style={{ fontSize: 10, fontWeight: 600, color: expired ? "#7D2121" : "#5F4510" }}>
+        {expired ? "The offline prices in this proposal are no longer held" : `Offline prices held until ${untilText(n.validUntil)}`}
+      </Text>
+      <Text style={[s.dayBody, { color: expired ? "#7D2121" : "#5F4510" }]}>
+        {`Lines marked "Quoted offline" were quoted by your advisor from another vendor. They aren't live prices: they're held for ${n.hours || 12} hours` +
+          `${n.validUntil ? " from when your advisor entered them" : ""}, and your advisor confirms them with you.` +
+          `${expired ? " Please ask your advisor to confirm them again." : ""}${data.preparedAt ? ` Prepared ${untilText(data.preparedAt)}.` : ""}`}
+      </Text>
+    </View>
+  );
+}
+
 function Footnote() {
   const prepared = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" });
   return <Text style={s.footnote}>{`Prepared ${prepared}. Nothing is booked, held or paid unless noted above.`}</Text>;
@@ -318,6 +339,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       <View style={{ marginTop: 20 }}>
         <TabRow active="Plan" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       </View>
+      <OfflineBanner data={data} />
 
       <SectionTitle first>The shape</SectionTitle>
       <View>
@@ -329,7 +351,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       {data.flights?.length ? (
         <View>
           {data.flights.map((f: any, i: number) => (
-            <FlightRow key={i} f={f} heading={i === 0 ? <SectionTitle>Getting there</SectionTitle> : undefined} />
+            <FlightRow key={i} f={f} heading={<>{i === 0 ? <SectionTitle>Getting there</SectionTitle> : null}{f.offline ? <Text style={[s.eyebrow, { marginTop: 4 }]}>Quoted offline</Text> : null}</>} />
           ))}
         </View>
       ) : null}
@@ -337,7 +359,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       {data.stays?.length ? (
         <View>
           {data.stays.map((st: any, i: number) => (
-            <StayGroup key={i} st={st} heading={i === 0 ? <SectionTitle>Where you stay</SectionTitle> : undefined} />
+            <StayGroup key={i} st={st} heading={<>{i === 0 ? <SectionTitle>Where you stay</SectionTitle> : null}{st.offline ? <Text style={[s.eyebrow, { marginTop: 4 }]}>Quoted offline</Text> : null}</>} />
           ))}
         </View>
       ) : null}
@@ -347,7 +369,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           <SectionTitle>What it costs</SectionTitle>
           {data.costLines.map((ln: any, i: number) => (
             <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: LINE, fontSize: 9.5 }}>
-              <Text>{ln.label || ln.type}</Text>
+              <Text>{(ln.label || ln.type) + (ln.offline ? " · Quoted offline" : "")}</Text>
               <Text>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</Text>
             </View>
           ))}

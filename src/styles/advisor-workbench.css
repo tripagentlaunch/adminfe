@@ -2067,3 +2067,9 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-eat-card-dist{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--ink,#171310);}
 .taw-itin-dining{margin:8px 0 2px;padding:10px 12px;border:1px solid var(--line,#e5e0d8);border-radius:10px;display:flex;flex-direction:column;gap:8px;}
 .taw-itin-dining-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+
+/* Offline prices: held for 12 hours. */
+.taw-itin-offline{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:10px 0;padding:10px 14px;border:1px solid rgba(176,132,40,.35);background:var(--warn-bg,#fbf3e2);border-radius:10px;font-size:13px;color:var(--warn-ink,#6b4e12);}
+.taw-itin-offline.is-expired{border-color:rgba(176,52,52,.4);background:#fbecec;color:#8a2323;}
+.taw-itin-manual-hold{display:block;font-size:12px;margin-top:4px;color:var(--warn-ink,#6b4e12);}
+.taw-itin-manual-hold.is-expired{color:#a02a2a;font-weight:600;}

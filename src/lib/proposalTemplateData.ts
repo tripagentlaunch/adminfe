@@ -23,6 +23,7 @@ import type { HotelEnrichment } from "./useHotelWebsites";
 import { addonCount, addonLines, addonTable } from "./flightAddons";
 import { flightKeyOf } from "./itineraryFromCart";
 import { whereToEatByCity } from "./diningPlan";
+import { offlineNoticeOf } from "./itineraryFromCart";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -275,6 +276,8 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // The stay's specifics from /hotels/facts (gallery, inclusions, check-in, rules).
         facts: it.facts || null,
         priceIsEstimate: !!it.priceIsEstimate,
+        // a price the advisor entered by hand (quoted offline): held for 12 hours, never re-checked with TripSure
+        offline: !!it.manualPrice,
         price: it.price || 0,
         status: it.status,
         // Routed through OUR OWN backend (2026-09-15 fix, real "Bombay
@@ -371,6 +374,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         flightNo: it.flightNo || null,
         stops: it.stops ?? null,
         price: it.price || 0,
+        offline: !!it.manualPrice,
         isOriginalChoice: !it.originalFlightNo || it.originalFlightNo === it.flightNo,
         // key: the flight's numbers ("IX 2945+IX 1036") — how the customer's link names the option
         // they chose, and how Pay now finds it again.
@@ -578,7 +582,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     const lines: { label: string; sell: number }[] = [];
     for (const type of order) {
       for (const item of itemQueuesByType[type] || []) {
-        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, breakdown: flightBreakdown(item, item.price || 0) } as any);
+        lines.push({ label: enrichedLabel(item, item.title || type), sell: item.price || 0, breakdown: flightBreakdown(item, item.price || 0), offline: !!item.manualPrice } as any);
       }
     }
     return lines;
@@ -607,7 +611,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     ? pricing.lines.map((ln: any) => {
         const lnType = String(ln.type || "").toLowerCase();
         const item = (itemQueuesByType[lnType] || []).shift();
-        return { ...ln, label: enrichedLabel(item, ln.label || ln.type), breakdown: flightBreakdown(item, Number(ln.sell)), _itemId: item?.id };
+        return { ...ln, label: enrichedLabel(item, ln.label || ln.type), breakdown: flightBreakdown(item, Number(ln.sell)), offline: !!(item && item.manualPrice), _itemId: item?.id };
       })
     : fallbackLinesFromItinerary();
   // "Getting there" shows each flight at the same customer price as its "What it costs" line
@@ -656,6 +660,10 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     calendarBlocks,
     calendarCaptions,
     costLines: enrichedCostLines,
+    // Offline-priced items (entered by hand, quoted by another vendor): the earliest time they stop being held, for the banner.
+    // preparedAt is when this proposal was built, so a PDF can say when its prices were prepared.
+    offlineNotice: offlineNoticeOf(days),
+    preparedAt: new Date().toISOString(),
     // Range across the chosen options and their alternatives (follows Swap); budgetCap comes from the
     // backend's cost summary for the first generation.
     costRange: computeCostRange(days, data.pax || 1, data.costSummary?.budgetCap),

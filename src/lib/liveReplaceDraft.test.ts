@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addCartItemToItinerary, applyManualPrice, clearManualPrice, itineraryTotals, replacesExisting } from "./itineraryFromCart";
+import { addCartItemToItinerary, applyManualPrice, clearManualPrice, itineraryTotals, manualPriceState, offlineNoticeOf, refreshManualPrices, replacesExisting } from "./itineraryFromCart";
 import { sameHotelName } from "./livePriceRequest";
 
 const draftFlight = { id: "f-0", type: "flight", status: "draft", flightNo: "414 + 2863", origin: "BLR", dest: "VIE", price: 50000, title: "Tara draft" };
@@ -80,5 +80,45 @@ describe("manual (offline vendor) price", () => {
     expect(applyManualPrice(draft, { amount: -5 })).toBe(draft);
     const conf = { ...draft, status: "confirmed" };
     expect(applyManualPrice(conf, { amount: 100 })).toBe(conf);
+  });
+});
+
+describe("offline price: held for 12 hours, never a live price", () => {
+  const live = { id: "f-1", type: "flight", status: "on_hold", price: 18000, pricing: { source: "tripsure_live", total: 18000 } };
+  const T0 = "2026-11-17T06:00:00Z";
+  it("drops the TripSure live price details, and clearing brings them back", () => {
+    const m = applyManualPrice(live, { amount: 64500 }, T0);
+    expect(m.pricing).toBeUndefined();
+    expect(clearManualPrice(m).pricing).toEqual({ source: "tripsure_live", total: 18000 });
+  });
+  it("is held until 12 hours after it was entered", () => {
+    const now = Date.parse("2026-11-17T08:00:00Z");
+    const s = manualPriceState({ at: T0 }, now);
+    expect(s.validUntil).toBe("2026-11-17T18:00:00.000Z");
+    expect(s.expired).toBe(false);
+    expect(s.msLeft).toBe(10 * 3_600_000);
+    expect(manualPriceState({ at: T0 }, Date.parse("2026-11-17T18:00:00Z")).expired).toBe(true);
+    expect(manualPriceState({ at: "2026-11-17T09:00:00Z" }, now).validUntil).toBe("2026-11-17T20:00:00.000Z"); // an entry time ahead of the clock counts as now
+    expect(manualPriceState({}, now).expired).toBe(true);
+  });
+  it("the banner uses the earliest expiry among the offline items and ignores live ones", () => {
+    const a = applyManualPrice({ id: "a", type: "hotel", status: "on_hold" }, { amount: 105000 }, "2026-11-17T05:00:00Z");
+    const b = applyManualPrice(live, { amount: 9000 }, "2026-11-17T08:00:00Z");
+    const c = { id: "c", type: "flight", status: "on_hold", price: 1 };
+    const n = offlineNoticeOf([{ items: [a, b, c] }], Date.parse("2026-11-17T09:00:00Z"));
+    expect(n).toEqual({ hours: 12, validUntil: "2026-11-17T17:00:00.000Z", expired: false, count: 2 });
+    expect(offlineNoticeOf([{ items: [c] }])).toBeNull();
+    expect(offlineNoticeOf([{ items: [a] }], Date.parse("2026-11-18T09:00:00Z"))!.expired).toBe(true);
+  });
+  it("refreshing restarts the 12 hours for every unconfirmed offline item", () => {
+    const a = applyManualPrice({ id: "a", type: "hotel", status: "on_hold" }, { amount: 105000, vendor: "V" }, T0);
+    const done = { ...applyManualPrice({ id: "z", type: "hotel", status: "on_hold" }, { amount: 5 }, T0), status: "confirmed" };
+    const r = refreshManualPrices({ days: [{ items: [a, done, { id: "n", type: "flight" }] }] }, "2026-11-17T20:00:00Z");
+    const [ra, rz, rn] = r.days[0].items;
+    expect(ra.manualPrice.at).toBe("2026-11-17T20:00:00Z");
+    expect(ra.manualPrice.amount).toBe(105000);
+    expect(ra.manualPrice.vendor).toBe("V");
+    expect(rz.manualPrice.at).toBe(T0);
+    expect(rn.manualPrice).toBeUndefined();
   });
 });

@@ -1107,12 +1107,45 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
 // like before is kept in manualPrice.prev so "Back to the earlier price" restores it exactly. vendor/note stay internal.
 export type ManualPriceInput = { amount: number; vendor?: string; note?: string };
 
+// An offline price is HELD for 12 hours from when the advisor entered it (or last refreshed it): the proposal's banner says until when,
+// and Pay now leaves these items out of its live check (adbe services/offline_prices.py keeps the same rule on the server's clock).
+export const OFFLINE_HOURS = 12;
+
+/** When an offline price stops being held, and whether it already has. `now` is the clock to judge by (the server's, on the link). */
+export function manualPriceState(mp: { at?: string } | null | undefined, now: Date | number = Date.now()): { validUntil: string | null; expired: boolean; msLeft: number } {
+  const t = mp && mp.at ? Date.parse(mp.at) : NaN;
+  const n = typeof now === "number" ? now : now.getTime();
+  if (!Number.isFinite(t)) return { validUntil: null, expired: true, msLeft: 0 };
+  const until = Math.min(t, n) + OFFLINE_HOURS * 3_600_000;       // an `at` ahead of the clock counts as now
+  return { validUntil: new Date(until).toISOString(), expired: until <= n, msLeft: Math.max(0, until - n) };
+}
+
+/** The proposal banner's facts for a trip: the earliest expiry among its offline-priced items, or null when none is offline. */
+export function offlineNoticeOf(days: any[], now: Date | number = Date.now()): { hours: number; validUntil: string | null; expired: boolean; count: number } | null {
+  const items = (days || []).flatMap((d: any) => (d.items || []).filter((it: any) => it && it.manualPrice && it.status !== "confirmed" && (it.type === "flight" || it.type === "hotel")));
+  if (!items.length) return null;
+  const states = items.map((it: any) => manualPriceState(it.manualPrice, now));
+  const untils = states.map((x) => x.validUntil).filter(Boolean) as string[];
+  return { hours: OFFLINE_HOURS, validUntil: untils.length ? untils.sort()[0] : null, expired: states.some((x) => x.expired), count: items.length };
+}
+
+/** "Refresh offline prices": the advisor has re-confirmed them with the vendors, so every offline item is held for 12 more hours. */
+export function refreshManualPrices(data: any, now: string = new Date().toISOString()): any {
+  return {
+    ...data,
+    days: (data.days || []).map((day: any) => ({
+      ...day,
+      items: (day.items || []).map((it: any) => (it && it.manualPrice && it.status !== "confirmed" ? { ...it, manualPrice: { ...it.manualPrice, at: now } } : it)),
+    })),
+  };
+}
+
 export function applyManualPrice(item: any, v: ManualPriceInput, now: string = new Date().toISOString()): any {
   const amount = Math.round(Number(v.amount) * 100) / 100;
   if (!item || !(amount > 0) || item.status === "confirmed") return item;
   const prev = item.manualPrice
     ? item.manualPrice.prev
-    : { price: item.price ?? null, priceIsFrom: item.priceIsFrom, priceIsEstimate: item.priceIsEstimate, status: item.status, nextStep: item.nextStep, meta: item.meta };
+    : { price: item.price ?? null, priceIsFrom: item.priceIsFrom, priceIsEstimate: item.priceIsEstimate, status: item.status, nextStep: item.nextStep, meta: item.meta, pricing: item.pricing };
   const vendor = (v.vendor || "").trim(), note = (v.note || "").trim();
   return {
     ...item,
@@ -1121,6 +1154,8 @@ export function applyManualPrice(item: any, v: ManualPriceInput, now: string = n
     priceIsEstimate: false,
     status: item.status === "draft" ? "on_hold" : item.status,
     nextStep: undefined,
+    // the TripSure live price it carried no longer describes this price: Pay now must not re-check it (restored by clearManualPrice)
+    pricing: undefined,
     meta: "Price entered manually" + (vendor ? " — quoted by " + vendor : " — quoted offline") + (note ? " · " + note : "") + " · not a TripSure live price",
     manualPrice: { amount, vendor, note, at: now, prev },
   };
@@ -1130,5 +1165,5 @@ export function clearManualPrice(item: any): any {
   if (!item || !item.manualPrice) return item;
   const { manualPrice, ...rest } = item;
   const p = manualPrice.prev || {};
-  return { ...rest, price: p.price ?? null, priceIsFrom: p.priceIsFrom, priceIsEstimate: p.priceIsEstimate, status: p.status ?? item.status, nextStep: p.nextStep, meta: p.meta };
+  return { ...rest, price: p.price ?? null, priceIsFrom: p.priceIsFrom, priceIsEstimate: p.priceIsEstimate, status: p.status ?? item.status, nextStep: p.nextStep, meta: p.meta, pricing: p.pricing };
 }

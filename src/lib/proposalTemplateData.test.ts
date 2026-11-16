@@ -104,3 +104,37 @@ describe("buildProposalTemplateData — where to eat", () => {
     expect(t.dayPlan).toEqual([]);
   });
 });
+
+describe("buildProposalTemplateData — offline prices", () => {
+  const T = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+  const manual = (amount: number, hoursAgo: number) => ({ amount, vendor: "Secret DMC", note: "internal", at: T(hoursAgo) });
+  const trip = () => ({
+    days: [{ id: "d1", _iso: "2026-12-07", route: "DEL → BLR", label: "Day 1", items: [
+      { id: "h1", type: "hotel", title: "Taj West End", price: 105000, status: "on_hold", manualPrice: manual(105000, 3), hotelKey: "123", checkIn: "2026-12-07", checkOut: "2026-12-11" },
+      { id: "f1", type: "flight", title: "Air India 427", price: 18000, status: "on_hold", origin: "DEL", dest: "BLR", segments: [{ flightNo: "AI 427" }] },
+    ] }],
+  });
+
+  it("flags the offline stay and its cost line, not the live flight", () => {
+    const t: any = buildProposalTemplateData(trip(), null, null, null);
+    expect(t.stays[0].offline).toBe(true);
+    expect(t.flights[0].offline).toBe(false);
+    expect(t.costLines.find((l: any) => /Taj/.test(l.label)).offline).toBe(true);
+    expect(t.costLines.find((l: any) => /Air India/.test(l.label)).offline).toBe(false);
+  });
+  it("carries the banner's facts and never the vendor or the note", () => {
+    const t: any = buildProposalTemplateData(trip(), null, null, null);
+    expect(t.offlineNotice).toMatchObject({ hours: 12, expired: false, count: 1 });
+    expect(Date.parse(t.offlineNotice.validUntil) - Date.now()).toBeGreaterThan(8.9 * 3_600_000);
+    expect(Date.parse(t.offlineNotice.validUntil) - Date.now()).toBeLessThan(9.1 * 3_600_000);
+    expect(JSON.stringify(t)).not.toContain("Secret DMC");
+    expect(JSON.stringify(t)).not.toContain("internal");
+    expect(typeof t.preparedAt).toBe("string");
+  });
+  it("has no notice when nothing is offline, and marks an old one expired", () => {
+    const live = { days: [{ id: "d1", _iso: "2026-12-07", route: "DEL → BLR", label: "Day 1", items: [{ id: "f1", type: "flight", title: "AI", price: 1, status: "on_hold", origin: "DEL", dest: "BLR" }] }] };
+    expect((buildProposalTemplateData(live, null, null, null) as any).offlineNotice).toBeNull();
+    const old = trip(); old.days[0].items[0].manualPrice = manual(105000, 14);
+    expect((buildProposalTemplateData(old, null, null, null) as any).offlineNotice.expired).toBe(true);
+  });
+});

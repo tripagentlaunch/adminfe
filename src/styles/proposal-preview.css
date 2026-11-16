@@ -997,3 +997,20 @@
 .pv-eatc-loc{display:flex;gap:8px;align-items:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6b655c;}
 .pv-eatc-loc svg{flex:0 0 auto;}
 .pv-eatc-dist{font-size:13px;font-weight:600;}
+
+/* Offline prices (quoted by another vendor, held for 12 hours). */
+.pv-offline{display:flex;flex-direction:column;gap:4px;margin:0 0 18px;padding:14px 18px;border:1px solid rgba(176,132,40,.4);background:#fbf3e2;border-radius:12px;font-size:13.5px;line-height:1.5;color:#5f4510;}
+.pv-offline b{font-size:14.5px;}
+.pv-offline.is-expired{border-color:rgba(176,52,52,.45);background:#fbecec;color:#7d2121;}
+.pv-offtag{display:inline-block;margin-left:8px;padding:2px 8px;border:1px solid rgba(176,132,40,.55);border-radius:999px;background:#fbf3e2;color:#7a5712;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;vertical-align:middle;white-space:nowrap;}
+
+/* Pay now: one price summary (quoted, then final) and the price-change popup's moved lines. */
+.pv-paysum{margin:14px 0 0;padding:14px 16px;border:1px solid var(--pv-line,rgba(0,0,0,.14));border-radius:12px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;}
+.pv-paysum>div{display:flex;justify-content:space-between;gap:16px;}
+.pv-paysum-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.7;}
+.pv-paysum-total{border-top:1px solid var(--pv-line,rgba(0,0,0,.14));padding-top:8px;margin-top:2px;font-size:15px;}
+.pv-paysum-n{font-size:12px;opacity:.7;display:block !important;}
+.pv-pchg-lines{margin:12px 0 4px;padding:10px 0 0;border-top:1px solid rgba(0,0,0,.1);font-size:13.5px;display:flex;flex-direction:column;gap:6px;}
+.pv-pchg-lines>div{display:flex;justify-content:space-between;gap:14px;}
+.pv-pchg-lines-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.65;display:block !important;}
+.pv-pchg-lines-n{font-size:12px;opacity:.65;display:block !important;}
