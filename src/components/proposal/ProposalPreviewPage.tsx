@@ -1182,13 +1182,15 @@ export function ProposalPreviewPage({
                       </button>
                     ) : previewPayable ? (
                       payPreviewUrl ? (
-                        <a className="pv-cta pv-cta--pay" href={`${payPreviewUrl}?pay=open&debug=1`} target="_blank" rel="noreferrer"
-                          title="Opens the customer's web link in a new tab, with the payment window open and the live check details shown (for you only)">
-                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span> <span aria-hidden="true">↗</span>
+                        // The very link "Copy web link" copies, opened in a new tab: the customer's own page and flow (Pay now there asks for the
+                        // traveller details, checks the live price once, shows the final price, then pays). No extra settings, so nothing runs by itself.
+                        <a className="pv-cta pv-cta--pay" href={payPreviewUrl} target="_blank" rel="noreferrer"
+                          title="Opens the customer's web link in a new tab, exactly as the customer sees it: press Pay now there">
+                          Pay now <span aria-hidden="true">↗</span>
                         </a>
                       ) : (
                         <button type="button" className="pv-cta pv-cta--pay" disabled title="Create the web link first: Pay now runs on the customer's link">
-                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span>
+                          Pay now
                         </button>
                       )
                     ) : null}
