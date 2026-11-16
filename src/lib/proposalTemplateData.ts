@@ -23,7 +23,7 @@ import type { HotelEnrichment } from "./useHotelWebsites";
 import { addonCount, addonLines, addonTable } from "./flightAddons";
 import { flightKeyOf } from "./itineraryFromCart";
 import { whereToEatByCity } from "./diningPlan";
-import { offlineNoticeOf } from "./itineraryFromCart";
+import { manualPriceState, offlineNoticeOf } from "./itineraryFromCart";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
 // the sample template cycles through for consecutive stays; a plain
@@ -251,6 +251,9 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
           hotelKey: a.hotelKey,
           name: a.name,
           price: a.price || 0,
+          // an offline price entered for this swap option (quoted by another vendor, held 12 hours): shown on its card
+          offline: !!a.manualPrice,
+          offlineUntil: a.manualPrice ? manualPriceState(a.manualPrice).validUntil : null,
           stars: a.stars ?? null,
           detail: a.detail || [a.stars ? `${a.stars}-star` : null, a.address].filter(Boolean).join(" · "),
           image: hotelImageUrl(a.hotelKey, a.image),

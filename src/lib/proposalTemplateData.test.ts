@@ -147,4 +147,23 @@ describe("buildProposalTemplateData — offline prices", () => {
     expect(mk(off).flights[0].alternatives).toEqual([]);
     expect(mk(off).flights[0].offline).toBe(true);
   });
+
+  it("marks a swap option that has an offline price, with when it is held until, and never the vendor", () => {
+    const stay = {
+      id: "h1", type: "hotel", title: "The Ritz-Carlton", price: 395048, status: "on_hold", hotelKey: "RITZ", checkIn: "2026-12-07", checkOut: "2026-12-17",
+      alternatives: [
+        { hotelKey: "JW", name: "JW Marriott", price: 407332 },
+        { hotelKey: "OB", name: "The Oberoi", price: 300000, manualPrice: manual(300000, 2) },
+      ],
+    };
+    const t: any = buildProposalTemplateData({ days: [{ id: "d1", _iso: "2026-12-07", route: "Bengaluru", label: "Day 1", items: [stay] }] }, null, null, null);
+    const [jw, ob] = t.stays[0].alternatives;
+    expect(jw.offline).toBe(false);
+    expect(jw.offlineUntil).toBeNull();
+    expect(ob.offline).toBe(true);
+    expect(Date.parse(ob.offlineUntil) - Date.now()).toBeGreaterThan(9.9 * 3_600_000);
+    expect(JSON.stringify(t)).not.toContain("Secret DMC");
+    expect(t.stays[0].offline).toBe(false);                    // the chosen stay is live
+    expect(t.offlineNotice).toBeNull();                        // the banner is about what is chosen
+  });
 });

@@ -276,6 +276,7 @@ function StayGroup({ st, heading }: { st: any; heading?: ReactNode }) {
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>{a.name}</Text>
                   {a.detail ? <Text style={s.detail}>{a.detail}</Text> : null}
+                  {a.offline ? <Text style={s.detail}>{`Quoted offline${a.offlineUntil ? ` · held until ${untilText(a.offlineUntil)}` : ""}`}</Text> : null}
                 </View>
                 <Text style={s.price}>{inr(a.price)}</Text>
               </View>

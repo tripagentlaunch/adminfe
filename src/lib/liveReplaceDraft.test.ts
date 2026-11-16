@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addCartItemToItinerary, applyManualPrice, clearManualPrice, itineraryTotals, manualPriceState, offlineNoticeOf, refreshManualPrices, replacesExisting } from "./itineraryFromCart";
+import { addCartItemToItinerary, applyManualPrice, clearManualPrice, itineraryTotals, manualPriceState, offlineNoticeOf, refreshManualPrices, replacesExisting, applyManualPriceToAlternative, clearManualPriceOfAlternative, swapHotelAlternative } from "./itineraryFromCart";
 import { sameHotelName } from "./livePriceRequest";
 
 const draftFlight = { id: "f-0", type: "flight", status: "draft", flightNo: "414 + 2863", origin: "BLR", dest: "VIE", price: 50000, title: "Tara draft" };
@@ -120,5 +120,60 @@ describe("offline price: held for 12 hours, never a live price", () => {
     expect(ra.manualPrice.vendor).toBe("V");
     expect(rz.manualPrice.at).toBe(T0);
     expect(rn.manualPrice).toBeUndefined();
+  });
+});
+
+describe("offline price on a hotel's swap option", () => {
+  const stay = () => ({
+    id: "h1", type: "hotel", status: "on_hold", hotelKey: "RITZ", title: "The Ritz-Carlton", price: 395048, duration: "10 nights",
+    alternatives: [
+      { hotelKey: "JW", name: "JW Marriott", price: 407332, stars: 5 },
+      { hotelKey: "OB", name: "The Oberoi", price: 321882, stars: 5 },
+    ],
+  });
+  const days = (item: any) => ({ days: [{ items: [item] }] });
+
+  it("sets and clears an offline price for one option only", () => {
+    const set = applyManualPriceToAlternative(stay(), 1, { amount: 300000, vendor: " DMC ", note: "valid till Fri" }, "2026-11-17T06:00:00Z");
+    expect(set.alternatives[1].price).toBe(300000);
+    expect(set.alternatives[1].manualPrice).toMatchObject({ amount: 300000, vendor: "DMC", at: "2026-11-17T06:00:00Z", prev: { price: 321882 } });
+    expect(set.alternatives[0].manualPrice).toBeUndefined();
+    expect(set.price).toBe(395048);                                           // the chosen stay is untouched
+    const again = applyManualPriceToAlternative(set, 1, { amount: 310000 }, "2026-11-17T07:00:00Z");
+    expect(again.alternatives[1].manualPrice.prev.price).toBe(321882);        // editing keeps the ORIGINAL earlier price
+    const back = clearManualPriceOfAlternative(again, 1);
+    expect(back.alternatives[1].price).toBe(321882);
+    expect(back.alternatives[1].manualPrice).toBeUndefined();
+  });
+  it("refuses a zero price, a missing option or a confirmed stay", () => {
+    const it = stay();
+    expect(applyManualPriceToAlternative(it, 0, { amount: 0 })).toBe(it);
+    expect(applyManualPriceToAlternative(it, 9, { amount: 5 })).toBe(it);
+    const conf = { ...stay(), status: "confirmed" };
+    expect(applyManualPriceToAlternative(conf, 0, { amount: 5 })).toBe(conf);
+  });
+  it("swapping in an offline option makes the chosen stay offline, and swapping back restores the first", () => {
+    const withOffline = applyManualPriceToAlternative(stay(), 1, { amount: 300000 }, "2026-11-17T06:00:00Z");
+    const swapped = swapHotelAlternative(days(withOffline), "h1", "OB").days[0].items[0];
+    expect(swapped.hotelKey).toBe("OB");
+    expect(swapped.price).toBe(300000);
+    expect(swapped.manualPrice).toMatchObject({ amount: 300000, at: "2026-11-17T06:00:00Z" });
+    expect(swapped.meta).toContain("quoted offline");
+    const ritz = swapped.alternatives.find((a: any) => a.hotelKey === "RITZ");
+    expect(ritz.price).toBe(395048);
+    expect(ritz.manualPrice).toBeUndefined();                                  // the live Ritz-Carlton did not become offline
+    const back = swapHotelAlternative(days(swapped), "h1", "RITZ").days[0].items[0];
+    expect(back.hotelKey).toBe("RITZ");
+    expect(back.manualPrice).toBeUndefined();
+    expect(back.price).toBe(395048);
+    const oberoi = back.alternatives.find((a: any) => a.hotelKey === "OB");
+    expect(oberoi.manualPrice).toMatchObject({ amount: 300000 });              // the offline price stayed with the Oberoi
+  });
+  it("swapping an offline stay out takes its offline price with it", () => {
+    const offlineMain = applyManualPrice(stay(), { amount: 280000 }, "2026-11-17T06:00:00Z");
+    const swapped = swapHotelAlternative(days(offlineMain), "h1", "JW").days[0].items[0];
+    expect(swapped.manualPrice).toBeUndefined();
+    expect(swapped.price).toBe(407332);
+    expect(swapped.alternatives.find((a: any) => a.hotelKey === "RITZ").manualPrice).toMatchObject({ amount: 280000 });
   });
 });

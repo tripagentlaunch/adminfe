@@ -632,13 +632,14 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         <span className="pv-option-name pv-option-name--block">{a.name}</span>
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
         <div className="pv-altcard-foot">
-          <span className="pv-option-price">{inr(a.price)}</span>
+          <span className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</span>
           {onSwap && st.id ? (
             <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
               Swap
             </button>
           ) : null}
         </div>
+        {a.offline && a.offlineUntil ? <div className="pv-option-detail pv-option-off">Held until {untilText(a.offlineUntil)}</div> : null}
       </div>
     </div>
   ));
@@ -655,7 +656,8 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
       </div>
       <div className="pv-option-side">
-        <div className="pv-option-price">{inr(a.price)}</div>
+        <div className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</div>
+        {a.offline && a.offlineUntil ? <div className="pv-option-detail pv-option-off">Held until {untilText(a.offlineUntil)}</div> : null}
         {onSwap && st.id ? (
           <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
             Swap

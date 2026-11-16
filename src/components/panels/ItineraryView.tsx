@@ -53,7 +53,7 @@ import { PaidTripHistory } from "./PaidTripHistory";
 import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, clearManualPrice, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, applyManualPriceToAlternative, clearManualPrice, clearManualPriceOfAlternative, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
 import { leftText, untilText } from "../../lib/offlineBanner";
 import { useMinuteClock } from "../../lib/deskMemory";
 import { toast } from "../../lib/advisorHelpers";
@@ -147,14 +147,18 @@ function EditableText({
 // ManualPrice — for a flight or stay quoted OFFLINE by another vendor (not TripSure): the advisor types the vendor's total for the whole
 // party / whole stay and it becomes the item's price everywhere (totals, quote, proposal, PDF), so nothing has to be edited in the PDF
 // afterwards. Vendor and note are internal. "Back to the earlier price" restores what the item had before (e.g. Tara's draft figure).
-function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amount: number; vendor: string; note: string }) => void; onClear: () => void }) {
+function ManualPrice({ item, onSave, onClear, defaultOpen, onClose, label }: {
+  item: any; onSave: (v: { amount: number; vendor: string; note: string }) => void; onClear: () => void;
+  /** Opens straight on the form (a swap option's price), and says when it is closed again. */
+  defaultOpen?: boolean; onClose?: () => void; label?: string;
+}) {
   const mp = item.manualPrice || null;
   const now = useMinuteClock();
   const hold = mp ? manualPriceState(mp, now) : null; // an offline price is held for 12 hours from when it was entered
-  const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [vendor, setVendor] = useState("");
-  const [note, setNote] = useState("");
+  const [open, setOpen] = useState(!!defaultOpen);
+  const [amount, setAmount] = useState(defaultOpen && mp ? String(mp.amount) : "");
+  const [vendor, setVendor] = useState(defaultOpen && mp ? mp.vendor || "" : "");
+  const [note, setNote] = useState(defaultOpen && mp ? mp.note || "" : "");
   const [bad, setBad] = useState(false);
   function start() {
     setAmount(mp ? String(mp.amount) : "");
@@ -168,8 +172,9 @@ function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amoun
     if (!(n > 0) || !Number.isFinite(n)) { setBad(true); return; }
     onSave({ amount: n, vendor, note });
     setOpen(false);
+    if (onClose) onClose();
   }
-  const what = item.type === "hotel" ? "the whole stay" : "all travellers";
+  const what = label || (item.type === "hotel" ? "the whole stay" : "all travellers");
   return (
     <div className="taw-itin-manual">
       {mp && !open ? (
@@ -183,7 +188,7 @@ function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amoun
             </span>
           ) : null}
           <button type="button" className="taw-linkbtn" onClick={start}>Edit</button>
-          <button type="button" className="taw-linkbtn" onClick={onClear}>Back to the earlier price</button>
+          <button type="button" className="taw-linkbtn" onClick={() => { onClear(); if (onClose) onClose(); }}>Back to the earlier price</button>
         </div>
       ) : null}
       {!mp && !open ? (
@@ -212,7 +217,8 @@ function ManualPrice({ item, onSave, onClear }: { item: any; onSave: (v: { amoun
           {bad ? <div className="taw-itin-manual-err" role="alert">Enter an amount above 0.</div> : null}
           <div className="taw-itin-manual-btns">
             <button type="button" className="taw-btn taw-btn--sm taw-btn--accent" onClick={save}>Save price</button>
-            <button type="button" className="taw-btn taw-btn--sm" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setOpen(false); if (onClose) onClose(); }}>Cancel</button>
+            {mp ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => { onClear(); setOpen(false); if (onClose) onClose(); }}>Back to the earlier price</button> : null}
           </div>
         </div>
       ) : null}
@@ -399,6 +405,14 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       days: d.days.map((day: any) => (day.id !== dayId || (day.dining || []).some((e: DiningEntry) => e.id === entry.id) ? day : { ...day, dining: (day.dining || []).concat([entry]) })),
     }));
     toast("Added to the day: " + entry.name, "success");
+  }
+  // A hotel swap option can have an offline price of its own (the same 12-hour hold); swapping carries it with the hotel.
+  const [editingAlt, setEditingAlt] = useState<{ itemId: string; ai: number } | null>(null);
+  function setAltManualPrice(dayId: string, itemId: string, ai: number, v: { amount: number; vendor: string; note: string }) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? applyManualPriceToAlternative(it, ai, v) : it)) })) }));
+  }
+  function clearAltManualPrice(dayId: string, itemId: string, ai: number) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? clearManualPriceOfAlternative(it, ai) : it)) })) }));
   }
   // Offline prices are held for 12 hours; this restarts the clock once the advisor has re-confirmed them with the vendors.
   function refreshOfflinePrices() {
@@ -1078,6 +1092,18 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                     </small>
                                   ) : null}
                                   {a.price ? <em>{item.type === "flight" && item.pricing ? "from " : ""}{inr(a.price)}</em> : null}
+                                  {a.manualPrice ? <small className="taw-itin-alt-off" title="Offline price: held for 12 hours from when it was entered">{(() => { const h = manualPriceState(a.manualPrice, nowTick); return h.expired ? "offline · expired" : "offline · " + leftText(h.msLeft); })()}</small> : null}
+                                  {item.type === "hotel" && item.status !== "confirmed" && item.status !== "booked" ? (
+                                    <button
+                                      type="button"
+                                      className="taw-itin-alt-edit"
+                                      aria-label={"Enter the price of " + (a.name || "this option") + " manually"}
+                                      title="Enter this option's price manually (an offline price from another vendor)"
+                                      onClick={() => setEditingAlt({ itemId: item.id, ai })}
+                                    >
+                                      ₹
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     aria-label="Remove this swap option"
@@ -1089,6 +1115,17 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                 </span>
                               ))}
                             </div>
+                          ) : null}
+                          {editingAlt && editingAlt.itemId === item.id && item.alternatives && item.alternatives[editingAlt.ai] ? (
+                            <ManualPrice
+                              key={item.id + ":" + editingAlt.ai}
+                              item={{ ...item.alternatives[editingAlt.ai], type: "hotel" }}
+                              label={"the whole stay at " + (item.alternatives[editingAlt.ai].name || "this hotel")}
+                              defaultOpen
+                              onClose={() => setEditingAlt(null)}
+                              onSave={(v) => setAltManualPrice(day.id, item.id, editingAlt.ai, v)}
+                              onClear={() => clearAltManualPrice(day.id, item.id, editingAlt.ai)}
+                            />
                           ) : null}
                           {item.note ? <div className="taw-itin-note">{item.note}</div> : null}
                           {/* Remove (2026-09-03, flow-testing hurdle) —

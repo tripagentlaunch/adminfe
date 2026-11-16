@@ -805,6 +805,8 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           lat: it.lat ?? null,
           lng: it.lng ?? null,
           detail: null,
+          // an offline price belongs to the hotel it was entered for: it goes into the option's slot with it
+          manualPrice: it.manualPrice ?? undefined,
           roomTitle: it.roomType ?? null, // its own room name, so swapping back restores it
           facts: it.facts ?? null, // the facts belong to this hotel: they swap with it
           images: (it.facts && it.facts.images) || [],
@@ -833,6 +835,11 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           hotelKey: alt.hotelKey,
           title: alt.name,
           price: alt.price,
+          // the chosen hotel is offline only if the option swapped in had an offline price; the one swapped out takes its own with it
+          manualPrice: alt.manualPrice ?? undefined,
+          meta: alt.manualPrice
+            ? "Price entered manually" + (alt.manualPrice.vendor ? " — quoted by " + alt.manualPrice.vendor : " — quoted offline") + (alt.manualPrice.note ? " · " + alt.manualPrice.note : "") + " · not a TripSure live price"
+            : it.manualPrice ? (it.manualPrice.prev && it.manualPrice.prev.meta) : it.meta,
           image: alt.image ?? null,
           address: alt.address ?? null,
           lat: alt.lat ?? null,
@@ -1159,6 +1166,27 @@ export function applyManualPrice(item: any, v: ManualPriceInput, now: string = n
     meta: "Price entered manually" + (vendor ? " — quoted by " + vendor : " — quoted offline") + (note ? " · " + note : "") + " · not a TripSure live price",
     manualPrice: { amount, vendor, note, at: now, prev },
   };
+}
+
+// A hotel's swap option can carry an offline price of its own (its price for the whole stay, quoted by another vendor): the same 12-hour
+// hold as the stay itself. Swapping carries it with the option (swapHotelAlternative), so the stay that is chosen is the one that is offline.
+export function applyManualPriceToAlternative(item: any, altIndex: number, v: ManualPriceInput, now: string = new Date().toISOString()): any {
+  const alts: any[] = (item && item.alternatives) || [];
+  const alt = alts[altIndex];
+  const amount = Math.round(Number(v.amount) * 100) / 100;
+  if (!alt || !(amount > 0) || item.status === "confirmed") return item;
+  const prev = alt.manualPrice ? alt.manualPrice.prev : { price: alt.price ?? null };
+  const next = { ...alt, price: amount, manualPrice: { amount, vendor: (v.vendor || "").trim(), note: (v.note || "").trim(), at: now, prev } };
+  return { ...item, alternatives: alts.map((a, i) => (i === altIndex ? next : a)) };
+}
+
+export function clearManualPriceOfAlternative(item: any, altIndex: number): any {
+  const alts: any[] = (item && item.alternatives) || [];
+  const alt = alts[altIndex];
+  if (!alt || !alt.manualPrice) return item;
+  const { manualPrice, ...rest } = alt;
+  const p = manualPrice.prev || {};
+  return { ...item, alternatives: alts.map((a, i) => (i === altIndex ? { ...rest, price: p.price ?? null } : a)) };
 }
 
 export function clearManualPrice(item: any): any {
