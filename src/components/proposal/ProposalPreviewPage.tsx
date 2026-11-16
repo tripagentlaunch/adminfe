@@ -55,6 +55,14 @@ import { LiveCheckTrace } from "./LiveCheckTrace";
 import { distanceText } from "../../lib/diningPlan";
 
 // Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
+// The restaurant's photo from the city page; when it can't be loaded the space is not left empty.
+function EatPhoto({ src, name }: { src: string; name: string }) {
+  const [bad, setBad] = useState(false);
+  if (bad) return null;
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className="pv-eat-photo" src={src} alt={name} loading="lazy" onError={() => setBad(true)} />;
+}
+
 // "3.2 km from Taj West End · 11 min drive"
 const distanceLine = (d: any) => distanceText(d);
 
@@ -63,7 +71,7 @@ function EatList({ entries }: { entries: any[] }) {
     <div className="pv-eat-list">
       {entries.map((e: any) => (
         <div className="pv-eat-row" key={e.id}>
-          {e.photo ? <div className="pv-eat-photo" style={{ backgroundImage: `url("${e.photo}")` }} role="img" aria-label={e.name} /> : null}
+          {e.photo ? <EatPhoto src={e.photo} name={e.name} /> : null}
           <div className="pv-eat-text">
             <div className="pv-eat-name">
               {e.name}
@@ -80,7 +88,7 @@ function EatList({ entries }: { entries: any[] }) {
   );
 }
 
-const TABS = ["Plan", "Days", "Decisions"] as const;
+const TABS = ["Plan", "Days", "Where to eat", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
 
 function Chip({ label }: { label: string }) {
@@ -721,7 +729,9 @@ export function ProposalPreviewPage({
   }, [tab]);
 
   const hasVisa = !!data.visa;
-  const visibleTabs: Tab[] = hasVisa ? [...TABS] : TABS.filter((t) => t !== "Decisions");
+  // Where to eat has a tab of its own once restaurants from the city guide were added; Decisions only with a visa.
+  const hasEat = !!(data.whereToEat && data.whereToEat.length);
+  const visibleTabs: Tab[] = TABS.filter((t) => (t === "Decisions" ? hasVisa : t === "Where to eat" ? hasEat : true));
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
   // A Google Places photo for each stay without one — through our own adminbe
@@ -935,21 +945,6 @@ export function ProposalPreviewPage({
                             {st.dateRange ? <span className="pv-recgroup-sub">{st.dateRange}</span> : null}
                           </div>
                           {st.alternatives?.length ? <StayGroup st={st} onSwap={onSwapHotel} /> : <RecommendedStayRow st={st} />}
-                        </div>
-                      ))}
-                    </>
-                  ) : null}
-
-                  {data.whereToEat?.length ? (
-                    <>
-                      <h2 className="pv-section-title">Where to eat</h2>
-                      {data.whereToEat.map((g: any) => (
-                        <div className="pv-recgroup" key={g.city}>
-                          <div className="pv-recgroup-head">
-                            <span className="pv-recgroup-title">{g.city}</span>
-                            {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
-                          </div>
-                          <EatList entries={g.picks} />
                         </div>
                       ))}
                     </>
@@ -1169,6 +1164,23 @@ export function ProposalPreviewPage({
                 </>
               ) : null}
 
+              {activeTab === "Where to eat" && data.whereToEat?.length ? (
+                <>
+                  <h2 className="pv-section-title">Where to eat</h2>
+                  <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+                    Our picks from the {data.whereToEat.map((g: any) => g.city).join(" and ")} city guide: suggestions only, not booked.
+                  </div>
+                  {data.whereToEat.map((g: any) => (
+                    <div className="pv-recgroup" key={g.city}>
+                      <div className="pv-recgroup-head">
+                        <span className="pv-recgroup-title">{g.city}</span>
+                        {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                      </div>
+                      <EatList entries={g.picks} />
+                    </div>
+                  ))}
+                </>
+              ) : null}
               {activeTab === "Decisions" && hasVisa ? (
                 <>
                   <h2 className="pv-section-title">Before money moves</h2>

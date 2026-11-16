@@ -19,10 +19,15 @@ function EatCard({ item, guide, added, dayLabel, distance, distanceNote, hotel, 
   item: EatItem; guide: EatGuide; added: boolean; dayLabel: string; distance: EatDistance | null | undefined; distanceNote: string | null;
   hotel: DayHotel | null; onAdd: () => void;
 }) {
+  const [photoOk, setPhotoOk] = useState(true);
   const headline = item.tag || (item.credentials && item.credentials[0]) || null;
   return (
     <article className="taw-eat-card">
-      <div className="taw-eat-card-photo" style={item.photo ? { backgroundImage: `url("${item.photo}")` } : undefined}>
+      <div className={"taw-eat-card-photo" + (photoOk && item.photo ? "" : " is-bare")}>
+        {item.photo && photoOk ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.photo} alt={item.name} loading="lazy" onError={() => setPhotoOk(false)} />
+        ) : null}
         {item.tier ? <span className="taw-eat-card-badge">{item.tier}</span> : null}
         <button type="button" className={"taw-eat-card-add" + (added ? " is-added" : "")} disabled={added || !dayLabel}
           aria-label={added ? `${item.name} is already on ${dayLabel}` : `Add ${item.name} to ${dayLabel}`}

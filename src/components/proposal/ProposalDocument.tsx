@@ -63,8 +63,8 @@ function Chip({ label, star }: { label: string; star?: boolean }) {
 
 // Static echo of the screen's Plan / Days / Decisions tab bar — the active
 // one sits on the template's grey pill.
-function TabRow({ active, hasVisa }: { active: "Plan" | "Days" | "Decisions"; hasVisa: boolean }) {
-  const tabs: Array<"Plan" | "Days" | "Decisions"> = hasVisa ? ["Plan", "Days", "Decisions"] : ["Plan", "Days"];
+function TabRow({ active, hasVisa, hasEat }: { active: "Plan" | "Days" | "Where to eat" | "Decisions"; hasVisa: boolean; hasEat?: boolean }) {
+  const tabs: Array<"Plan" | "Days" | "Where to eat" | "Decisions"> = ["Plan", "Days", ...(hasEat ? (["Where to eat"] as const) : []), ...(hasVisa ? (["Decisions"] as const) : [])];
   return (
     <View style={{ flexDirection: "row", gap: 4, marginBottom: 4 }}>
       {tabs.map((t) => (
@@ -316,7 +316,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
     <Page size="A4" style={s.page}>
       <Hero data={data} heroImage={heroImage} />
       <View style={{ marginTop: 20 }}>
-        <TabRow active="Plan" hasVisa={hasVisa} />
+        <TabRow active="Plan" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       </View>
 
       <SectionTitle first>The shape</SectionTitle>
@@ -338,18 +338,6 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
         <View>
           {data.stays.map((st: any, i: number) => (
             <StayGroup key={i} st={st} heading={i === 0 ? <SectionTitle>Where you stay</SectionTitle> : undefined} />
-          ))}
-        </View>
-      ) : null}
-
-      {data.whereToEat?.length ? (
-        <View>
-          {data.whereToEat.map((g: any, i: number) => (
-            <View key={g.city} wrap={false}>
-              {i === 0 ? <SectionTitle>Where to eat</SectionTitle> : null}
-              <Text style={[s.eyebrow, { marginTop: i ? 10 : 0, marginBottom: 4 }]}>{`${g.city} · from our city guide`}</Text>
-              <EatRows entries={g.picks} />
-            </View>
           ))}
         </View>
       ) : null}
@@ -381,7 +369,7 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   const captions = data.calendarCaptions || {};
   return (
     <Page size="A4" style={s.page}>
-      <TabRow active="Days" hasVisa={hasVisa} />
+      <TabRow active="Days" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       <SectionTitle first>{days.length ? `${days.length} days, at a glance` : "Your days"}</SectionTitle>
       {blocks.map((b: any, i: number) => {
         const first = days[b.startIdx];
@@ -410,6 +398,23 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           ))}
         </View>
       ) : null}
+      {hasVisa || data.whereToEat?.length ? null : <Footnote />}
+    </Page>
+  );
+}
+
+// EatPage: the screen's "Where to eat" tab, the restaurants from our city guide per city, with how far each is from the hotel.
+function EatPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <TabRow active="Where to eat" hasVisa={hasVisa} hasEat />
+      <SectionTitle first>Where to eat</SectionTitle>
+      {(data.whereToEat || []).map((g: any, i: number) => (
+        <View key={g.city} style={{ marginBottom: 12 }}>
+          <Text style={[s.eyebrow, { marginTop: i ? 10 : 0, marginBottom: 6 }]}>{`${g.city} · from our city guide, not booked`}</Text>
+          <View style={[s.panel, { padding: 13 }]}><EatRows entries={g.picks} /></View>
+        </View>
+      ))}
       {hasVisa ? null : <Footnote />}
     </Page>
   );
@@ -420,7 +425,7 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
 function DecisionsPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   return (
     <Page size="A4" style={s.page}>
-      <TabRow active="Decisions" hasVisa={hasVisa} />
+      <TabRow active="Decisions" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       <SectionTitle first>Before money moves</SectionTitle>
       <View style={{ backgroundColor: IVORY, borderRadius: 7, padding: 13 }}>
         <Text style={{ fontWeight: 600, fontSize: 10, marginBottom: 3 }}>{data.visa?.title || "Visa"}</Text>
@@ -459,7 +464,7 @@ function DecisionsPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
 // Long proposals wrap onto more physical pages; viewers read the real count
 // from the rendered PDF.
 export function pageCountFor(data: any): number {
-  return data?.visa ? 3 : 2;
+  return 2 + (data?.whereToEat?.length ? 1 : 0) + (data?.visa ? 1 : 0);
 }
 export const PAGE_COUNT = 3; // kept for callers still importing the old static constant; prefer pageCountFor(data).
 
@@ -469,6 +474,7 @@ export function ProposalDocument({ data }: { data: any }) {
     <Document>
       <PlanPage data={data} hasVisa={hasVisa} />
       <DaysPage data={data} hasVisa={hasVisa} />
+      {data.whereToEat?.length ? <EatPage data={data} hasVisa={hasVisa} /> : null}
       {hasVisa ? <DecisionsPage data={data} hasVisa={hasVisa} /> : null}
     </Document>
   );
