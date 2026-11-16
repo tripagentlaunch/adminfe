@@ -20,6 +20,7 @@ import { PayTimer } from "./PayTimer";
 import { addonLines } from "../../lib/flightAddons";
 import { payCheckWords } from "../../lib/payCheckWords";
 import { canReuseHold } from "../../lib/heldOrder";
+import { checkCountdown } from "../../lib/checkCountdown";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
@@ -72,6 +73,14 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const [step, setStep] = useState<"form" | "checking" | "review" | "paying" | "done">("form");
   // what the held order was made for: pressing Next again with the same details (after Back) reuses it while it is held
   const [heldFor, setHeldFor] = useState<string>("");
+  // seconds since Next was pressed, for the countdown while the live check holds the booking
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (step !== "checking") return;
+    const t0 = Date.now();
+    const t = setInterval(() => setWaited(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [step]);
   const [err, setErr] = useState<string | null>(null);
   const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null; pay_amount?: number; trip_total?: number; price_changed?: boolean } | null>(null);
   const [paidRef, setPaidRef] = useState<string | null>(null);
@@ -101,6 +110,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
     const key = JSON.stringify({ pax, contact, pan });
     // Same details and the hold is still running: no second live check, straight back to the final price.
     if (prep && canReuseHold({ payBy: prep.pay_by, heldFor, key, now: Date.now() })) { setStep("review"); return; }
+    setWaited(0);
     setStep("checking");
     try {
       const travellers = pax.map((p, i) => ({
@@ -249,11 +259,18 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                     {step === "checking" ? <><Spinner /> {words.buttonChecking}</> : "Next"}
                   </button>
                 </div>
-                {step === "checking" ? (
-                  <p style={{ color: "#555", fontSize: 12.5, marginTop: 10, textAlign: "center" }} role="status">
-                    Holding your booking with {words.supplier}. This usually takes about 20 seconds; please keep this window open.
-                  </p>
-                ) : null}
+                {step === "checking" ? (() => {
+                  const c = checkCountdown(waited);
+                  return (
+                    <div style={{ marginTop: 12, textAlign: "center" }} role="status" aria-live="polite">
+                      {c.remaining != null ? (
+                        <div style={{ fontSize: 34, fontWeight: 600, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{c.remaining}</div>
+                      ) : null}
+                      <div style={{ color: "#555", fontSize: 13, marginTop: 6 }}>{c.text}</div>
+                      <div style={{ color: "#777", fontSize: 12, marginTop: 4 }}>Holding your booking with {words.supplier}. Please keep this window open.</div>
+                    </div>
+                  );
+                })() : null}
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
                   Secure payment. Price includes taxes and fees; it is re-checked with {words.supplier} when you press Pay.{words.offlineLine ? " " + words.offlineLine : ""}
                 </p>
