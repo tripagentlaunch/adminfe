@@ -24,6 +24,7 @@
  * migration (e.g. OrdersBoard.jsx, EscalationQueue.jsx).
  * ===========================================================================*/
 import { useEffect, useRef, useState } from "react";
+import { ServerUnreachableError, fetchWithRetry, wakeMessage, wakeServer } from "../lib/serverWake";
 import { callAuthed } from "../services/api";
 import { accessToken, ready, onChange, signInWithPassword, signOut as authSignOut, resetPasswordForEmail } from "../services/auth";
 import { errText } from "../lib/advisorHelpers";
@@ -125,7 +126,7 @@ const FASTAPI_BASE = process.env.NEXT_PUBLIC_FASTAPI_BASE || "http://127.0.0.1:8
 // get_current_advisor, not client-asserted. Replaces the old call to the
 // now-deleted Supabase edge function `advisor-console` (migrated off
 // Supabase edge functions onto this FastAPI backend).
-function resolveAdvisorSession(): Promise<any> {
+function resolveAdvisorSession(onWait?: (elapsedMs: number) => void): Promise<any> {
   const jwt = accessToken();
   console.log(DEBUG_TAG, "1. accessToken() ->", maskJwt(jwt));
   if (!jwt) {
@@ -135,9 +136,9 @@ function resolveAdvisorSession(): Promise<any> {
     return Promise.reject(new Error("no_session_jwt"));
   }
   console.log(DEBUG_TAG, "2. calling GET /advisor/profile with Authorization: Bearer", maskJwt(jwt));
-  return fetch(FASTAPI_BASE + "/advisor/profile", {
-    headers: { Authorization: "Bearer " + jwt },
-  })
+  // The backend may be asleep or restarting (a 502 or no answer for a minute or more): each try has a time limit and is repeated until the
+  // server is up, instead of hanging silently or being taken for "no access". A real answer (200 / 401 / 403 / 404 ...) is judged below.
+  return fetchWithRetry(FASTAPI_BASE + "/advisor/profile", { headers: { Authorization: "Bearer " + jwt } }, { onWait: (w) => { if (onWait) onWait(w.elapsedMs); } })
     .then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (body) {
         console.log(DEBUG_TAG, "3. /advisor/profile raw response ->", res.status, JSON.stringify(body));
@@ -374,6 +375,14 @@ function NotProvisioned({ onSignOut }: { onSignOut: () => void }) {
 // ---------------------------------------------------------------------------
 export function AdvisorLoginGate({ render }: { render: (advisorId: string, role: string, signOut: () => void) => any }) {
   const [stage, setStage] = useState("checking");
+  // how long the desk-access check has been waiting, so a slow (waking) server is explained instead of leaving a silent spinner
+  const [waitedMs, setWaitedMs] = useState(0);
+  useEffect(() => {
+    if (stage !== "resolving") return;
+    const t0 = Date.now();
+    const t = setInterval(() => setWaitedMs(Date.now() - t0), 1000);
+    return () => clearInterval(t);
+  }, [stage]);
   const [sess, setSess] = useState<any>(null);
   // A ref (not state) so the onChange listener below — registered once and
   // never re-registered — always reads the LATEST in-flight status instead
@@ -402,6 +411,7 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
     }
     busyRef.current = true;
     console.log(DEBUG_TAG, "Gate.resolve() starting -> stage=resolving");
+    setWaitedMs(0);
     setStage("resolving");
     resolveAdvisorSession()
       .then((s: any) => {
@@ -413,8 +423,10 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
         setStage("ready");
       })
       .catch((e: any) => {
-        console.warn(DEBUG_TAG, 'Gate.resolve() failed -> stage=denied ("Not yet provisioned") reason:', e && e.message);
         busyRef.current = false;
+        // The server never answered in time (down, restarting): say so, with a Try again. Only a real refusal is "not provisioned".
+        if (e instanceof ServerUnreachableError) { setStage("unreachable"); return; }
+        console.warn(DEBUG_TAG, 'Gate.resolve() failed -> stage=denied ("Not yet provisioned") reason:', e && e.message);
         setStage("denied");
       });
   }
@@ -434,6 +446,8 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
   }
 
   useEffect(() => {
+    // Wake the backend while the sign-in session is being read: on a host that sleeps, this overlaps the wait with work that has to happen anyway.
+    wakeServer(FASTAPI_BASE);
     // Await the SAME promise auth.js uses internally to set _token, instead
     // of running our own independent getSession() — two parallel calls race,
     // and this one used to sometimes win before _token was populated, so
@@ -474,6 +488,18 @@ export function AdvisorLoginGate({ render }: { render: (advisorId: string, role:
         <div className="tal-card tal-card--loading">
           <span className="tal-spin" />
           <p>{stage === "checking" ? "Checking your session…" : "Verifying your desk access…"}</p>
+          {stage === "resolving" && wakeMessage(waitedMs) ? <p role="status" style={{ fontSize: 13, opacity: 0.75, marginTop: 8 }}>{wakeMessage(waitedMs)}</p> : null}
+        </div>
+      </div>
+    );
+  }
+  if (stage === "unreachable") {
+    return (
+      <div className="tal-shell">
+        <div className="tal-card tal-card--loading">
+          <p><b>We can&apos;t reach the server right now.</b></p>
+          <p style={{ fontSize: 13, opacity: 0.8 }}>You are signed in. The server may be restarting after an update. Please try again in a minute.</p>
+          <button type="button" className="taw-btn taw-btn--primary" onClick={() => resolve()} style={{ marginTop: 10 }}>Try again</button>
         </div>
       </div>
     );
