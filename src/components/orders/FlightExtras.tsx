@@ -28,6 +28,18 @@ export function paxSlots(adults?: number, children?: number): PaxSlot[] {
     ...Array.from({ length: c }, (_, i) => ({ n: a + i + 1, label: `Child ${i + 1}` })),
   ];
 }
+/** Name the slots after the travellers when their names are known ("Priya Shah (lead)" instead of "Adult 1"). rows are the
+ *  itinerary's passenger rows (adults, then children, then infants); `leadName` fills the lead when no row has a name yet.
+ *  A slot whose traveller has no name yet keeps its "Adult 2" / "Child 1" label. */
+export function nameSlots(slots: PaxSlot[], rows: { first_name?: string; last_name?: string; pax_type?: string; is_lead?: boolean }[] | null | undefined, leadName?: string): PaxSlot[] {
+  const list = (rows || []).filter((r) => r && r.pax_type !== "infant");
+  return slots.map((slot, i) => {
+    const r = list[i];
+    let nm = r ? `${r.first_name || ""} ${r.last_name || ""}`.trim() : "";
+    if (!nm && i === 0) nm = String(leadName || "").trim();
+    return nm ? { ...slot, label: i === 0 && slots.length > 1 ? `${nm} (lead)` : nm } : slot;
+  });
+}
 export const emptySel = (segments: number, pax: number): ExtrasSel =>
   Array.from({ length: Math.max(1, segments) }, () => Array.from({ length: Math.max(1, pax) }, () => NO_PICK));
 export const withPick = (sel: ExtrasSel, seg: number, pax: number, kind: keyof SegSel, v: Pick | null): ExtrasSel =>

@@ -101,3 +101,23 @@ describe("extrasList / selSegments / extrasSum / extrasCounts", () => {
     expect(extrasCounts(emptySel(1, 1)).text).toBe("");
   });
 });
+
+import { nameSlots } from "./FlightExtras";
+describe("nameSlots", () => {
+  const slots = paxSlots(2, 1);
+  const rows = [
+    { pax_type: "adult", first_name: "Ketan", last_name: "Agrawal", is_lead: true },
+    { pax_type: "adult", first_name: "Meera", last_name: "Agrawal" },
+    { pax_type: "child", first_name: "", last_name: "" },
+    { pax_type: "infant", first_name: "Baby", last_name: "A" },
+  ];
+  it("names each traveller, marks the lead, keeps the label when a name is missing", () => {
+    expect(nameSlots(slots, rows).map((s) => s.label)).toEqual(["Ketan Agrawal (lead)", "Meera Agrawal", "Child 1"]);
+    expect(nameSlots(slots, rows).map((s) => s.n)).toEqual([1, 2, 3]);
+  });
+  it("uses the customer's name for the lead until passengers are filled in", () => {
+    expect(nameSlots(paxSlots(2, 0), null, "Ketan Agrawal").map((s) => s.label)).toEqual(["Ketan Agrawal (lead)", "Adult 2"]);
+    expect(nameSlots(paxSlots(1, 0), [], "Ketan Agrawal").map((s) => s.label)).toEqual(["Ketan Agrawal"]);
+    expect(nameSlots(paxSlots(2, 0), null).map((s) => s.label)).toEqual(["Adult 1 (lead)", "Adult 2"]);
+  });
+});

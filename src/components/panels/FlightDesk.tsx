@@ -5,6 +5,7 @@
  * depth expander, FlightFareDetail (line ~872, colocated here — only ever
  * used by FlightDesk in the original module too).
  * ===========================================================================*/
+import { useWorkbench } from "../../lib/workbenchContext";
 import { FitChip, useBudgetFit } from "../BudgetFit";
 import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
@@ -208,6 +209,9 @@ function TravellerStepper({ value, onChange }: { value: PaxMix; onChange: (p: Pa
 
 export function FlightDesk(props: any) {
   const member = props.member;
+  // The travellers filled in on this itinerary: the add-on tabs (seats, meals…) use their names.
+  const { itinerariesByEnquiry } = useWorkbench();
+  const itineraryPassengers = (props.enquiry && props.enquiry.id && itinerariesByEnquiry[props.enquiry.id] && itinerariesByEnquiry[props.enquiry.id].passengers) || null;
   const ask = props.enquiry && props.enquiry.ask;
   // This enquiry's last flight search (lib/deskMemory.ts): restored on mount so
   // leaving the Console and coming back keeps the search, results and filters.
@@ -1038,7 +1042,7 @@ export function FlightDesk(props: any) {
         </div>
       ) : null}
       {!loading && res ? (
-        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax}
+        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax} travellers={itineraryPassengers} leadName={member && member.name}
           autoPick={autoPick} onAutoPickDone={() => setAutoPick(null)} />
       ) : null}
     </div>
@@ -1052,7 +1056,7 @@ export function FlightDesk(props: any) {
 // "Add" opens the pricing drawer (orders/FlightQuoteDrawer.tsx): fare option, then
 // TripSure's live price for it, then the airline's seats / meals / baggage with their
 // prices. Only a live-checked price goes into the itinerary.
-function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, onAutoPickDone }: any) {
+function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, travellers, leadName, autoPick, onAutoPickDone }: any) {
   const budgetFit = useBudgetFit();
   // The offer being priced, and the drawer section it opened on.
   // swap: priced for "+ Swap option" (an option for the itinerary's flight), not added as a flight.
@@ -1374,6 +1378,8 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
           offer={active.offer}
           startTab={active.tab}
           pax={pax}
+          travellers={travellers}
+          leadName={leadName}
           paxNote={"for " + paxText(pax)}
           addLabel={quote?.swap ? "Add as swap option" : undefined}
           onAdd={(p) => {
