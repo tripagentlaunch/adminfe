@@ -29,13 +29,14 @@
  * degrades gracefully (shorter card, not broken/blank fields) for real
  * rows instead of assuming the mock shape.
  * ===========================================================================*/
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Empty, Icon } from "../ui";
 import { getDestinationPhoto } from "../../services/api";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { fmtDate } from "../../lib/advisorHelpers";
 import { buildTripFields, emptyLabel } from "../../lib/tripFields";
 import { tripPaxLabel } from "../../lib/itineraryFromCart";
+import { detailOf, EMPTY_NOTE, isWebsiteQuery } from "../../lib/enquiryDetail";
 
 // 2026-09-02: was "Mr"/"Ms" — changed to a bare gender letter per direct
 // feedback. Keeping the lookup (rather than printing m.gender directly)
@@ -68,7 +69,23 @@ function dateFlexChipClass(tag: string) {
 export function Member360(props: any) {
   const m = props.member;
   const enquiry = props.enquiry;
-  const { itinerariesByEnquiry, generatingItinerary, pipelineStatusByEnquiry } = useWorkbench();
+  const { itinerariesByEnquiry, generatingItinerary, pipelineStatusByEnquiry, enquiries, pickEnquiry, membersById, reloadInbox } = useWorkbench();
+  // This traveller's queries from the website's Plan a trip form, newest first (2026-11-04,
+  // direct request): when each was raised, and what it asked for.
+  const memberId = (enquiry && enquiry.member_id) || (m && m.id);
+  // Sent with the profile (adbe's website_queries: every one of this traveller's, assigned or not);
+  // the Queue list is only the fallback for a profile that arrives without it.
+  const queueById: Record<string, any> = {};
+  (enquiries || []).forEach((e: any) => { queueById[e.id] = e; });
+  const websiteQueries: any[] = (Array.isArray(props.websiteQueries)
+    ? props.websiteQueries
+    : (enquiries || [])
+        .filter((e: any) => memberId && e.member_id === memberId && isWebsiteQuery(e))
+        .map((e: any) => ({ id: e.id, created_at: e.created_at, status: e.status, detail: detailOf(e.detail), note: e.message && e.message !== EMPTY_NOTE ? e.message : null }))
+  ).slice().sort((x: any, y: any) => new Date(y.created_at || 0).getTime() - new Date(x.created_at || 0).getTime());
+  // The Queue list is read once on load: refresh it when a profile opens, so a query sent
+  // a moment ago shows up here.
+  useEffect(() => { if (memberId) reloadInbox().catch(() => {}); }, [memberId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hero photo — one Pexels stock photo for the destination, via adminbe's
   // GET /enquiries/destination-photo. Any failure / no key / no result leaves
@@ -478,6 +495,61 @@ export function Member360(props: any) {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="taw-m360-sec" style={{ borderTop: "1px solid #EDE7D9", paddingTop: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+          <Icon name="inbox" size={15} style={{ color: "#B8945F" }} />
+          <span style={{ fontSize: 15, fontWeight: 600, color: "#1F2430", textTransform: "none", letterSpacing: 0 }}>
+            Website queries
+          </span>
+          {websiteQueries.length ? <span style={{ fontSize: 12, color: "#8A8070" }}>{websiteQueries.length}</span> : null}
+        </div>
+        {websiteQueries.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {websiteQueries.map((q: any) => {
+              const d = q.detail || {};
+              const raised = q.created_at ? new Date(q.created_at) : null;
+              const rows: [string, string][] = ([
+                ["Destination", d.destination],
+                ["Dates", d.travel_window],
+                ["Travellers", d.travelers_count],
+                ["Trip type", d.trip_type],
+                ["Cabin", d.flight_preference],
+                ["Budget", d.budget_total],
+                ["Anything else", q.note || d.special_requests],
+              ] as [string, any][]).filter(([, v]) => v).map(([k, v]) => [k, String(v)]);
+              const openable = queueById[q.id];
+              const current = enquiry && enquiry.id === q.id;
+              const open = () => { if (openable && !current) pickEnquiry(openable, membersById[openable.member_id]); };
+              return (
+                <button key={q.id} type="button" onClick={open} disabled={!openable || current}
+                  title={current ? "This query is open" : openable ? "Open this query" : "Not in your queue yet: an admin assigns it first"}
+                  style={{ textAlign: "left", width: "100%", padding: "9px 11px", borderRadius: 8, cursor: openable && !current ? "pointer" : "default",
+                    border: "1px solid " + (current ? "#D9C29A" : "#EDE7D9"), background: current ? "#FBF6EC" : "#FFFEFB", fontFamily: "inherit" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, color: "#8A8070" }}>
+                    <span>Raised {raised ? raised.toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}</span>
+                    <span>{current ? "Open now" : q.assigned === false ? "Unassigned" : (q.status || "open")}</span>
+                  </div>
+                  {rows.length ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", columnGap: 12, rowGap: 3, marginTop: 6, fontSize: 13 }}>
+                      {rows.map(([k, v]) => (
+                        <React.Fragment key={k}>
+                          <span style={{ color: "#8A8070" }}>{k}</span>
+                          <span style={{ color: "#231C13", overflowWrap: "anywhere", fontStyle: k === "Anything else" ? "italic" : "normal" }}>{v}</span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: "#231C13", marginTop: 3 }}>No trip details given</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, color: "#8A8070", padding: "4px 0" }}>No queries from the website&apos;s Plan a trip form yet.</div>
+        )}
       </div>
     </div>
   );

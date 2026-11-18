@@ -1,6 +1,6 @@
 /* Swap options for a hotel added to the itinerary, and the live "from" prices they are ranked by.
    Shared by the Console's Hotels desk and the Add-a-hotel popup (components/orders/HotelItineraryPopup). */
-import { hotelRates } from "../services/api";
+import { hotelFacts, hotelRates } from "../services/api";
 import { straightKm } from "./hotelDistance";
 import { offerNet } from "./hotelListing";
 
@@ -11,8 +11,8 @@ import { offerNet } from "./hotelListing";
 export const FROM_PRICES = new Map<string, { price: number; board: string | null; refundable: any } | null>();
 export const fromKey = (t: any) => t.hotelId + "|" + t.token;
 
-// Three swap options for a hotel, picked automatically: same star rating, closest
-// price (or nearest by straight line when unpriced). Removable in the builder.
+// Three swap options for a hotel, picked automatically: same star rating, the next best by
+// the recommendation (else closest price, or nearest by straight line when unpriced). Removable in the builder.
 // `_handles` lets addRoom price them live (POST /hotels/rates) — listings are
 // often unpriced, which used to save them at ₹0.
 // Shape = what swapHotelAlternative / the proposal read.
@@ -37,7 +37,8 @@ export function hotelAlternatives(shown: any[], o: any): any[] {
   return shown
     .filter((x: any) => x.id !== o.id && ((x.detail || {}).stars || 0) === (d0.stars || 0)
       && !(x._tripsure && x._tripsure.hotelId && FROM_PRICES.get(fromKey(x._tripsure)) === null))
-    .sort((a: any, b: any) => dist(a) - dist(b))
+    // The next best by the system's recommendation (lib/hotelRank.ts) when the list is ranked, else the closest price.
+    .sort((a: any, b: any) => (a._rec && b._rec ? a._rec.rank - b._rec.rank : dist(a) - dist(b)))
     .slice(0, ALT_CANDIDATES)
     .map((x: any) => {
       const d = x.detail || {};
@@ -63,15 +64,20 @@ export async function pricedAlternatives(alts: any[]): Promise<any[]> {
   }
   const withRates = alts.map(({ _handles, ...a }) => {
     const r = _handles ? rates[_handles.hotelId] : null;
-    if (!r) return a;
-    return {
+    const priced = !r ? a : {
       ...a,
       price: r.price,
       board: r.board || a.board,
       image: a.image || (r.images && r.images[0]) || null,
       images: r.images || [],
+      roomTitle: r.roomTitle || null,
       detail: [a.stars ? a.stars + "-star" : null, r.roomTitle, r.board].filter(Boolean).join(" · "),
     };
+    return { priced, handles: _handles };
   });
-  return withRates.filter((a) => a.price > 0).concat(withRates.filter((a) => !(a.price > 0))).slice(0, 3);
+  const kept = withRates.filter((x) => x.priced.price > 0).concat(withRates.filter((x) => !(x.priced.price > 0))).slice(0, 3);
+  // Each swap option keeps the stay's specifics (highlights, good to know, nearby, check-in window, photos) the way the chosen
+  // hotel does, so swapping to it later shows the same content in the proposal. A failed call just leaves that option without.
+  const facts = await Promise.all(kept.map((x) => (x.handles ? Promise.resolve(hotelFacts(x.handles)).catch(() => null) : Promise.resolve(null))));
+  return kept.map((x, i) => (facts[i] ? { ...x.priced, facts: facts[i] } : x.priced));
 }

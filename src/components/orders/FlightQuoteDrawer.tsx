@@ -15,7 +15,7 @@ import { errText } from "../../lib/errText";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
 import {
-  EXTRAS_TABS, FlightExtrasPicker, emptySel, extrasCounts, extrasDrawerTabs, extrasList, extrasSum, firstExtrasTab, paxSlots, withPick,
+  EXTRAS_TABS, FlightExtrasPicker, emptySel, extrasCounts, extrasDrawerTabs, extrasList, extrasSum, firstExtrasTab, nameSlots, paxSlots, withPick,
   type ExtrasSel, type ExtrasTab, type PaxSlot,
 } from "./FlightExtras";
 
@@ -84,7 +84,36 @@ function readLock(r: any) {
   };
 }
 
-export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, onClose, startTab = "fares", addLabel = "Add to itinerary" }: {
+/** "Get live price" from the Itinerary Builder, with no drawer: TripSure's Create Itinerary on the flight exactly as it was searched
+ *  (its own fare option, no add-ons), so the advisor's one click ends with a live-checked price. Throws with a plain reason
+ *  (sold out / stale search / no price) so the caller can fall back to the drawer. */
+export async function autoPriceOffer(offer: any): Promise<FlightLivePrice> {
+  const d = offer.detail || {};
+  const item = fareItem(offer, "");
+  if (!item) throw new Error("This search has expired — search again.");
+  const got = readLock(await flightPriceCheck([item]));
+  const listPrice = Number(offer.base_net != null ? offer.base_net : offer.baseNet) || d.baseNet || 0;
+  return {
+    source: "tripsure_live",
+    checkedAt: got.checkedAt,
+    listPrice,
+    fare: got.fare,
+    baseFare: got.baseFare,
+    taxes: got.taxes,
+    otherCharges: got.otherCharges,
+    priceChanged: got.priceChanged || Math.abs(got.fare - listPrice) > 1,
+    fareId: String(item.fareSourceCode || ""),
+    fareName: "Searched fare",
+    refundable: !!d.refundable,
+    checkinKg: d.baggageKg ?? null,
+    extras: [],
+    extrasTotal: 0,
+    total: got.fare,
+    needs: got.needs,
+  };
+}
+
+export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, travellers, leadName, asked, onAdd, onClose, startTab = "fares", addLabel = "Add to itinerary" }: {
   offer: any;
   /** The final button's words: "Add as swap option" when pricing an option for an existing flight. */
   addLabel?: string;
@@ -92,6 +121,10 @@ export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, o
   pax: { adults: number; children: number; infants: number };
   /** "for 2 adults" */
   paxNote: string;
+  /** The itinerary's passenger rows: the add-on tabs are named after these travellers instead of "Adult 1". */
+  travellers?: any[] | null;
+  /** The customer's own name, used for the lead until the passengers are filled in. */
+  leadName?: string;
   /** The customer's requests (shown above the add-ons), if any. */
   asked?: string | null;
   onAdd: (p: FlightLivePrice, fare: FareChoice | null) => void;
@@ -107,7 +140,7 @@ export function FlightQuoteDrawer({ offer, pax: paxMix, paxNote, asked, onAdd, o
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [sel, setSel] = useState<ExtrasSel>([]);
-  const slots = paxSlots(paxMix.adults, paxMix.children);
+  const slots = nameSlots(paxSlots(paxMix.adults, paxMix.children), travellers, leadName);
   const [seg, setSeg] = useState(0);
   // Fare options TripSure has said are gone (sold out / stale search): not checked again.
   const [gone, setGone] = useState<string[]>([]);

@@ -24,6 +24,7 @@ import { paxText, requestChips } from "./flightRequests";
 import { hotelRequestChips, occText } from "./hotelOccupancy";
 import { AIRPORTS } from "./airports";
 import { addonLines } from "./flightAddons";
+import { flightNum } from "./livePriceRequest";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -428,13 +429,29 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
     route = route || "Date not set";
   }
 
-  const { days, day } = findOrCreateDay(base.days, iso, route);
+  // A live price for a Tara DRAFT stay / flight (Get live price): the draft it was searched for is taken out wherever it sits,
+  // and the live-priced item goes in its place, even when the draft has no hotel key / flight number to match on.
+  let removedDraft: any = null;
+  const baseDays = cartItem._replaces
+    ? (base.days || []).map((dd: any) => {
+        const i = (dd.items || []).findIndex((x: any) => x.id === cartItem._replaces && x.type === item.type && x.status !== "confirmed");
+        if (i < 0) return dd;
+        removedDraft = dd.items[i];
+        return { ...dd, items: dd.items.filter((_: any, k: number) => k !== i) };
+      })
+    : base.days;
+  const { days, day } = findOrCreateDay(baseDays, iso, route);
   const dayIdx = days.indexOf(day);
   // The same hotel (or flight) added again on the same day replaces the one
   // there — a new room or fare for the same stay, not a second booking.
   const sameAt = day.items.findIndex((x: any) => isSameBooking(x, item));
-  const old = sameAt >= 0 ? day.items[sameAt] : null;
-  const updatedDay = { ...day, items: old ? day.items.map((x: any, i: number) => (i === sameAt ? { ...item, id: x.id } : x)) : day.items.concat([item]) };
+  const old = sameAt >= 0 ? day.items[sameAt] : removedDraft;
+  const updatedDay = {
+    ...day,
+    items: sameAt >= 0
+      ? day.items.map((x: any, i: number) => (i === sameAt ? { ...item, id: x.id } : x))
+      : day.items.concat([removedDraft ? { ...item, id: removedDraft.id } : item]),
+  };
   const nextDays = days.slice();
   nextDays[dayIdx] = updatedDay;
   const oldPrice = old ? Number(old.price) || 0 : 0;
@@ -451,13 +468,16 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
 export function isSameBooking(a: any, b: any): boolean {
   if (!a || !b || a.type !== b.type || a.status === "confirmed") return false;
   if (a.type === "hotel") return !!a.hotelKey && a.hotelKey === b.hotelKey;
-  if (a.type === "flight") return !!a.flightNo && a.flightNo === b.flightNo && a.origin === b.origin && a.dest === b.dest;
+  // "AI 414 + AI 2863" (Search) and "414 + 2863" (Tara's draft) are the same flights.
+  const nos = (x: string) => String(x || "").split("+").map((n) => flightNum(n)).join("+");
+  if (a.type === "flight") return !!a.flightNo && nos(a.flightNo) === nos(b.flightNo) && a.origin === b.origin && a.dest === b.dest;
   return false;
 }
 
 // Whether adding this cart item would replace one already on its day.
 export function replacesExisting(data: any, cartItem: any): boolean {
   if (!data || !cartItem || cartItem.type === "visa") return false;
+  if (cartItem._replaces) return (data.days || []).some((d: any) => (d.items || []).some((x: any) => x.id === cartItem._replaces && x.status !== "confirmed"));
   const probe = addCartItemToItinerary({ ...data, days: [] }, cartItem);
   const item = probe.days[0] && probe.days[0].items[0];
   const iso = probe.days[0] && probe.days[0]._iso;
@@ -643,6 +663,14 @@ export function hotelBasesFromItinerary(data: any): HotelBase[] {
     run.push(day);
   }
   flush();
+  // The last stay lasts until the trip ends: an itinerary with one day built so far (Tue 08 Dec) but a trip that runs to
+  // Sat 12 Dec is searched for the real 4 nights, the same dates the Hotels search form opens on, not for one night.
+  const endIso = typeof data.endIso === "string" && /^\d{4}-\d{2}-\d{2}$/.test(data.endIso) ? data.endIso : null;
+  const lastBase = bases[bases.length - 1];
+  if (endIso && lastBase && lastBase.checkOut > tripLastIso && endIso > lastBase.checkOut) {   // only when the trip's last day was not already trimmed off
+    lastBase.checkOut = endIso;
+    lastBase.nights = Math.round((Date.parse(endIso) - Date.parse(lastBase.checkIn)) / 86_400_000);
+  }
   return bases;
 }
 
@@ -777,10 +805,21 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           lat: it.lat ?? null,
           lng: it.lng ?? null,
           detail: null,
+          // an offline price belongs to the hotel it was entered for: it goes into the option's slot with it
+          manualPrice: it.manualPrice ?? undefined,
+          roomTitle: it.roomType ?? null, // its own room name, so swapping back restores it
           facts: it.facts ?? null, // the facts belong to this hotel: they swap with it
           images: (it.facts && it.facts.images) || [],
         };
-        const roomType = alt.stars ? `${alt.stars}-star` : null;
+        // The room the swap option was priced for (its cheapest live room), else just its star class.
+        const roomType = alt.roomTitle || (alt.stars ? `${alt.stars}-star` : null);
+        // "4 nights · from ₹X/night" is this hotel's, not the one it replaces.
+        const nightsN = parseInt(String(it.duration || ""), 10) || 0;
+        const roomsN = Array.isArray(it.occupancy) && it.occupancy.length ? it.occupancy.length : 1;
+        const detailRest = [
+          nightsN ? `${nightsN} night${nightsN === 1 ? "" : "s"}` : null,
+          nightsN && alt.price > 0 ? `from ₹${Math.round(alt.price / nightsN / roomsN).toLocaleString("en-IN")}/night` : null,
+        ].filter(Boolean).join(" · ");
         const { note: _staleNote, detailLine: _oldLine, ...rest } = it;
         void _staleNote;
         void _oldLine;
@@ -796,6 +835,11 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           hotelKey: alt.hotelKey,
           title: alt.name,
           price: alt.price,
+          // the chosen hotel is offline only if the option swapped in had an offline price; the one swapped out takes its own with it
+          manualPrice: alt.manualPrice ?? undefined,
+          meta: alt.manualPrice
+            ? "Price entered manually" + (alt.manualPrice.vendor ? " — quoted by " + alt.manualPrice.vendor : " — quoted offline") + (alt.manualPrice.note ? " · " + alt.manualPrice.note : "") + " · not a TripSure live price"
+            : it.manualPrice ? (it.manualPrice.prev && it.manualPrice.prev.meta) : it.meta,
           image: alt.image ?? null,
           address: alt.address ?? null,
           lat: alt.lat ?? null,
@@ -805,7 +849,8 @@ export function swapHotelAlternative(data: any, itemId: string, hotelKey: string
           // An alternative priced at add time brings its photos; full facts only if it had them.
           facts: alt.facts ?? (alt.images && alt.images.length ? { images: alt.images } : null),
           roomType,
-          sub: [roomType, alt.address, alt.board].filter(Boolean).join(" · "),
+          detailRest: detailRest || it.detailRest,
+          sub: [alt.stars ? `${alt.stars}-star` : null, alt.address, alt.board].filter(Boolean).join(" · "),
           alternatives: alts
             .map((a, i) => (i === idx ? demoted : a))
             .map((a) => ({ ...a, detail: backToOriginal ? detailsVsOriginal[a.hotelKey] ?? null : null })),
@@ -1061,4 +1106,92 @@ export function addSwapOption(data: any, cartItem: any): { data: any; ok: boolea
     ),
   };
   return { data: next, ok: true, message: "Added as a swap option for " + (isFlight ? what : target.title) + "." };
+}
+
+// A price the advisor entered by hand for a flight or stay quoted OFFLINE (another vendor, not TripSure). It is the vendor's total for the
+// whole party / whole stay, so it is a real price like any other (totals, quote, proposal and PDF read item.price): not "from", not an
+// estimate, and no longer a draft. It carries no TripSure live price, so it is never offered for online payment. What the item looked
+// like before is kept in manualPrice.prev so "Back to the earlier price" restores it exactly. vendor/note stay internal.
+export type ManualPriceInput = { amount: number; vendor?: string; note?: string };
+
+// An offline price is HELD for 12 hours from when the advisor entered it (or last refreshed it): the proposal's banner says until when,
+// and Pay now leaves these items out of its live check (adbe services/offline_prices.py keeps the same rule on the server's clock).
+export const OFFLINE_HOURS = 12;
+
+/** When an offline price stops being held, and whether it already has. `now` is the clock to judge by (the server's, on the link). */
+export function manualPriceState(mp: { at?: string } | null | undefined, now: Date | number = Date.now()): { validUntil: string | null; expired: boolean; msLeft: number } {
+  const t = mp && mp.at ? Date.parse(mp.at) : NaN;
+  const n = typeof now === "number" ? now : now.getTime();
+  if (!Number.isFinite(t)) return { validUntil: null, expired: true, msLeft: 0 };
+  const until = Math.min(t, n) + OFFLINE_HOURS * 3_600_000;       // an `at` ahead of the clock counts as now
+  return { validUntil: new Date(until).toISOString(), expired: until <= n, msLeft: Math.max(0, until - n) };
+}
+
+/** The proposal banner's facts for a trip: the earliest expiry among its offline-priced items, or null when none is offline. */
+export function offlineNoticeOf(days: any[], now: Date | number = Date.now()): { hours: number; validUntil: string | null; expired: boolean; count: number } | null {
+  const items = (days || []).flatMap((d: any) => (d.items || []).filter((it: any) => it && it.manualPrice && it.status !== "confirmed" && (it.type === "flight" || it.type === "hotel")));
+  if (!items.length) return null;
+  const states = items.map((it: any) => manualPriceState(it.manualPrice, now));
+  const untils = states.map((x) => x.validUntil).filter(Boolean) as string[];
+  return { hours: OFFLINE_HOURS, validUntil: untils.length ? untils.sort()[0] : null, expired: states.some((x) => x.expired), count: items.length };
+}
+
+/** "Refresh offline prices": the advisor has re-confirmed them with the vendors, so every offline item is held for 12 more hours. */
+export function refreshManualPrices(data: any, now: string = new Date().toISOString()): any {
+  return {
+    ...data,
+    days: (data.days || []).map((day: any) => ({
+      ...day,
+      items: (day.items || []).map((it: any) => (it && it.manualPrice && it.status !== "confirmed" ? { ...it, manualPrice: { ...it.manualPrice, at: now } } : it)),
+    })),
+  };
+}
+
+export function applyManualPrice(item: any, v: ManualPriceInput, now: string = new Date().toISOString()): any {
+  const amount = Math.round(Number(v.amount) * 100) / 100;
+  if (!item || !(amount > 0) || item.status === "confirmed") return item;
+  const prev = item.manualPrice
+    ? item.manualPrice.prev
+    : { price: item.price ?? null, priceIsFrom: item.priceIsFrom, priceIsEstimate: item.priceIsEstimate, status: item.status, nextStep: item.nextStep, meta: item.meta, pricing: item.pricing };
+  const vendor = (v.vendor || "").trim(), note = (v.note || "").trim();
+  return {
+    ...item,
+    price: amount,
+    priceIsFrom: false,
+    priceIsEstimate: false,
+    status: item.status === "draft" ? "on_hold" : item.status,
+    nextStep: undefined,
+    // the TripSure live price it carried no longer describes this price: Pay now must not re-check it (restored by clearManualPrice)
+    pricing: undefined,
+    meta: "Price entered manually" + (vendor ? " — quoted by " + vendor : " — quoted offline") + (note ? " · " + note : "") + " · not a TripSure live price",
+    manualPrice: { amount, vendor, note, at: now, prev },
+  };
+}
+
+// A hotel's swap option can carry an offline price of its own (its price for the whole stay, quoted by another vendor): the same 12-hour
+// hold as the stay itself. Swapping carries it with the option (swapHotelAlternative), so the stay that is chosen is the one that is offline.
+export function applyManualPriceToAlternative(item: any, altIndex: number, v: ManualPriceInput, now: string = new Date().toISOString()): any {
+  const alts: any[] = (item && item.alternatives) || [];
+  const alt = alts[altIndex];
+  const amount = Math.round(Number(v.amount) * 100) / 100;
+  if (!alt || !(amount > 0) || item.status === "confirmed") return item;
+  const prev = alt.manualPrice ? alt.manualPrice.prev : { price: alt.price ?? null };
+  const next = { ...alt, price: amount, manualPrice: { amount, vendor: (v.vendor || "").trim(), note: (v.note || "").trim(), at: now, prev } };
+  return { ...item, alternatives: alts.map((a, i) => (i === altIndex ? next : a)) };
+}
+
+export function clearManualPriceOfAlternative(item: any, altIndex: number): any {
+  const alts: any[] = (item && item.alternatives) || [];
+  const alt = alts[altIndex];
+  if (!alt || !alt.manualPrice) return item;
+  const { manualPrice, ...rest } = alt;
+  const p = manualPrice.prev || {};
+  return { ...item, alternatives: alts.map((a, i) => (i === altIndex ? { ...rest, price: p.price ?? null } : a)) };
+}
+
+export function clearManualPrice(item: any): any {
+  if (!item || !item.manualPrice) return item;
+  const { manualPrice, ...rest } = item;
+  const p = manualPrice.prev || {};
+  return { ...rest, price: p.price ?? null, priceIsFrom: p.priceIsFrom, priceIsEstimate: p.priceIsEstimate, status: p.status ?? item.status, nextStep: p.nextStep, meta: p.meta, pricing: p.pricing };
 }

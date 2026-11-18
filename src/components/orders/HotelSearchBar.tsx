@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { Icon } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
-import { rankLocationSuggestions } from "../../lib/locationSuggest";
+import { drilldownLocation, popularDrilldowns, rankLocationSuggestions } from "../../lib/locationSuggest";
 import { citySuggest, instantCitySuggest } from "../../lib/citySuggest";
 import { RangeCalendar, fmtPill, localTodayISO } from "./RangeCalendar";
 import {
@@ -46,6 +46,8 @@ export function HotelSearchBar({
   const tot = totals(rooms);
   const nRooms = rooms.length;
   const problem = roomsProblem(rooms);
+  // Places inside the picked destination (TripSure's popular_locations / popular_poi / popular_hotels).
+  const drilldowns = popularDrilldowns(location);
 
   // ── editing the rooms: each has its own adults and children (with ages) ──
   const editRoom = (i: number, fn: (r: RoomGuests) => RoomGuests) => onRooms(rooms.map((r, j) => (j === i ? fn(r) : r)));
@@ -147,6 +149,24 @@ export function HotelSearchBar({
           {busy ? "Searching…" : "Search"}
         </button>
       </div>
+
+      {drilldowns.length ? (
+        <div className="hsb-drill" aria-label={`More specific places in ${location.name}`}>
+          {drilldowns.map((g) => (
+            <div className="hsb-drill-row" key={g.key}>
+              <span className="hsb-drill-l">{g.label}</span>
+              <div className="hsb-drill-chips">
+                {g.items.map((it: any) => (
+                  <button type="button" className="hsb-chip" key={String(it.id)} title={it.fullName || it.name}
+                    onClick={() => { onCity(String(it.name)); onLocation(drilldownLocation(location, it, g)); }}>
+                    {it.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {panel === "dates" ? (
         <RangeCalendar

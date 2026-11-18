@@ -7,19 +7,22 @@
  * than porting rfq.js's own bespoke CSS block — same convention AnalyticsPanel/
  * ApprovalsPanel/OrdersBoard already established.
  *
- * Deliberately NOT ported: the legacy "Add to workbench cart" action on the
- * awarded screen (used a global CustomEvent bus tied to the old vanilla
- * shell that doesn't exist in this app) — deferred per the scoping
- * discussion, not dropped silently.
+ * "Add to itinerary" on the awarded screen (hotel RFQs): the legacy action used a
+ * global CustomEvent bus that doesn't exist in this app. It now calls the
+ * workbench context's addSearchItemToItinerary for the enquiry selected in the
+ * console, and is offered only when one is selected (this route can be opened
+ * outside the console, where there is no itinerary to add to).
  *
  * advisorId comes from a prop (this panel is a sibling top-level route under
  * AppShell, not nested inside WorkbenchShell) rather than an in-panel
  * advisor picker like the legacy View had.
  * ===========================================================================*/
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { fetchAdvisors, rfqAward, rfqCompose, rfqDispatch, rfqGet, rfqParse, rfqRank, rfqSimulate, inr } from "../../services/api";
 import { cx } from "../../lib/cx";
-import { errText, fmtTime, shortId, toast } from "../../lib/advisorHelpers";
+import { errText, fmtTime, shortId, toast, hotelCartItem } from "../../lib/advisorHelpers";
+import { awardToHotelOffer } from "../../lib/rfqHotelCart";
+import { WorkbenchContext } from "../../lib/workbenchContext";
 import { Card, Empty, Icon, Spinner } from "../ui";
 
 const STAGES = ["compose", "approve", "collect", "bids", "awarded"];
@@ -218,6 +221,9 @@ export function SupplierBroadcastPanel(props: any) {
   const [dispatchFailures, setDispatchFailures] = useState<any>([]);
   const [advisors, setAdvisors] = useState<any[]>([]);
   const [selectedAdvisorId, setSelectedAdvisorId] = useState<any>(advisorId);
+  const [addedToItinerary, setAddedToItinerary] = useState(false);
+  // Null-safe on purpose: useWorkbench() throws outside the provider.
+  const wb = useContext(WorkbenchContext);
 
   // Advisor picker (2026-09-30, direct spec — match legacy "Approving
   // advisor (HITL signer)" dropdown). GET /admin/advisors is admin-role-
@@ -345,6 +351,19 @@ export function SupplierBroadcastPanel(props: any) {
       .catch((e: any) => fail("Ranking failed", e));
   }, [rfqId, readQuotes]);
 
+  // Awarded hotel bid -> the selected enquiry's itinerary. The spec is read from the RFQ itself, falling back
+  // to the composed JSON, so dates / destination survive a reload of the RFQ.
+  function addAwardedToItinerary() {
+    if (!wb || !wb.selEnqId || !award) return;
+    let spec: any = rfq && rfq.spec;
+    if (!spec) {
+      try { spec = JSON.parse(specText); } catch { spec = {}; }
+    }
+    const item: any = { ...hotelCartItem(awardToHotelOffer(award, spec), []), checkIn: spec && spec.check_in };
+    wb.addSearchItemToItinerary(wb.selEnqId, item);
+    setAddedToItinerary(true);
+  }
+
   const onAward = useCallback(
     (bid: any) => {
       setErr(null);
@@ -353,6 +372,7 @@ export function SupplierBroadcastPanel(props: any) {
       rfqAward(rfqId, bid.quote_id, advisorId)
         .then((res: any) => {
           setAward(res);
+          setAddedToItinerary(false);
           setStage("awarded");
           setAwarding(null);
           toast("Bid awarded", "success");
@@ -367,6 +387,7 @@ export function SupplierBroadcastPanel(props: any) {
     setQuotes([]);
     setRank(null);
     setAward(null);
+    setAddedToItinerary(false);
     setStage("compose");
     setErr(null);
     setBusy(false);
@@ -637,6 +658,17 @@ export function SupplierBroadcastPanel(props: any) {
             quote is now a downstream offer, ready to flow into pricing &amp; order creation. Losing bids were
             rejected and supplier scorecards updated.
           </p>
+          {product === "hotel" ? (
+            wb && wb.selEnqId ? (
+              <button className="taw-btn taw-btn--primary" style={{ marginRight: 8 }} disabled={addedToItinerary} onClick={addAwardedToItinerary}>
+                <Icon name="check" size={14} /> {addedToItinerary ? "Added to itinerary" : "Add to itinerary"}
+              </button>
+            ) : (
+              <p className="taw-muted" style={{ fontSize: "12.5px" }}>
+                Select an enquiry in the console to add this hotel to its itinerary.
+              </p>
+            )
+          ) : null}
           <button className="taw-btn taw-btn--ghost" onClick={onReset}>
             <Icon name="refresh" size={14} /> Start a new RFQ
           </button>

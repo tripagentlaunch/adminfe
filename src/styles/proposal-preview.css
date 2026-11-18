@@ -837,6 +837,10 @@
 .pv-stayfacts>div{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;}
 .pv-stayfacts dt{color:#8a8172;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding-top:2px;}
 .pv-stayfacts dd{margin:0;}
+.pv-stayfacts-list{margin:0;padding-left:17px;display:grid;gap:5px;}
+.pv-stayfacts-list li::marker{color:#b4a98f;}
+.pv-stayfacts-chips{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px;}
+.pv-stayfacts-chips li{background:#fff;border:1px solid #e3ddd0;border-radius:999px;padding:3px 11px;font-size:12px;line-height:1.5;}
 .pv-lightbox{position:fixed;inset:0;background:rgba(15,12,10,.82);display:grid;place-items:center;z-index:2000;cursor:zoom-out;padding:24px;}
 .pv-lightbox img{max-width:100%;max-height:100%;border-radius:12px;}
 @media (max-width:640px){.pv-stayfacts>div{grid-template-columns:1fr;gap:2px;}}
@@ -861,8 +865,11 @@
 .pv-stayfacts--quick>div{grid-template-columns:110px minmax(0,1fr);}
 .pv-staywide-more{padding:4px 24px 22px;}
 .pv-staywide-more .pv-staygallery{margin-top:16px;}
-.pv-staywide-more .pv-stayfacts{display:block;columns:2;column-gap:36px;margin-top:14px;}
-.pv-staywide-more .pv-stayfacts>div{break-inside:avoid;margin-bottom:12px;}
+/* The details of the chosen stay: one tidy block per fact (label above its text), laid out in aligned columns that fill
+   the width, instead of two newspaper columns that left the first one half empty. */
+.pv-staywide-more .pv-stayfacts{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px 36px;margin-top:18px;align-items:start;}
+.pv-staywide-more .pv-stayfacts>div{display:block;border-top:1px solid #e3ddd0;padding-top:10px;}
+.pv-staywide-more .pv-stayfacts dt{margin-bottom:8px;padding-top:0;}
 .pv-altcards-wrap{margin-top:18px;}
 .pv-altcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;}
 .pv-altcard{border:1px solid #ececec;border-radius:12px;overflow:hidden;background:#fff;display:flex;flex-direction:column;}
@@ -871,7 +878,7 @@
 .pv-altcard-foot{margin-top:auto;padding-top:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
 @media (max-width:900px){
   .pv-staywide-top{grid-template-columns:1fr;}
-  .pv-staywide-more .pv-stayfacts{columns:1;}
+  .pv-staywide-more .pv-stayfacts{grid-template-columns:1fr;gap:16px;}
 }
 
 /* Live-priced flight: date, fare and add-ons lines; alternatives' facts; the cost line's
@@ -958,3 +965,57 @@
 .pv-trace-label { margin-top: 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8a7f72; }
 .pv-trace pre { margin: 2px 0 0; padding: 8px; background: #f4efe6; border-radius: 6px; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
 .pv-trace-err, .pv-trace-sub { color: #8a7f72; }
+
+/* Where to eat (from our city guide): under a day in the Days tab, and per city in the Plan tab. */
+.pv-eat{margin-top:12px;padding-top:10px;border-top:1px solid var(--pv-line,rgba(0,0,0,.1));}
+.pv-eat-title{font-size:11px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:6px;}
+.pv-eat-title span{text-transform:none;letter-spacing:0;font-weight:400;opacity:.65;}
+.pv-eat-list{display:flex;flex-direction:column;gap:10px;}
+.pv-eat-name{font-weight:600;font-size:14px;}
+.pv-eat-meal{margin-left:8px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;opacity:.6;}
+.pv-eat-area{font-size:12.5px;opacity:.7;}
+.pv-eat-cred{font-size:12px;color:var(--pv-gold,#8a6d1f);margin-top:2px;}
+.pv-eat-desc{font-size:12.5px;line-height:1.5;opacity:.85;margin-top:2px;}
+.pv-eat-row{display:flex;gap:12px;align-items:flex-start;}
+.pv-eat-photo{flex:0 0 76px;width:76px;height:76px;border-radius:10px;background:#e9e2d6;object-fit:cover;}
+.pv-eat-text{min-width:0;}
+.pv-eat-dist{font-size:12.5px;font-weight:600;margin-top:2px;}
+
+/* "Where to eat" tab: the website's city-page cards. */
+.pv-eatt{display:flex;gap:10px;margin:0 0 30px;flex-wrap:wrap;}
+.pv-eatt-btn{display:inline-flex;align-items:center;gap:9px;padding:13px 20px;border:1px solid var(--pv-line,rgba(0,0,0,.18));background:#fff;font:inherit;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#5a544c;cursor:pointer;}
+.pv-eatt-btn.is-active{border-color:#171310;box-shadow:inset 0 0 0 1px #171310;color:#171310;}
+.pv-eatg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px 36px;margin-top:8px;}
+@media (max-width:900px){.pv-eatg{grid-template-columns:repeat(2,minmax(0,1fr));}}
+@media (max-width:560px){.pv-eatg{grid-template-columns:1fr;}}
+.pv-eatc{display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:0;}
+.pv-eatc-photo{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#e9e2d6;margin-bottom:6px;}
+.pv-eatc-name{font-family:inherit;font-weight:400;font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:0;}
+.pv-eatc-tag{display:inline-block;padding:4px 11px;border:1px solid #8a2c3a;color:#7a1f2e;font-size:12px;letter-spacing:.09em;text-transform:uppercase;}
+.pv-eatc-cred{display:block;width:100%;box-sizing:border-box;padding:6px 12px;border:1px solid var(--pv-line,rgba(0,0,0,.2));color:#5a544c;font-size:11.5px;line-height:1.45;letter-spacing:.08em;text-transform:uppercase;}
+.pv-eatc-desc{margin:0;font-size:17px;line-height:1.55;}
+.pv-eatc-loc{display:flex;gap:8px;align-items:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6b655c;}
+.pv-eatc-loc svg{flex:0 0 auto;}
+.pv-eatc-dist{font-size:13px;font-weight:600;}
+
+/* Offline prices (quoted by another vendor, held for 12 hours). */
+.pv-offline{display:flex;flex-direction:column;gap:4px;margin:0 0 18px;padding:14px 18px;border:1px solid rgba(176,132,40,.4);background:#fbf3e2;border-radius:12px;font-size:13.5px;line-height:1.5;color:#5f4510;}
+.pv-offline b{font-size:14.5px;}
+.pv-offline.is-expired{border-color:rgba(176,52,52,.45);background:#fbecec;color:#7d2121;}
+.pv-offtag{display:inline-block;margin-left:8px;padding:2px 8px;border:1px solid rgba(176,132,40,.55);border-radius:999px;background:#fbf3e2;color:#7a5712;font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:600;vertical-align:middle;white-space:nowrap;}
+
+/* Pay now: one price summary (quoted, then final) and the price-change popup's moved lines. */
+.pv-paysum{margin:14px 0 0;padding:14px 16px;border:1px solid var(--pv-line,rgba(0,0,0,.14));border-radius:12px;display:flex;flex-direction:column;gap:6px;font-size:13.5px;}
+.pv-paysum>div{display:flex;justify-content:space-between;gap:16px;}
+.pv-paysum-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.7;}
+.pv-paysum-total{border-top:1px solid var(--pv-line,rgba(0,0,0,.14));padding-top:8px;margin-top:2px;font-size:15px;}
+.pv-paysum-n{font-size:12px;opacity:.7;display:block !important;}
+.pv-pchg-lines{margin:12px 0 4px;padding:10px 0 0;border-top:1px solid rgba(0,0,0,.1);font-size:13.5px;display:flex;flex-direction:column;gap:6px;}
+.pv-pchg-lines>div{display:flex;justify-content:space-between;gap:14px;}
+.pv-pchg-lines-h{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;opacity:.65;display:block !important;}
+.pv-pchg-lines-n{font-size:12px;opacity:.65;display:block !important;}
+.pv-offnote{margin-top:6px;color:#5f4510;}
+.pv-pchg-off{margin:8px 0 0;font-size:13.5px;color:#5f4510;}
+.pv-was{margin-right:8px;opacity:.55;font-weight:400;}
+.pv-final-tag{font-weight:400;font-size:12px;opacity:.65;}
+.pv-option-off{color:#7a5712;font-size:12px;margin-top:4px;}

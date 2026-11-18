@@ -58,6 +58,9 @@
  * enquiries/membersById, and passed down as props instead.
  * ===========================================================================*/
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { BudgetFields } from "../BudgetFields";
+import { setPendingBudget } from "../../lib/pendingBudget";
+import type { Budget } from "../../lib/tripBudget";
 import { createPortal } from "react-dom";
 import { ResizableColumns } from "../ResizableColumns";
 import { useRouter } from "next/navigation";
@@ -434,13 +437,25 @@ export function WorkbenchTab(props: any) {
   // startItinerary — with an enquiry selected, seed its itinerary directly; with
   // only a traveller picked, create/reuse their enquiry first (the enquiry is
   // created on click, not on selection).
+  // The budget typed on the start screen, per enquiry ("new" until one exists). It waits in pendingBudget until
+  // the Itinerary Builder opens for that enquiry, whichever way the itinerary is started.
+  const [startBudgets, setStartBudgets] = useState<Record<string, Budget | null>>({});
+  const startKey = selEnqId || "new";
+  const startBudget = startBudgets[startKey] || null;
+  const onStartBudget = (b: Budget | null) => {
+    setStartBudgets((m) => ({ ...m, [startKey]: b }));
+    if (selEnqId) setPendingBudget(selEnqId, b);
+  };
+  const ensureWithBudget = onEnsureEnquiry
+    ? (m: any) => onEnsureEnquiry(m).then((e: any) => { if (e && e.id && startBudget) setPendingBudget(e.id, startBudget); return e; })
+    : onEnsureEnquiry;
   const startItinerary = (mode: "ai" | "scratch") => {
     if (selEnqId) {
       initItinerary(selEnqId, mode, selectedEnquiryWithAsk);
       return;
     }
-    if (onEnsureEnquiry && convoMember) {
-      onEnsureEnquiry(convoMember)
+    if (ensureWithBudget && convoMember) {
+      ensureWithBudget(convoMember)
         .then((e: any) => initItinerary(e.id, mode, { ...e, ask: {} }))
         .catch(() => {});
     }
@@ -484,7 +499,11 @@ export function WorkbenchTab(props: any) {
             <Icon name="sparkle" size={28} />
             <div className="title">Start this itinerary</div>
             <div className="message">Pick one of Tara&apos;s itineraries for this traveller, or start from scratch and add flights and hotels from Search — either way, everything stays fully editable.</div>
-            <TaraItineraryLink variant="cards" member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={onEnsureEnquiry}
+            <div className="taw-budget taw-budget--start">
+              <div className="taw-budget-title">What is the customer&apos;s budget? <span className="taw-muted">(optional)</span></div>
+              <BudgetFields key={startKey} initial={startBudget} defaultPax={selectedEnquiryWithAsk?.ask?.pax || 2} onChange={onStartBudget} />
+            </div>
+            <TaraItineraryLink variant="cards" member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={ensureWithBudget}
               onScratch={() => startItinerary("scratch")} />
           </div>
   );
@@ -526,7 +545,7 @@ export function WorkbenchTab(props: any) {
       document.body,
     ) : null}
     {/* Drag the handle between the columns to widen the Itinerary Builder or Search (saved per browser). */}
-    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3">
+    <ResizableColumns storageKey="taw.console.columns.v2" defaults={[1, 1]} className="taw-grid taw-cols-3 taw-console-cols">
       <Card
         className="taw-itin-card"
         title="Itinerary Builder"
@@ -607,6 +626,7 @@ export function ConversationTab() {
     ensureEnquiryForMember, convoTarget, setConvoTarget, setSummaryDismissedFor, membersById,
   } = useWorkbench();
   const router = useRouter();
+  const [opening, setOpening] = useState(false); // a customer is being looked up from the bell / ?code=
 
   // Opened from the notification bell: /console/conversation?code=<access code> (or the bell's event while this
   // tab is already open) switches the conversation to that customer.
@@ -617,6 +637,7 @@ export function ConversationTab() {
       if (!code) return;
       const known = Object.values(membersById || {}).find((m: any) => memberCode(m).toUpperCase() === code);
       if (known) { setConvoTarget(known); return; }
+      setOpening(true);
       siteMembers("select=*&invitation_code=eq." + encodeURIComponent(code) + "&limit=1")
         .then((rows: any) => {
           if (cancelled) return;
@@ -625,7 +646,10 @@ export function ConversationTab() {
         })
         .catch(() => { if (!cancelled) setConvoTarget({ id: code, name: code, invitation_code: code }); });
     }
-    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    // The code left by the bell (it is there even when the address bar has not caught up yet), else ?code= in the URL.
+    let pending: string | null = null;
+    try { pending = window.sessionStorage.getItem("ta.pending.conversation"); window.sessionStorage.removeItem("ta.pending.conversation"); } catch { /* storage blocked */ }
+    const fromUrl = pending || new URLSearchParams(window.location.search).get("code");
     if (fromUrl) openByCode(fromUrl);
     const onOpen = (e: Event) => openByCode((e as CustomEvent).detail);
     window.addEventListener("ta:open-conversation", onOpen);
@@ -639,12 +663,15 @@ export function ConversationTab() {
   const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
   const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
 
+  if (!convoMember && opening) {
+    return <Empty icon="chat" title="Opening the conversation…" message="Loading this customer's messages." />;
+  }
   if (!convoMember) {
     return <Empty icon="chat" title="No traveller selected" message="Pick a traveller or enquiry in the Console tab to see their conversation." />;
   }
   const goBuild = () => router.push("/console/queue");
   return (
-    <div className="taw-grid taw-cols-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
+    <div className="taw-grid taw-cols-2 taw-convo-grid">
       <ConversationSummaryPanel
         key={selEnqId || "none"}
         enquiry={selectedEnquiryWithAsk}

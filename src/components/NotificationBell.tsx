@@ -22,6 +22,7 @@ const WINDOW_MS = 24 * 3600 * 1000;      // chats from the last day
 const NEW_CHAT_GAP_MS = 30 * 60 * 1000;  // silence this long, then a message, is "started chatting"
 const ONLINE_MS = 5 * 60 * 1000;         // wrote within 5 minutes: "chatting now"
 const READ_KEY = "ta.notif.read.v1";
+export const PENDING_CONVO_KEY = "ta.pending.conversation";
 
 type Item = { code: string; name: string; channel: string; text: string; at: number; first_at: number; count: number };
 
@@ -148,6 +149,9 @@ export function NotificationBell() {
   function openChat(it: Item) {
     const next = { ...read, by: { ...read.by, [it.code]: it.at } };
     setRead(next); saveRead(next); setOpen(false);
+    // The Conversation tab may not exist yet (and the address bar updates after it first renders), so the
+    // customer is also left here for it to pick up as soon as it mounts.
+    try { window.sessionStorage.setItem(PENDING_CONVO_KEY, it.code); } catch { /* the ?code= in the address still works */ }
     router.push("/console/conversation?code=" + encodeURIComponent(it.code));
     // Already on the Conversation tab: it listens for this and switches customer.
     window.dispatchEvent(new CustomEvent("ta:open-conversation", { detail: it.code }));

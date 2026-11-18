@@ -13,6 +13,8 @@ import type { ReactNode } from "react";
 import { Document, Page, View, Text, StyleSheet, Svg, Path, Link, Image } from "@react-pdf/renderer";
 import { registerProposalFonts } from "../../lib/proposalFonts";
 import { inr } from "../../services/api";
+import { cardTags, distanceText } from "../../lib/diningPlan";
+import { untilText } from "../../lib/offlineBanner";
 
 registerProposalFonts();
 
@@ -62,8 +64,8 @@ function Chip({ label, star }: { label: string; star?: boolean }) {
 
 // Static echo of the screen's Plan / Days / Decisions tab bar — the active
 // one sits on the template's grey pill.
-function TabRow({ active, hasVisa }: { active: "Plan" | "Days" | "Decisions"; hasVisa: boolean }) {
-  const tabs: Array<"Plan" | "Days" | "Decisions"> = hasVisa ? ["Plan", "Days", "Decisions"] : ["Plan", "Days"];
+function TabRow({ active, hasVisa, hasEat }: { active: "Plan" | "Days" | "Where to eat" | "Decisions"; hasVisa: boolean; hasEat?: boolean }) {
+  const tabs: Array<"Plan" | "Days" | "Where to eat" | "Decisions"> = ["Plan", "Days", ...(hasEat ? (["Where to eat"] as const) : []), ...(hasVisa ? (["Decisions"] as const) : [])];
   return (
     <View style={{ flexDirection: "row", gap: 4, marginBottom: 4 }}>
       {tabs.map((t) => (
@@ -274,6 +276,7 @@ function StayGroup({ st, heading }: { st: any; heading?: ReactNode }) {
                 <View style={{ flex: 1 }}>
                   <Text style={s.name}>{a.name}</Text>
                   {a.detail ? <Text style={s.detail}>{a.detail}</Text> : null}
+                  {a.offline ? <Text style={s.detail}>{`Quoted offline${a.offlineUntil ? ` · held until ${untilText(a.offlineUntil)}` : ""}`}</Text> : null}
                 </View>
                 <Text style={s.price}>{inr(a.price)}</Text>
               </View>
@@ -283,6 +286,42 @@ function StayGroup({ st, heading }: { st: any; heading?: ReactNode }) {
       ) : (
         card
       )}
+    </View>
+  );
+}
+
+// Restaurants from our city guide (name, meal, area, award): used on the Plan page per city and on the Days page per day.
+function EatRows({ entries }: { entries: any[] }) {
+  return (
+    <View>
+      {entries.map((e: any, i: number) => (
+        <View key={e.id || i} wrap={false} style={{ marginTop: i ? 6 : 0 }}>
+          <Text style={{ fontSize: 10, fontWeight: 600 }}>{e.name + (e.meal ? ` · ${e.meal === "lunch" ? "Lunch" : "Dinner"}` : "")}</Text>
+          {e.area ? <Text style={s.dayBody}>{e.area}</Text> : null}
+          {e.distance ? <Text style={s.dayBody}>{distanceText(e.distance)}</Text> : null}
+          {e.tag || (e.credentials && e.credentials.length) ? <Text style={s.dayBody}>{e.tag || e.credentials[0]}</Text> : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+// Offline prices (flights and stays the advisor priced by hand, quoted by another vendor): held for 12 hours from when they were entered.
+// A PDF is fixed, so it says the time they are held until, and when it was prepared, not a countdown.
+function OfflineBanner({ data }: { data: any }) {
+  const n = data.offlineNotice;
+  if (!n) return null;
+  const expired = !!n.expired;   // judged when the proposal was built (offlineNoticeOf), so a PDF render does not depend on the clock
+  return (
+    <View wrap={false} style={{ marginTop: 14, padding: 12, borderWidth: 0.75, borderColor: expired ? "#B03434" : "#B08428", borderRadius: 8, backgroundColor: expired ? "#FBECEC" : "#FBF3E2" }}>
+      <Text style={{ fontSize: 10, fontWeight: 600, color: expired ? "#7D2121" : "#5F4510" }}>
+        {expired ? "The offline prices in this proposal are no longer held" : `Offline prices held until ${untilText(n.validUntil)}`}
+      </Text>
+      <Text style={[s.dayBody, { color: expired ? "#7D2121" : "#5F4510" }]}>
+        {`Lines marked "Quoted offline" were quoted by your advisor from another vendor. They aren't live prices: they're held for ${n.hours || 12} hours` +
+          `${n.validUntil ? " from when your advisor entered them" : ""}, and your advisor confirms them with you.` +
+          `${expired ? " Please ask your advisor to confirm them again." : ""}${data.preparedAt ? ` Prepared ${untilText(data.preparedAt)}.` : ""}`}
+      </Text>
     </View>
   );
 }
@@ -299,8 +338,9 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
     <Page size="A4" style={s.page}>
       <Hero data={data} heroImage={heroImage} />
       <View style={{ marginTop: 20 }}>
-        <TabRow active="Plan" hasVisa={hasVisa} />
+        <TabRow active="Plan" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       </View>
+      <OfflineBanner data={data} />
 
       <SectionTitle first>The shape</SectionTitle>
       <View>
@@ -312,7 +352,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       {data.flights?.length ? (
         <View>
           {data.flights.map((f: any, i: number) => (
-            <FlightRow key={i} f={f} heading={i === 0 ? <SectionTitle>Getting there</SectionTitle> : undefined} />
+            <FlightRow key={i} f={f} heading={<>{i === 0 ? <SectionTitle>Getting there</SectionTitle> : null}{f.offline ? <Text style={[s.eyebrow, { marginTop: 4 }]}>Quoted offline</Text> : null}</>} />
           ))}
         </View>
       ) : null}
@@ -320,7 +360,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
       {data.stays?.length ? (
         <View>
           {data.stays.map((st: any, i: number) => (
-            <StayGroup key={i} st={st} heading={i === 0 ? <SectionTitle>Where you stay</SectionTitle> : undefined} />
+            <StayGroup key={i} st={st} heading={<>{i === 0 ? <SectionTitle>Where you stay</SectionTitle> : null}{st.offline ? <Text style={[s.eyebrow, { marginTop: 4 }]}>Quoted offline</Text> : null}</>} />
           ))}
         </View>
       ) : null}
@@ -330,7 +370,7 @@ function PlanPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           <SectionTitle>What it costs</SectionTitle>
           {data.costLines.map((ln: any, i: number) => (
             <View key={i} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 7, borderBottomWidth: 0.75, borderBottomColor: LINE, fontSize: 9.5 }}>
-              <Text>{ln.label || ln.type}</Text>
+              <Text>{(ln.label || ln.type) + (ln.offline ? " · Quoted offline" : "")}</Text>
               <Text>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</Text>
             </View>
           ))}
@@ -352,7 +392,7 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   const captions = data.calendarCaptions || {};
   return (
     <Page size="A4" style={s.page}>
-      <TabRow active="Days" hasVisa={hasVisa} />
+      <TabRow active="Days" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       <SectionTitle first>{days.length ? `${days.length} days, at a glance` : "Your days"}</SectionTitle>
       {blocks.map((b: any, i: number) => {
         const first = days[b.startIdx];
@@ -370,6 +410,47 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
           </View>
         );
       })}
+      {(data.dayPlan || []).some((d: any) => d.dining && d.dining.length) ? (
+        <View>
+          <SectionTitle>Where to eat, day by day</SectionTitle>
+          {(data.dayPlan || []).filter((d: any) => d.dining && d.dining.length).map((d: any, i: number) => (
+            <View key={i} wrap={false} style={[s.panel, { marginBottom: 8, padding: 11 }]}>
+              <Text style={s.eyebrow}>{[d.label, d.date].filter(Boolean).join(" · ")}</Text>
+              <View style={{ marginTop: 4 }}><EatRows entries={d.dining} /></View>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {hasVisa || data.whereToEat?.length ? null : <Footnote />}
+    </Page>
+  );
+}
+
+// EatPage: the screen's "Where to eat" tab: the restaurants from our city guide per city, each with the website's own details
+// (tag, every award, description, area) and how far it is from the hotel.
+function EatPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
+  return (
+    <Page size="A4" style={s.page}>
+      <TabRow active="Where to eat" hasVisa={hasVisa} hasEat />
+      <SectionTitle first>Where to eat</SectionTitle>
+      {(data.whereToEat || []).map((g: any, i: number) => (
+        <View key={g.city} style={{ marginBottom: 12 }}>
+          <Text style={[s.eyebrow, { marginTop: i ? 10 : 0, marginBottom: 6 }]}>{`${g.city} · from our city guide, not booked`}</Text>
+          {g.picks.map((e: any, k: number) => {
+            const { headline, rest } = cardTags(e);
+            return (
+              <View key={e.id || k} wrap={false} style={[s.panel, { marginBottom: 8, padding: 12 }]}>
+                <Text style={{ fontSize: 12, fontWeight: 600 }}>{e.name}</Text>
+                {headline ? <Text style={[s.eyebrow, { marginTop: 3 }]}>{headline}</Text> : null}
+                {rest.map((c: string, j: number) => <Text key={j} style={s.dayBody}>{c}</Text>)}
+                {e.description ? <Text style={s.dayBody}>{e.description}</Text> : null}
+                {e.area ? <Text style={s.dayBody}>{e.area}</Text> : null}
+                {e.distance ? <Text style={[s.dayBody, { fontWeight: 600 }]}>{distanceText(e.distance)}</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+      ))}
       {hasVisa ? null : <Footnote />}
     </Page>
   );
@@ -380,7 +461,7 @@ function DaysPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
 function DecisionsPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
   return (
     <Page size="A4" style={s.page}>
-      <TabRow active="Decisions" hasVisa={hasVisa} />
+      <TabRow active="Decisions" hasVisa={hasVisa} hasEat={!!data.whereToEat?.length} />
       <SectionTitle first>Before money moves</SectionTitle>
       <View style={{ backgroundColor: IVORY, borderRadius: 7, padding: 13 }}>
         <Text style={{ fontWeight: 600, fontSize: 10, marginBottom: 3 }}>{data.visa?.title || "Visa"}</Text>
@@ -419,7 +500,7 @@ function DecisionsPage({ data, hasVisa }: { data: any; hasVisa: boolean }) {
 // Long proposals wrap onto more physical pages; viewers read the real count
 // from the rendered PDF.
 export function pageCountFor(data: any): number {
-  return data?.visa ? 3 : 2;
+  return 2 + (data?.whereToEat?.length ? 1 : 0) + (data?.visa ? 1 : 0);
 }
 export const PAGE_COUNT = 3; // kept for callers still importing the old static constant; prefer pageCountFor(data).
 
@@ -429,6 +510,7 @@ export function ProposalDocument({ data }: { data: any }) {
     <Document>
       <PlanPage data={data} hasVisa={hasVisa} />
       <DaysPage data={data} hasVisa={hasVisa} />
+      {data.whereToEat?.length ? <EatPage data={data} hasVisa={hasVisa} /> : null}
       {hasVisa ? <DecisionsPage data={data} hasVisa={hasVisa} /> : null}
     </Document>
   );

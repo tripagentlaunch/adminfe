@@ -114,6 +114,14 @@ background:var(--champagne);border:1px solid var(--line2);}
    still rendered at its own CONTENT height regardless (measured 922px
    in a 607px track) because nothing let them shrink below that. */
 .taw-cols-3>*{min-height:0;}
+/* Console zoomed out (2026-11-02, direct request; builder smaller still 2026-11-03) — the
+   Itinerary Builder renders at 78% (passengers, totals and several days in view at once) and
+   Search at 86% (several flight cards). Desktop only; the stacked layout below 1100px keeps full
+   size. Each column is a direct child of the grid (ColumnSlot renders a fragment). */
+@media(min-width:1101px){
+  .taw-console-cols>.taw-itin-card{zoom:.78;}
+  .taw-console-cols>.taw-card:not(.taw-itin-card){zoom:.86;}
+}
 .taw-cols-q{grid-template-columns:1fr 420px;}
 
 /* Proposal PDF preview (2026-09-08) — same min-height:0 flex-chain pattern
@@ -1073,6 +1081,14 @@ padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
    actually scrolls (see .taw-itin-card .taw-card-b above) — everything
    above it (summary, alerts, tabs) stays fixed in view. */
 .taw-itin-days-scroll{flex:1 1 auto;min-height:0;}
+/* One scroll for the whole builder (2026-11-02, direct request) — the summary, alerts and
+   passengers now scroll away with the plan, so the days get the column's full height instead of
+   a strip under them. The All/Flights/Hotels/Visa tabs stick to the top; the card-coloured ring
+   hides rows passing behind their rounded corners. scroll-margin keeps a day that an alert jumps
+   to clear of the sticky tabs. */
+.taw-itin-body{display:flex;flex-direction:column;gap:10px;}
+.taw-itin-tabs{position:sticky;top:0;z-index:3;box-shadow:0 0 0 6px var(--card);}
+.taw-itin-day{scroll-margin-top:52px;}
 /* Zero gap here specifically (2026-09-03) — days/visa are dividers
    now, not gapped cards; the border-bottom on .taw-itin-day IS the
    spacing. .taw-itin itself keeps its 10px gap for the OTHER sections
@@ -1137,7 +1153,7 @@ padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
    header row sat right up against the divider line above AND (when
    collapsed) below it; this is the only place controlling that gap for
    a collapsed day, since a collapsed day IS just this header row. */
-.taw-itin-day-h{width:100%;display:flex;align-items:center;gap:8px;padding:16px 12px;background:none;border:0;cursor:pointer;text-align:left;font-family:var(--sans);}
+.taw-itin-day-h{width:100%;display:flex;align-items:center;gap:8px;padding:10px 12px;background:none;border:0;cursor:pointer;text-align:left;font-family:var(--sans);}
 .taw-itin-day-h svg:first-child{flex:none;color:var(--muted);transition:transform .16s var(--ease);}
 .taw-itin-day-label{font-size:12px;font-weight:600;color:var(--ink);}
 .taw-itin-day-date{font-size:11.5px;color:var(--muted);}
@@ -1195,7 +1211,7 @@ padding:32px 20px;gap:10px;max-width:320px;margin:0 auto;}
    expanded day's last item sat right up against the divider line to
    the NEXT day, same "too tight against the divider" issue as the
    header row above. */
-.taw-itin-item-detail{padding:0 12px 20px 39px;display:flex;flex-direction:column;gap:6px;}
+.taw-itin-item-detail{padding:0 12px 12px 39px;display:flex;flex-direction:column;gap:6px;}
 /* The 39px left padding above is calibrated to sit under a normal item
    row's title (after its grip + icon + time columns). The visa block's
    header has no grip/time — just a chevron + icon directly in
@@ -1997,3 +2013,103 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-tripcard.is-loading .taw-tripcard-photo{animation:taw-tripcard-pulse 1.4s ease-in-out infinite;}
 @keyframes taw-tripcard-pulse{50%{opacity:.7;}}
 @media (prefers-reduced-motion:reduce){.taw-tripcard-go,.taw-tripcard-golabel{transition:none;}.taw-tripcard.is-loading .taw-tripcard-photo{animation:none;}}
+
+/* Conversation tab: the chat gets the wider column, so its header (title, Claude usage, Tara site, call, WhatsApp) sits on ONE row. */
+.taw-cols-2.taw-convo-grid{grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);}
+@media(max-width:900px){.taw-cols-2.taw-convo-grid{grid-template-columns:1fr;}}
+
+.taw-itin-manual{margin-top:6px;font-size:12px;}
+.taw-itin-manual-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:6px 9px;border-radius:8px;background:var(--ok-bg,#eaf6ee);color:var(--ok-ink,#1f6b3a);}
+.taw-itin-manual-row>span{flex:1 1 220px;min-width:0;}
+.taw-itin-manual-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;align-items:end;padding:8px 9px;border-radius:8px;border:1px solid var(--line,#e5e0d8);}
+.taw-itin-manual-form label{display:flex;flex-direction:column;gap:3px;color:var(--taupe,#7a7266);}
+.taw-itin-manual-err{grid-column:1/-1;color:var(--danger,#b3261e);}
+.taw-itin-manual-btns{grid-column:1/-1;display:flex;gap:8px;}
+
+.taw-itin-guide{margin:10px 0;}
+.taw-itin-guide-body{margin-top:10px;display:flex;flex-direction:column;gap:18px;}
+.taw-itin-guide-city{border:1px solid var(--line,#e5e0d8);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;}
+.taw-itin-guide-head{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:14px;}
+.taw-itin-guide-head a{margin-left:auto;font-size:12px;}
+.taw-itin-guide-sec{margin-top:8px;display:flex;flex-direction:column;gap:10px;}
+.taw-itin-guide-eyebrow{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--taupe,#7a7266);}
+.taw-itin-guide-pick{display:flex;flex-direction:column;gap:2px;font-size:12.5px;}
+.taw-itin-guide-tier{margin-left:8px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted,#8a847a);}
+.taw-itin-guide-add{display:flex;gap:6px;align-items:center;margin-top:3px;}
+.taw-itin-guide-add select{max-width:260px;font-size:12px;}
+
+/* Itinerary Builder: the restaurants on a day ("Where to eat", from the city guide). */
+.taw-itin-dining{margin:8px 0 2px;padding:10px 12px;border:1px solid var(--line,#e5e0d8);border-radius:10px;display:flex;flex-direction:column;gap:8px;}
+.taw-itin-dining-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+
+/* "Where to eat" drawer: at the side of the screen, so the itinerary stays in view; cards like the website's city page. */
+.taw-itin-diningbar{margin:10px 0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.taw-eat-drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,100vw);background:var(--card,#fff);border-left:1px solid var(--line,#e5e0d8);box-shadow:-12px 0 32px -16px rgba(23,19,16,.35);z-index:1500;display:flex;flex-direction:column;}
+.taw-eat-drawer-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line,#e5e0d8);font-size:15px;}
+.taw-eat-drawer-day{display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line,#e5e0d8);font-size:13px;}
+.taw-eat-drawer-day select{flex:1;min-width:0;}
+.taw-eat-drawer-note{padding:8px 16px;font-size:12px;color:var(--muted,#7a7168);border-bottom:1px solid var(--line,#e5e0d8);}
+.taw-eat-drawer-body{flex:1;overflow-y:auto;padding:12px 16px 24px;display:flex;flex-direction:column;gap:14px;}
+.taw-eat-drawer-city{display:flex;flex-direction:column;gap:12px;}
+.taw-eat-card{border:1px solid var(--line,#e5e0d8);border-radius:12px;overflow:hidden;background:var(--card,#fff);}
+.taw-eat-card-photo{position:relative;height:150px;background:var(--cream,#efe9df);}
+.taw-eat-card-photo img{width:100%;height:100%;object-fit:cover;display:block;}
+.taw-eat-card-badge{position:absolute;left:10px;bottom:10px;padding:3px 9px;border-radius:999px;background:rgba(23,19,16,.72);color:#fff;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;}
+.taw-eat-card-add{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0;background:#fff;color:var(--ink,#171310);font-size:22px;line-height:1;cursor:pointer;box-shadow:0 2px 8px rgba(23,19,16,.3);display:flex;align-items:center;justify-content:center;}
+.taw-eat-card-add:hover:not(:disabled){background:var(--gold,#c0982a);color:#fff;}
+.taw-eat-card-add.is-added{background:var(--success,#5b7a5b);color:#fff;font-size:16px;cursor:default;}
+.taw-eat-card-body{padding:11px 13px 13px;display:flex;flex-direction:column;gap:5px;}
+.taw-eat-card-name{font-size:15px;}
+.taw-eat-card-tag{align-self:flex-start;font-size:11.5px;padding:2px 8px;border:1px solid var(--line,#e5e0d8);border-radius:999px;color:var(--gold-ink,#8a6d1f);}
+.taw-eat-card-desc{font-size:12.5px;line-height:1.5;color:var(--taupe,#5c544b);}
+.taw-eat-card-area{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:var(--taupe,#5c544b);text-decoration:none;}
+.taw-eat-card-area:hover{text-decoration:underline;}
+.taw-eat-card-dist{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--ink,#171310);}
+.taw-itin-dining{margin:8px 0 2px;padding:10px 12px;border:1px solid var(--line,#e5e0d8);border-radius:10px;display:flex;flex-direction:column;gap:8px;}
+.taw-itin-dining-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+
+/* Offline prices: held for 12 hours. */
+.taw-itin-offline{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:10px 0;padding:10px 14px;border:1px solid rgba(176,132,40,.35);background:var(--warn-bg,#fbf3e2);border-radius:10px;font-size:13px;color:var(--warn-ink,#6b4e12);}
+.taw-itin-offline.is-expired{border-color:rgba(176,52,52,.4);background:#fbecec;color:#8a2323;}
+.taw-itin-manual-hold{display:block;font-size:12px;margin-top:4px;color:var(--warn-ink,#6b4e12);}
+.taw-itin-manual-hold.is-expired{color:#a02a2a;font-weight:600;}
+.taw-itin-manual-live{font-size:12px;line-height:1.5;color:var(--warn-ink,#6b4e12);background:var(--warn-bg,#fbf3e2);border-radius:8px;padding:8px 10px;}
+.taw-itin-alt-off{margin-left:6px;font-size:10.5px;color:var(--warn-ink,#6b4e12);background:var(--warn-bg,#fbf3e2);border-radius:999px;padding:1px 7px;}
+.taw-itin-alt-edit{margin-left:6px;border:1px solid var(--line,#e5e0d8);background:#fff;border-radius:50%;width:20px;height:20px;line-height:1;font-size:11px;cursor:pointer;color:inherit;}
+.taw-itin-alt-edit:hover{background:var(--gold-bg,#f6eed6);}
+
+/* Customer's budget (Itinerary Builder header, the start screen, and the fit chips in Search). */
+.taw-budget{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--ivory,#fff);text-align:left;}
+.taw-budget--empty{padding:6px 0;border:0;background:none;margin-top:6px;}
+.taw-budget--start{width:100%;margin:12px 0 4px;}
+.taw-budget-title{font-size:12.5px;color:var(--taupe);margin-bottom:6px;}
+.taw-budget-title b{color:var(--ink);font-weight:600;}
+.taw-budget-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
+.taw-budget-top .taw-budget-title{margin:0;flex:1 1 auto;}
+.taw-budget-state{font-size:12.5px;color:var(--ink);}
+.taw-budget-bar{position:relative;height:8px;border-radius:999px;background:var(--line);margin-top:8px;overflow:visible;}
+.taw-budget-fill{height:100%;border-radius:999px;background:var(--success);transition:width .2s;}
+.taw-budget.is-near .taw-budget-fill{background:var(--warn);}
+.taw-budget.is-over .taw-budget-fill{background:var(--danger);}
+.taw-budget.is-over .taw-budget-state b{color:var(--danger-ink);}
+.taw-budget.is-near .taw-budget-state b{color:var(--warn-ink);}
+.taw-budget-min{position:absolute;top:-3px;width:2px;height:14px;background:var(--ink);opacity:.45;}
+.taw-budget-more{margin-top:6px;font-size:12px;}
+.taw-budget-split{display:grid;gap:6px;margin-top:8px;font-size:12.5px;}
+.taw-budget-split>div{display:grid;grid-template-columns:104px auto 1fr;gap:8px;align-items:baseline;}
+.taw-budget-split span{color:var(--taupe);}
+.taw-budget-split small{color:var(--taupe);}
+.taw-budget-fields{display:grid;gap:10px;width:100%;}
+.taw-budget-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.taw-budget-field{display:grid;gap:4px;min-width:0;font-size:11.5px;color:var(--taupe);text-align:left;align-content:start;}
+.taw-budget-field>span{font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
+.taw-budget-field input{width:100%;min-width:0;box-sizing:border-box;height:36px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:0 10px;font:inherit;font-size:13.5px;color:var(--ink);background:#fff;}
+.taw-budget-field small{min-height:14px;color:var(--gold-ink);}
+.taw-budget-field .taw-dropdown{width:100%;}
+.taw-budget-dd{width:100%;height:36px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;padding:0 10px;font:inherit;font-size:13.5px;color:var(--ink);cursor:pointer;text-align:left;}
+.taw-budget-dd .taw-dropdown-chevron{margin-left:auto;flex:none;}
+.taw-budget-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+.taw-chip--fit{background:var(--success-bg);color:var(--success-ink);}
+.taw-chip--over{background:var(--warn-bg);color:var(--warn-ink);}
+.taw-fit-toggle{margin-left:10px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;color:var(--taupe);cursor:pointer;}
+.taw-fit-toggle.is-on{background:var(--success-bg);color:var(--success-ink);border-color:var(--success);}

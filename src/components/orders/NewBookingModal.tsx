@@ -4,8 +4,8 @@ import { Empty, Field, Icon, Spinner } from "../ui";
 import { AutosuggestInput } from "../AutosuggestInput";
 import {
   bookingConfirmFlightItinerary, bookingCreateFlightItinerary, bookingCustomerSearch, bookingDiscardFlightItinerary,
-  fastapiFlightSearch, flightShop, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
-  bookingGetOrder,
+  clearFlightOfferCache, fastapiFlightSearch, fastapiMultiCitySearch, flightShop, flightSsr, getTripsureFlightOffer, inr, newFlightJourney,
+  bookingGetOrder, bookingMemberTravellers, bookingSaveTravellers,
 } from "../../services/api";
 import { airportDistance, groupedAirportSuggest, nearbyAirports } from "../../lib/airportSuggest";
 import { errText } from "../../lib/errText";
@@ -14,12 +14,19 @@ import { partyText, priceCovers, type Party } from "../../lib/flightParty";
 import { detailToOrder, durationLabel } from "../../lib/realOrders";
 import type { Order } from "../../lib/orderTypes";
 import { OrderFulfilment } from "./OrderFulfilment";
-import { NATIONALITIES } from "./TravellersForm";
+import { NATIONALITIES, TYPE_LABEL, TravellerCard, rowsForParty, travellerPayload, travellerProblems, type TravellerRow } from "./TravellersForm";
+import { tripIsInternational } from "../../lib/airports";
+import { fillFromSaved, type SavedTraveller } from "../../lib/travellerRules";
+import { connectionWarnings } from "../../lib/connectionWarnings";
 import { NewBookingHotel } from "./NewBookingHotel";
 import { FareOptionsList, type FareChoice } from "./FareOptionsPanel";
+import { FareBreakup } from "./FareBreakup";
 import { FlightTimeline, ItineraryDrawer } from "./FlightItinerary";
 import { EXTRAS_TABS, FlightExtrasPicker, emptySel, extrasCounts, extrasDrawerTabs, extrasSum, firstExtrasTab, paxSlots, selSegments, withPick, type ExtrasSel, type ExtrasTab } from "./FlightExtras";
 import { RangeCalendar, SingleCalendar } from "./RangeCalendar";
+import { MultiCityLegs } from "./MultiCityLegs";
+import { legKey, multiCityProblem, multiCityTitle, multiIsInternational, seedLegs, type McLeg } from "../../lib/multiCity";
+import { searchTrip } from "../../lib/multiCitySearch";
 import { requestChips, type FlightRequests } from "../../lib/flightRequests";
 
 type Customer = { member_id: string | null; name: string; email: string; phone?: string; enquiry_id?: string | null };
@@ -33,7 +40,7 @@ export type BookingPreset = {
   /** What the customer asked for in the Console (extra bag / seat / meal); shown while choosing extras. */
   requests?: FlightRequests;
 };
-type Step = "customer" | "search" | "results" | "seats" | "flightDone" | "hotel";
+type Step = "customer" | "search" | "travellers" | "results" | "seats" | "flightDone" | "hotel";
 
 const CABINS = [
   { key: "economy", label: "Economy" },
@@ -112,6 +119,31 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     cabin: "economy",
   });
   const paxTotal = form.adults + form.children + form.infants;
+  // ── Travellers (asked right after Search, while the fares load) ───────────
+  // One card per passenger in the searched party. Kept here until the fare is locked and the order exists, then
+  // saved to it in one go (see confirmItinerary), so the Book step opens with the travellers already done.
+  const [tRows, setTRows] = useState<TravellerRow[]>([]);
+  const [tSkipped, setTSkipped] = useState(false);
+  // The trip the travellers are for: its dates (ages and passport validity are checked against them) and whether
+  // it is international (null: an airport isn't in the built-in list, so the server decides).
+  const [tTrip, setTTrip] = useState<{ start: string; end: string; intl: boolean | null }>({ start: "", end: "", intl: null });
+  const [travErr, setTravErr] = useState<string | null>(null);
+  // Why the fare search on the Travellers step failed (TripSure didn't answer, ...). The advisor stays on the step:
+  // the details can still be filled in, and "Try again" searches the same trip once more.
+  const [searchErr, setSearchErr] = useState<string | null>(null);
+  // The customer's saved travellers (db/158), to fill a card from, and whether to keep these on their profile afterwards.
+  const [savedTrav, setSavedTrav] = useState<SavedTraveller[]>([]);
+  const [remember, setRemember] = useState(true);
+  const memberId = customer?.member_id || null;
+  useEffect(() => {
+    if (step !== "travellers" || !memberId) return;
+    let live = true;
+    bookingMemberTravellers(memberId)
+      .then((r: any) => { if (live && r && r.available) setSavedTrav(r.travellers || []); })
+      .catch(() => { /* saved travellers are a convenience: the form works without them */ });
+    return () => { live = false; };
+  }, [step, memberId]);
+  const [travSaved, setTravSaved] = useState(0);
   // What the results on screen were priced for. TripSure's fare is for exactly this party, so every price,
   // note and the fare lock use THIS — never the form, which the advisor can edit after searching.
   const [searched, setSearched] = useState<{ party: Party; date: string } | null>(null);
@@ -133,21 +165,41 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // One way vs round trip. A round trip is ONE search whose offers come back tagged
   // ONWARD / RETURN: the advisor picks a fare on each side and both are locked
   // together as a single itinerary (see goToSeats).
-  const [tripType, setTripType] = useState<"oneway" | "round">(preset?.returnDate ? "round" : "oneway");
+  const [tripType, setTripType] = useState<"oneway" | "round" | "multi">(preset?.returnDate ? "round" : "oneway");
+  // Multi-city: the flights being entered (2 to 5), and the ones the results on screen were searched for.
+  const [mcLegs, setMcLegs] = useState<McLeg[]>([]);
+  const [resultsMulti, setResultsMulti] = useState(false);
+  const [resultsLegs, setResultsLegs] = useState<McLeg[]>([]);
   const [searching, setSearching] = useState(false);
   const [allOffers, setAllOffers] = useState<any[] | null>(null);
   // Whether the results on screen came from a round-trip search (the form can't change
   // while results show, but this keeps the results self-describing).
   const [resultsRound, setResultsRound] = useState(false);
-  const [activeLeg, setActiveLeg] = useState<"ONWARD" | "RETURN">("ONWARD");
-  const [picked, setPicked] = useState<{ ONWARD: any | null; RETURN: any | null }>({ ONWARD: null, RETURN: null });
+  // The side of a round trip ("ONWARD" / "RETURN") or the flight of a multi-city trip ("LEG_1" ..) being chosen, and the fare chosen on each.
+  const [activeLeg, setActiveLeg] = useState<string>("ONWARD");
+  const [picked, setPicked] = useState<Record<string, any | null>>({ ONWARD: null, RETURN: null });
+  // Round trip and multi-city both choose one fare per leg, then lock them together.
+  const legsMode = resultsRound || resultsMulti;
+  // The tabs of the results: the two sides of a round trip, or one per flight of a multi-city trip.
+  const legTabs: { key: string; label: string; from: string; to: string; date: string }[] = resultsMulti
+    ? resultsLegs.map((l, i) => ({ key: legKey(i), label: `Flight ${i + 1}`, from: l.from, to: l.to, date: l.date }))
+    : resultsRound
+      ? [
+        { key: "ONWARD", label: "Onward", from: form.from, to: form.to, date: form.date },
+        { key: "RETURN", label: "Return", from: form.to, to: form.from, date: form.returnDate },
+      ]
+      : [];
+  const legRoute = (key: string) => legTabs.find((t) => t.key === key) || { from: form.from, to: form.to };
+  const legLabel = (key: string) => (legTabs.find((t) => t.key === key)?.label || "").toLowerCase();
   // The list the filters / sorts / cards work on: the whole result for a one-way search,
   // only the active side for a round trip.
   const offers = useMemo(
-    () => (allOffers && resultsRound ? allOffers.filter((o) => (o.leg || "ONWARD") === activeLeg) : allOffers),
-    [allOffers, resultsRound, activeLeg],
+    () => (allOffers && (resultsRound || resultsMulti) ? allOffers.filter((o) => (o.leg || "ONWARD") === activeLeg) : allOffers),
+    [allOffers, resultsRound, resultsMulti, activeLeg],
   );
   const [partialErrors, setPartialErrors] = useState<any[]>([]);
+  // The last search was empty because no airline supplier answered at all (Tripsure outage): its own message and a Retry.
+  const [outage, setOutage] = useState<{ searchKey: string | null; at: string } | null>(null);
   // The cheapest fare on each day around the searched one, for the same party and cabin (one-way only).
   const [fareDays, setFareDays] = useState<{ key: string; cells: any[] } | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -189,6 +241,13 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     setErr(null);
     setPanel("date");
   }
+  function goMulti() {
+    setTripType("multi");
+    setErr(null);
+    setPanel(null);
+    // Flight 1 is what the form already holds; flight 2 starts where it ends.
+    setMcLegs((legs) => (legs.length ? legs : seedLegs(form)));
+  }
   function goOneWay() {
     setTripType("oneway");
     setForm((f) => ({ ...f, returnDate: "" }));
@@ -198,11 +257,61 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
   // `over` re-runs the same search with another cabin (the class chips on the results screen)
   // or another airport (the nearby-airport chips when a search finds nothing).
+  // Multi-city: one MULTI_CITY search over all the flights (or one search per flight when TripSure's answer can't be split
+  // into legs, lib/multiCitySearch.ts). Same screens after it as a round trip, with one fare to choose per flight.
+  function runMultiSearch(cabinOver?: string) {
+    const cabinNow = cabinOver || form.cabin;
+    if (cabinOver) setForm((f) => ({ ...f, cabin: cabinOver }));
+    setErr(null);
+    const problem = multiCityProblem(mcLegs, todayISO());
+    if (problem) { setErr(problem); return; }
+    const toTravellers = step === "search" && !addToOrder;
+    const inTravellers = toTravellers || step === "travellers";
+    if (inTravellers) setSearchErr(null);
+    if (toTravellers) {
+      setTRows((prev) => rowsForParty(prev, { adult: form.adults, child: form.children, infant: form.infants },
+        { name: customer?.name, email: customer?.email, phone: customer?.phone }));
+      setTSkipped(false);
+      setTTrip({ start: mcLegs[0].date, end: mcLegs[mcLegs.length - 1].date, intl: multiIsInternational(mcLegs) });
+      setStep("travellers");
+    }
+    setSearching(true);
+    const seq = ++searchSeq.current;
+    const legsNow = mcLegs.map((l) => ({ ...l }));
+    searchTrip(legsNow, {
+      pax: form.adults, children: form.children, infants: form.infants, cabin: cabinNow,
+      nationality: opts.nationality, maxStops: opts.maxStops, refundable: opts.refundable,
+      preferredAirlines: iataList(opts.prefer), excludedAirlines: iataList(opts.exclude),
+    }, { multi: fastapiMultiCitySearch, single: fastapiFlightSearch, clearCache: clearFlightOfferCache })
+      .then((r) => {
+        if (seq !== searchSeq.current) return;
+        setErr(null);
+        setAllOffers(r.offers.slice().sort((a: any, b: any) => a.base_net - b.base_net));
+        setResultsRound(false);
+        setResultsMulti(true);
+        setResultsLegs(legsNow);
+        setActiveLeg(legKey(0));
+        setPicked({});
+        setPartialErrors(r.errors || []);
+        setOutage(r.noSuppliers ? { searchKey: r.searchKey || null, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } : null);
+        setSearched({ party: { adults: form.adults, children: form.children, infants: form.infants }, date: legsNow[0].date });
+        setSearchErr(null);
+        setStep((s) => (s === "travellers" ? s : "results"));
+      })
+      .catch((e: any) => {
+        if (seq !== searchSeq.current) return;
+        if (inTravellers) setSearchErr(errText(e)); else setErr(errText(e));
+      })
+      .finally(() => { if (seq === searchSeq.current) setSearching(false); });
+  }
+
   function runSearch(over?: { cabin?: string; date?: string; from?: string; fromCity?: string; to?: string; toCity?: string }) {
+    if (tripType === "multi") { runMultiSearch(over?.cabin); return; }
     if (over) setForm((f) => ({ ...f, ...over }));
     const form2 = { ...form, ...(over || {}) };
     const cabinNow = form2.cabin;
     setErr(null);
+    setGoneFares([]);
     if (form2.from.length !== 3 || form2.to.length !== 3) {
       setErr("Pick a From and To airport from the suggestions."); return;
     }
@@ -212,6 +321,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     const round = tripType === "round";
     if (round && !form2.returnDate) { setErr("Pick a return date."); setPanel("date"); return; }
     if (round && form2.returnDate < form2.date) { setErr("The return can't be before the departure."); return; }
+    // The first search from the Search screen goes straight to the Travellers step: the advisor fills in who is
+    // travelling while the fares load, instead of after the fare is locked and TripSure's hold is running down.
+    const toTravellers = step === "search" && !addToOrder;
+    const inTravellers = toTravellers || step === "travellers"; // a (re)try from the Travellers step keeps its errors on that step
+    if (inTravellers) setSearchErr(null);
+    if (toTravellers) {
+      setTRows((prev) => rowsForParty(prev, { adult: form2.adults, child: form2.children, infant: form2.infants },
+        { name: customer?.name, email: customer?.email, phone: customer?.phone }));
+      setTSkipped(false);
+      setTTrip({ start: form2.date, end: round ? form2.returnDate : form2.date, intl: tripIsInternational(form2.from, form2.to) });
+      setStep("travellers");
+    }
     setSearching(true);
     const seq = ++searchSeq.current;
     fastapiFlightSearch({
@@ -226,18 +347,26 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setErr(null);
         setAllOffers((r.offers || []).slice().sort((a: any, b: any) => a.base_net - b.base_net));
         setResultsRound(round);
+        setResultsMulti(false);
         setActiveLeg("ONWARD");
         setPicked({ ONWARD: null, RETURN: null });
         setPartialErrors(r.errors || []);
+        setOutage(r.noSuppliers ? { searchKey: r.searchKey || null, at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) } : null);
         setSearched({ party: { adults: form2.adults, children: form2.children, infants: form2.infants }, date: form2.date });
-        setStep("results");
+        setSearchErr(null);
+        setStep((s) => (s === "travellers" ? s : "results")); // on the Travellers step the advisor moves on themselves
       })
-      .catch((e: any) => { if (seq === searchSeq.current) setErr(errText(e)); })
+      .catch((e: any) => {
+        if (seq !== searchSeq.current) return;
+        // From the Travellers step the error is shown there and the advisor stays put: the travellers can still
+        // be filled in, and "Try again" repeats the search. Anywhere else it is the modal's banner, as before.
+        if (inTravellers) setSearchErr(errText(e)); else setErr(errText(e));
+      })
       .finally(() => { if (seq === searchSeq.current) setSearching(false); });
   }
 
   useEffect(() => {
-    if (step !== "results" || !searched || resultsRound) return;
+    if (step !== "results" || !searched || resultsRound || resultsMulti) return;
     const key = [form.from, form.to, searched.date, partyText(searched.party), form.cabin].join("|");
     if (fareDays && fareDays.key === key) return;
     let live = true;
@@ -249,12 +378,14 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       .catch(() => { if (live) setFareDays({ key, cells: [] }); }); // a missing strip never blocks the results
     return () => { live = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, searched, resultsRound]);
+  }, [step, searched, resultsRound, resultsMulti]);
 
   // ── Step 3: select fare ───────────────────────────────────────────────────
   const [selectedOffer, setSelectedOffer] = useState<any | null>(null);
   // Round trip: the RETURN fare locked together with selectedOffer (the ONWARD one).
   const [selectedReturn, setSelectedReturn] = useState<any | null>(null);
+  // Multi-city: the fares of flights 2.. locked together with selectedOffer (flight 1).
+  const [selectedMore, setSelectedMore] = useState<any[]>([]);
 
   // ── Step 3 filters / sort (client-side over the fetched offers) ───────────
   const [sortKey, setSortKey] = useState<(typeof SORTS)[number]["key"]>("cheapest");
@@ -371,6 +502,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // option's fare id is what gets locked, priced as search price + its difference.
   const [fareFor, setFareFor] = useState<any | null>(null);
   const [fareSel, setFareSel] = useState<FareChoice | null>(null);
+  // Fares Tripsure refused to lock as "no longer available" ("<offer id>|<fare id>"): not tried again until a new search.
+  const [goneFares, setGoneFares] = useState<string[]>([]);
   const [lockInfo, setLockInfo] = useState<{ locked: number | null; shown: number; flagged: boolean } | null>(null);
   // When TripSure drops the locked fare (Create Itinerary's expiresAt, ~15 minutes).
   const [fareExpiry, setFareExpiry] = useState<string | null>(null);
@@ -381,8 +514,8 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
     return () => clearInterval(t);
   }, [fareExpiry]);
   function selectOffer(o: any) {
-    const leg: "ONWARD" | "RETURN" = (o.leg || "ONWARD") === "RETURN" ? "RETURN" : "ONWARD";
-    if (resultsRound && picked[leg]?.id === o.id) { pickLeg(o); return; }
+    const leg: string = o.leg || "ONWARD";
+    if (legsMode && picked[leg]?.id === o.id) { pickLeg(o); return; }
     setErr(null);
     setFareSel(null);
     setDrawerTab("fares");
@@ -392,19 +525,20 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   // then shows the extras). Round trip: this side is chosen; the pair is locked together.
   function chooseFare(o: any, c: FareChoice) {
     const chosen = { ...o, base_net: o.base_net + (c.delta || 0), fareChoice: c };
-    if (resultsRound) { setFareFor(null); pickLeg(chosen); } else goToSeats(chosen);
+    if (legsMode) { setFareFor(null); pickLeg(chosen); } else goToSeats(chosen);
   }
 
   // Locks the fare as a hidden draft. A round trip passes the picked RETURN fare as
   // well: both go to Tripsure in ONE Create Itinerary call (same search), so there is
   // one draft, one combined fare and one SSR catalog covering both sectors.
-  async function goToSeats(offer: any, returnOffer?: any) {
+  async function goToSeats(offer: any, returnOffer?: any, moreOffers: any[] = []) {
     const onward = fareRef(offer);
     const back = returnOffer ? fareRef(returnOffer) : null;
-    if (!onward || !customer || (returnOffer && !back)) { setErr("This search has expired — search again."); return; }
-    // Onward segments first, then the return's: this is the segment_order the server
+    const more = moreOffers.map((m) => fareRef(m));
+    if (!onward || !customer || (returnOffer && !back) || more.some((m) => !m)) { setErr("This search has expired — search again."); return; }
+    // Onward segments first, then the return's (or flights 2.. of a multi-city trip): this is the segment_order the server
     // records, and the order seat/baggage picks are sent back in.
-    const segments = [...onward.segments, ...(back ? back.segments : [])];
+    const segments = [...onward.segments, ...(back ? back.segments : []), ...more.flatMap((m: any) => m.segments)];
     setErr(null);
     setLockingId(offer.id);
     let created: { itineraryId: string; tripsureId: string } | null = null;
@@ -418,10 +552,17 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         offer: onward.offer,
         snapshot: onward.snapshot,
         ...(back ? { return_offer: back.offer, return_snapshot: back.snapshot } : {}),
+        ...(more.length ? {
+          // Each later flight of a multi-city trip, with its own cities (it doesn't run back along the one before).
+          more_legs: more.map((m: any, i: number) => ({
+            offer: m.offer, snapshot: m.snapshot,
+            origin_city: resultsLegs[i + 1]?.fromCity || null, destination_city: resultsLegs[i + 1]?.toCity || null,
+          })),
+        } : {}),
         adults: party.adults, children: party.children, infants: party.infants,
         cabin_class: form.cabin.toUpperCase(),
-        origin_city: form.fromCity || null,
-        destination_city: form.toCity || null,
+        origin_city: (more.length ? resultsLegs[0]?.fromCity : form.fromCity) || null,
+        destination_city: (more.length ? resultsLegs[0]?.toCity : form.toCity) || null,
         draft: true,
       });
       if (!r.is_draft) { throw new Error("This fare is already recorded on an order."); }
@@ -432,13 +573,14 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setFareExpiry(r.expires_at || null);
       setLockInfo({
         locked: Number.isFinite(lockedTotal) && lockedTotal > 0 ? lockedTotal : null,
-        shown: offer.base_net + (returnOffer ? returnOffer.base_net : 0),
+        shown: offer.base_net + (returnOffer ? returnOffer.base_net : 0) + moreOffers.reduce((n, m) => n + m.base_net, 0),
         flagged: !!r.validation?.isPriceChanged,
       });
       const catalog = await flightSsr(r.tripsure_itinerary_id);
       setSsr(catalog);
       setSelectedOffer(offer);
       setSelectedReturn(returnOffer || null);
+      setSelectedMore(moreOffers);
       setSel(emptySel(segments.length, paxSlots(form.adults, form.children).length));
       setSeatSeg(0);
       // Open on the first tab the airline actually offers something for (Air India often has meals only).
@@ -447,7 +589,18 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
       setFareFor(null);
     } catch (e: any) {
       if (created) await discardDraft();
-      setErr(errText(e));
+      // One flight that Tripsure won't lock any more: say which, why it happens, and stop offering the same fare.
+      const sold = e?.status === 410 || /no longer available|sold out/i.test(String(e?.message || ""));
+      if (sold && !returnOffer && !moreOffers.length) {
+        const d = offer.detail || {};
+        const fareId = offer.fareChoice?.fare_id || "";
+        setGoneFares((g) => [...g, `${offer.id}|${fareId}`]);
+        setErr(`${d.airlineName || d.airline || "This flight"} ${d.flightNo || ""}${offer.fareChoice?.name ? ` at the ${offer.fareChoice.name} fare` : ""} is no longer available. `
+          + "Tripsure refused to lock it: the seats at this price have sold out, the flight is too close to departure, or these search results are out of date. "
+          + "Search again for fresh fares, or choose another fare or flight.");
+      } else {
+        setErr(errText(e));
+      }
     } finally {
       setLockingId(null);
     }
@@ -455,10 +608,22 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
 
   // Round trip: choose a fare on one side; once the first is chosen, jump to the other.
   function pickLeg(o: any) {
-    const leg: "ONWARD" | "RETURN" = (o.leg || "ONWARD") === "RETURN" ? "RETURN" : "ONWARD";
+    const leg: string = o.leg || "ONWARD";
     const already = picked[leg]?.id === o.id;
     setPicked((p) => ({ ...p, [leg]: already ? null : o }));
-    if (!already && !picked[leg === "ONWARD" ? "RETURN" : "ONWARD"]) setActiveLeg(leg === "ONWARD" ? "RETURN" : "ONWARD");
+    // Once a flight is chosen, move on to the next one that has none yet.
+    if (!already) {
+      const keys = legTabs.map((t) => t.key);
+      const next = [...keys.slice(keys.indexOf(leg) + 1), ...keys.slice(0, keys.indexOf(leg))].find((k) => !picked[k]);
+      if (next) setActiveLeg(next);
+    }
+  }
+
+  // Multi-city: every flight has a fare; lock them all together (flight 1 first, then the others in order).
+  function continueMulti() {
+    const chosen = legTabs.map((t) => picked[t.key]);
+    if (chosen.some((o) => !o)) return;
+    void goToSeats(chosen[0], undefined, chosen.slice(1));
   }
 
   async function backToResults() {
@@ -521,10 +686,25 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         setDraftBoth(null); // confirmed: no longer discardable
         setLock({ orderId: r.order_id, itineraryId: d.itineraryId });
         setStep("flightDone");
-        // Straight on to travellers, payment and the ticket in the same panel, while TripSure
-        // still holds the fare.
+        // Straight on to payment and the ticket in the same panel, while TripSure still holds the fare.
         setDrawerTab("book");
-        loadBookOrder(r.order_id);
+        // The travellers typed in after the search go onto the new order first, so the Book step opens with them done.
+        // If the server refuses them (the full rules run there) the order is still made: the reason is shown and
+        // they can be corrected in the Book step.
+        setTravErr(null);
+        setTravSaved(0);
+        if (tRows.length && !tSkipped) {
+          bookingSaveTravellers(r.order_id, {
+            travellers: tRows.map(travellerPayload),
+            customer_phone: tRows.find((x) => x.is_lead)?.phone.replace(/\D/g, "") || null,
+            remember: remember && !!memberId,
+          })
+            .then(() => setTravSaved(tRows.length))
+            .catch((e: any) => setTravErr(errText(e)))
+            .finally(() => loadBookOrder(r.order_id));
+        } else {
+          loadBookOrder(r.order_id);
+        }
       })
       .catch((e: any) => setErr(errText(e)))
       .finally(() => setCreating(false));
@@ -543,12 +723,25 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
-  const STEPS = ["Customer", "Search", "Choose fare", "Extras", "Book"];
-  const stepIdx =
-    step === "customer" ? 0 :
-    step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
-    step === "results" ? 2 :
-    step === "seats" ? 3 : 4;
+  // Adding a flight to an existing order has its travellers already: no Travellers step there.
+  const withTravellers = !addToOrder;
+  const STEPS = withTravellers ? ["Customer", "Search", "Travellers", "Choose fare", "Extras", "Book"] : ["Customer", "Search", "Choose fare", "Extras", "Book"];
+  const stepIdx = withTravellers
+    ? (step === "customer" ? 0 :
+       step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
+       step === "travellers" ? 2 :
+       step === "results" ? 3 :
+       step === "seats" ? 4 : 5)
+    : (step === "customer" ? 0 :
+       step === "search" || (step === "hotel" && hotelBack === "search") ? 1 :
+       step === "results" ? 2 :
+       step === "seats" ? 3 : 4);
+  // Extras are per passenger: with the travellers known, name them ("Priya Shah (lead)") instead of "Adult 1".
+  const extraSlots = paxSlots(form.adults, form.children).map((slot, i) => {
+    const r = tSkipped ? null : tRows.filter((x) => x.pax_type !== "infant")[i];
+    const nm = r ? `${r.first_name} ${r.last_name}`.trim() : "";
+    return nm ? { ...slot, label: r!.is_lead && tRows.length > 1 ? `${nm} (lead)` : nm } : slot;
+  });
   const title = step === "hotel" && hotelBack !== "search" ? "Add hotel" : addToOrder ? "Add to order" : "New booking";
   const blocked = creating || leaving || !!lockingId;
   // Once a fare is locked, closing should refresh the orders list (same as Escape).
@@ -673,8 +866,14 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
             <div className="ow-triptype" role="tablist" aria-label="Trip type">
               <button type="button" role="tab" aria-selected={tripType === "oneway"} className={`ow-trip-pill${tripType === "oneway" ? " on" : ""}`} onClick={goOneWay}>One way</button>
               <button type="button" role="tab" aria-selected={tripType === "round"} className={`ow-trip-pill${tripType === "round" ? " on" : ""}`} onClick={goRound}>Round trip</button>
+              <button type="button" role="tab" aria-selected={tripType === "multi"} className={`ow-trip-pill${tripType === "multi" ? " on" : ""}`} onClick={goMulti}>Multi-city</button>
             </div>
+            {tripType === "multi" ? (
+              <MultiCityLegs legs={mcLegs} onChange={setMcLegs} min={todayISO()} disabled={searching}
+                fetchSuggestions={airportSuggestions} renderSuggestion={renderAirport} getKey={airportKey} />
+            ) : null}
             <div className="ow-sbar ow-sbar--flight">
+              {tripType !== "multi" ? <>
               <div className="ow-sbar-route">
                 <label className={`ow-pill ow-pill--field nb-from${form.from.length === 3 && form.fromCity ? " set" : ""}`}>
                   <span className="ow-pill-l"><i className="nb-dot" /> From</span>
@@ -738,6 +937,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   <span>{tripType === "round" ? (fmtDay(form.returnDate) || "Select date") : "Add return"}</span>
                 </button>
               </div>
+              </> : null}
               <div className={`ow-pill ow-pill--btn ow-pill--trav${panel === "trav" ? " open" : ""}`}>
                 <span className="ow-pill-l">Travellers &amp; Cabin</span>
                 <button type="button" className="ow-pillbtn" aria-expanded={panel === "trav"} onClick={() => setPanel(panel === "trav" ? null : "trav")}>
@@ -842,14 +1042,91 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
           </>
         ) : null}
 
-        {/* ── Step 3: Results ── */}
+        {/* ── Step 3: Travellers (filled in while the fares load) ── */}
+        {step === "travellers" ? (() => {
+          const needIntl = tTrip.intl === true;
+          const problems = travellerProblems(tRows, { intl: needIntl, start: tTrip.start, end: tTrip.end });
+          const mix = { adults: tRows.filter((r) => r.pax_type === "adult").length, children: tRows.filter((r) => r.pax_type === "child").length, infants: tRows.filter((r) => r.pax_type === "infant").length };
+          const found = allOffers ? allOffers.length : 0;
+          const fareReady = !searching && !searchErr && !!searched;
+          return (
+            <>
+              <div className="nb-trav">
+                <div className="nb-trav-head">
+                  <div>
+                    <h3>Who is travelling?</h3>
+                    <p>{partyText(mix)} · names exactly as on the {needIntl ? "passport" : "government ID"}. Add them now: the fare is only held for a short while once you choose it.</p>
+                  </div>
+                  <span className={`nb-trav-search${searching ? " busy" : ""}`} role="status">
+                    {searching ? <><Spinner /> Finding fares…</> : searchErr ? "Fares not loaded" : found ? <><Icon name="check" size={13} /> {found} flight{found === 1 ? "" : "s"} found</> : "No flights found"}
+                  </span>
+                </div>
+                {searchErr ? (
+                  <div className="taw-banner taw-banner--danger" role="alert" style={{ whiteSpace: "normal", display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between" }}>
+                    <span>The fares could not be loaded: {searchErr} Your travellers are kept: fill them in, then try again.</span>
+                    <button type="button" className="taw-btn taw-btn--sm" disabled={searching} onClick={() => runSearch()}>Try again</button>
+                  </div>
+                ) : null}
+                {needIntl ? (
+                  <div className="taw-banner" style={{ whiteSpace: "normal" }}>
+                    International trip: date of birth, passport number and passport expiry are needed for everyone.
+                  </div>
+                ) : tTrip.intl === null ? (
+                  <div className="ow-sub" style={{ whiteSpace: "normal" }}>
+                    If this route turns out to be international, the passport details will be asked for when the booking is saved.
+                  </div>
+                ) : null}
+                <div className="ow-tf">
+                  {tRows.map((r, i) => (
+                    <TravellerCard key={i} row={r} index={i} intl={needIntl} typeLabel={TYPE_LABEL} travelEnd={tTrip.end} idPrefix="nbt"
+                      saved={savedTrav.filter((sv) => !tRows.some((x, j) => j !== i && x.profile_id === sv.id)).map((sv) => ({
+                        id: sv.id, label: `${sv.first_name} ${sv.last_name}${sv.relation ? ` (${sv.relation})` : ""}${sv.passport_last4 ? ` · passport ••${sv.passport_last4}` : ""}` }))}
+                      onPickSaved={(pid) => { const sv = savedTrav.find((x) => x.id === pid); if (sv) setTRows((rs) => rs.map((x, j) => (j === i ? { ...x, ...fillFromSaved(x, sv) } : x))); }}
+                      onChange={(patch) => setTRows((rs) => rs.map((x, j) => (j === i ? { ...x, ...patch } : x)))}
+                      onMakeLead={() => setTRows((rs) => rs.map((x, j) => ({ ...x, is_lead: j === i })))} />
+                  ))}
+                </div>
+                {memberId ? (
+                  <label className="nb-trav-remember">
+                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                    Remember these travellers on {customer?.name || "the customer"}&apos;s profile for next time
+                  </label>
+                ) : null}
+              </div>
+              <div className="ow-modal-foot">
+                <button type="button" className="taw-btn"
+                  onClick={() => { searchSeq.current += 1; setSearching(false); setSearchErr(null); setErr(null); setStep("search"); }}>Back</button>
+                <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <span className="ow-sub" style={{ whiteSpace: "normal", textAlign: "right" }}>
+                    {problems.length ? `Still needed: ${problems[0]}${problems.length > 1 ? ` (+${problems.length - 1} more)` : ""}` : "Everyone is filled in."}
+                  </span>
+                  <button type="button" className="taw-btn" disabled={!fareReady} title="Add the travellers after the fare is chosen instead"
+                    onClick={() => { setTSkipped(true); setErr(null); setStep("results"); }}>Skip for now</button>
+                  <button type="button" className="taw-btn taw-btn--primary" disabled={!fareReady || problems.length > 0}
+                    onClick={() => { setErr(null); setStep("results"); }}>{searching ? "Finding fares…" : searchErr ? "Fares not loaded" : "Continue to fares"}</button>
+                </span>
+              </div>
+            </>
+          );
+        })() : null}
+
+        {/* ── Step 4: Results ── */}
         {step === "results" || step === "seats" || step === "flightDone" ? (
           <>
             <div className="ow-modal-foot" style={{ marginTop: 0 }}>
               <span className="ow-sub">
-                {form.fromCity || form.from} {resultsRound ? "⇄" : "→"} {form.toCity || form.to} · {fmtDay(searched?.date || form.date)}{resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""} · {partyText(party)} · {visible.length} of {offers ? offers.length : 0} flights
+                {resultsMulti
+                  ? `${multiCityTitle(resultsLegs)} · ${fmtDay(resultsLegs[0]?.date)} – ${fmtDay(resultsLegs[resultsLegs.length - 1]?.date)}`
+                  : `${form.fromCity || form.from} ${resultsRound ? "⇄" : "→"} ${form.toCity || form.to} · ${fmtDay(searched?.date || form.date)}${resultsRound ? ` – ${fmtDay(form.returnDate)}` : ""}`} · {partyText(party)} · {visible.length} of {offers ? offers.length : 0} flights
               </span>
-              <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
+              <span style={{ display: "flex", gap: 6 }}>
+                {step === "results" && withTravellers && tRows.length ? (
+                  <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setTSkipped(false); setStep("travellers"); }}>
+                    {tSkipped ? "Add travellers" : `Travellers (${tRows.length})`}
+                  </button>
+                ) : null}
+                <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setErr(null); setStep("search"); }}>Change search</button>
+              </span>
             </div>
             <div className="nb-cabins" role="radiogroup" aria-label="Cabin class">
               <span className="nb-cabins-l">Cabin</span>
@@ -862,7 +1139,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 </button>
               ))}
             </div>
-            {!resultsRound && fareDays && fareDays.cells.length > 1 ? (
+            {!legsMode && fareDays && fareDays.cells.length > 1 ? (
               <div className="nb-fares" role="group" aria-label="Cheapest fare on each day">
                 <span className="nb-fares-l">Cheapest each day · {partyText(party)}</span>
                 {fareDays.cells.map((c: any) => (
@@ -878,31 +1155,42 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
               <div className="taw-banner taw-banner--info">Some suppliers failed — results may be partial.</div>
             ) : null}
 
-            {resultsRound ? (
-              <div className="ow-segpills" role="tablist" aria-label="Round trip legs" style={{ margin: "4px 0 10px" }}>
-                {([
-                  { leg: "ONWARD", from: form.from, to: form.to, date: form.date },
-                  { leg: "RETURN", from: form.to, to: form.from, date: form.returnDate },
-                ] as const).map((t) => {
-                  const n = (allOffers || []).filter((o) => (o.leg || "ONWARD") === t.leg).length;
+            {legsMode ? (
+              <div className="ow-segpills" role="tablist" aria-label={resultsMulti ? "Flights of the trip" : "Round trip legs"} style={{ margin: "4px 0 10px" }}>
+                {legTabs.map((t) => {
+                  const n = (allOffers || []).filter((o) => (o.leg || "ONWARD") === t.key).length;
                   return (
-                    <button key={t.leg} type="button" role="tab" aria-selected={activeLeg === t.leg}
-                      className={`ow-segpill${activeLeg === t.leg ? " on" : ""}`} onClick={() => setActiveLeg(t.leg)}>
-                      {t.leg === "ONWARD" ? "Onward" : "Return"} · {t.from} → {t.to} · {fmtDay(t.date)} · {n} flight{n === 1 ? "" : "s"}
-                      {picked[t.leg] ? " ✓" : ""}
+                    <button key={t.key} type="button" role="tab" aria-selected={activeLeg === t.key}
+                      className={`ow-segpill${activeLeg === t.key ? " on" : ""}`} onClick={() => setActiveLeg(t.key)}>
+                      {t.label} · {t.from} → {t.to} · {fmtDay(t.date)} · {n} flight{n === 1 ? "" : "s"}
+                      {picked[t.key] ? " ✓" : ""}
                     </button>
                   );
                 })}
               </div>
             ) : null}
 
-            {offers && offers.length === 0 ? (
+            {offers && offers.length === 0 && outage ? (
               <>
-                <Empty icon="flight" title="No flights found" message={resultsRound ? "No flights on this side of the trip — try another date or cabin." : searched?.date === todayISO() ? "Airlines stop selling a flight a couple of hours before it leaves, so nothing may be left for today. Try tomorrow." : "Try another date or cabin."} />
-                {!resultsRound && searched?.date === todayISO() ? (
+                <Empty icon="flight" title="No airline supplier answered"
+                  message="Tripsure returned no results from any airline supplier, not even for other dates. This looks like an outage on Tripsure's side, so changing the date, cabin or airport won't help. Retry in a few minutes." />
+                <div className="nb-nearby">
+                  <button type="button" className="taw-btn taw-btn--primary" disabled={searching} onClick={() => runSearch()}>
+                    {searching ? "Searching…" : "Retry search"}
+                  </button>
+                </div>
+                <div className="ow-sub" style={{ whiteSpace: "normal", textAlign: "center", marginTop: 8 }}>
+                  Still empty after a while? Tell Tripsure support: flight search returns 200 with an empty result and no suppliers, at {outage.at}
+                  {outage.searchKey ? <>. Search reference <code>{outage.searchKey}</code></> : null}.
+                </div>
+              </>
+            ) : offers && offers.length === 0 ? (
+              <>
+                <Empty icon="flight" title="No flights found" message={legsMode ? "No flights on this part of the trip — try another date or cabin." : searched?.date === todayISO() ? "Airlines stop selling a flight a couple of hours before it leaves, so nothing may be left for today. Try tomorrow." : "Try another date or cabin."} />
+                {!legsMode && searched?.date === todayISO() ? (
                   <div className="nb-nearby"><button type="button" className="taw-btn taw-btn--primary" disabled={searching} onClick={() => runSearch({ date: todayISO(1) })}>Search tomorrow</button></div>
                 ) : null}
-                {!resultsRound ? (() => {
+                {!legsMode ? (() => {
                   const near = [
                     ...nearbyAirports(form.to).map((x) => ({ ...x, side: "to" as const, of: form.to })),
                     ...nearbyAirports(form.from).map((x) => ({ ...x, side: "from" as const, of: form.from })),
@@ -1008,8 +1296,9 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                       const d = o.detail;
                       const raw = (getTripsureFlightOffer(o.id) || {}).raw || {};
                       const first = (raw.segments || [])[0] || {};
+                      const connWarn = connectionWarnings(raw.segments || [], (legsMode ? tripIsInternational(legRoute(activeLeg).from, legRoute(activeLeg).to) : tripIsInternational(form.from, form.to)) === true);
                       return (
-                        <div className={`ow-fcard${resultsRound && picked[activeLeg]?.id === o.id ? " picked" : ""}`} key={o.id}>
+                        <div className={`ow-fcard${legsMode && picked[activeLeg]?.id === o.id ? " picked" : ""}`} key={o.id}>
                           <div className="ow-fcard-air">
                             <b>{d.airlineName || d.airline}</b>
                             <small>{d.flightNo}</small>
@@ -1017,7 +1306,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                           </div>
                           <div className="ow-route">
                             <div className="ow-city"><div className="code">{d.depTime}</div><div className="nm">{d.originCode}</div>
-                              {(() => { const want = resultsRound && activeLeg === "RETURN" ? form.to : form.from; const k = d.originCode !== want ? airportDistance(d.originCode, want) : null;
+                              {(() => { const want = legsMode ? legRoute(activeLeg).from : form.from; const k = d.originCode !== want ? airportDistance(d.originCode, want) : null;
                                 return k != null ? <div className="nb-away">{k} km from {want}</div> : null; })()}
                             </div>
                             <div className="ow-line">
@@ -1025,13 +1314,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                               {d.stops === 0 ? "Non-stop" : `${d.stops} stop${d.stops === 1 ? "" : "s"}`}
                             </div>
                             <div className="ow-city r"><div className="code">{d.arrTime}</div><div className="nm">{d.destCode}</div>
-                              {(() => { const want = resultsRound && activeLeg === "RETURN" ? form.from : form.to; const k = d.destCode !== want ? airportDistance(d.destCode, want) : null;
+                              {(() => { const want = legsMode ? legRoute(activeLeg).to : form.to; const k = d.destCode !== want ? airportDistance(d.destCode, want) : null;
                                 return k != null ? <div className="nb-away">{k} km from {want}</div> : null; })()}
                             </div>
                           </div>
                           <div className="ow-fcard-buy">
-                            <div className="ow-fcard-price"><b>{inr(o.base_net)}</b><small>{resultsRound ? (activeLeg === "ONWARD" ? "onward" : "return") + " · " : ""}{covers(o.base_net)}</small></div>
-                            {resultsRound ? (
+                            <div className="ow-fcard-price">
+                              <FareBreakup price={((raw.PriceSummaries || raw.priceSummaries || [])[0]) || null}><b>{inr(o.base_net)}</b></FareBreakup>
+                              <small>{legsMode ? legLabel(activeLeg) + " · " : ""}{covers(o.base_net)}</small>
+                            </div>
+                            {legsMode ? (
                               <button type="button" className={`taw-btn taw-btn--sm${picked[activeLeg]?.id === o.id ? "" : " taw-btn--primary"}`} onClick={() => selectOffer(o)} disabled={!!lockingId}>
                                 {picked[activeLeg]?.id === o.id ? "Selected ✓" : "Select"}
                               </button>
@@ -1045,6 +1337,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                             <span className="taw-chip taw-chip--dom">{d.cabin}</span>
                             {d.refundable === true ? <span className="ow-tag ok">Refundable</span> : d.refundable === false ? <span className="ow-tag">Non-refundable</span> : null}
                             {d.baggageKg ? <span className="ow-tag">{d.baggageKg} kg bag</span> : null}
+                            {connWarn.map((w) => <span key={w.code} className={"ow-tag " + (w.severity === "warn" ? "warn" : "info")} title={w.text}>{w.short}</span>)}
                           </div>
                           {(alsoOf.get(o.id) || []).map((x: any) => (
                             <button key={x.id} type="button" className="taw-linkbtn taw-res-also" onClick={() => selectOffer(x)} disabled={!!lockingId}
@@ -1061,7 +1354,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
             )}
 
             {fareFor && step === "results" ? (() => {
-              const legName = resultsRound ? ((fareFor.leg || "ONWARD") === "RETURN" ? "return" : "onward") : null;
+              const legName = legsMode ? legLabel(fareFor.leg || "ONWARD") : null;
               return (
                 <ItineraryDrawer
                   tabs={[{ key: "timeline", label: "Timeline", icon: "clock" }, { key: "fares", label: "Fare options", icon: "list" }]}
@@ -1070,15 +1363,24 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   onClose={() => setFareFor(null)}
                   busy={!!lockingId}
                   price={inr(fareFor.base_net + (fareSel?.delta || 0))}
-                  priceNote={`${covers(fareFor.base_net + (fareSel?.delta || 0))}${legName ? ` · ${legName} flight` : ""}`}
+                  priceNote={`${covers(fareFor.base_net + (fareSel?.delta || 0))}${legName ? ` · ${legName}${resultsMulti ? "" : " flight"}` : ""}`}
                   actions={
-                    <button type="button" className="taw-btn taw-btn--primary fi-next" disabled={!fareSel || !!lockingId}
+                    <button type="button" className="taw-btn taw-btn--primary fi-next"
+                      disabled={!fareSel || !!lockingId || goneFares.includes(`${fareFor.id}|${fareSel.fare_id}`)}
                       onClick={() => fareSel && chooseFare(fareFor, fareSel)}>
-                      {lockingId ? "Locking fare…" : legName ? `Select ${legName} flight` : "Next"}
+                      {lockingId ? "Locking fare…" : fareSel && goneFares.includes(`${fareFor.id}|${fareSel.fare_id}`) ? "Not available"
+                        : legName ? `Select ${legName}${resultsMulti ? "" : " flight"}` : "Next"}
                     </button>
                   }
                 >
-                  {err ? <div className="taw-banner taw-banner--danger">{errText(err)}</div> : null}
+                  {err ? (
+                    <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
+                      {errText(err)}
+                      {goneFares.some((k) => k.startsWith(`${fareFor.id}|`)) ? (
+                        <>{" "}<button type="button" className="ow-link" onClick={() => { setFareFor(null); runSearch(); }}>Search again</button></>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {drawerTab === "timeline"
                     ? <FlightTimeline legs={[{ segments: getTripsureFlightOffer(fareFor.id)?.raw?.segments || [] }]} />
                     : <FareOptionsList offer={fareFor} selected={fareSel?.fare_id || null} onSelect={setFareSel} />}
@@ -1106,12 +1408,36 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                 </div>
               </div>
             ) : null}
+
+            {resultsMulti ? (() => {
+              const chosen = legTabs.map((t) => picked[t.key] || null);
+              const missing = legTabs.filter((t) => !picked[t.key]);
+              return (
+                <div className="ow-sticky-foot">
+                  <div className="ow-total">
+                    <small>Multi-city total</small>
+                    <b>{inr(chosen.reduce((n, o) => n + (o?.base_net || 0), 0))}</b>
+                    <small>
+                      {!missing.length
+                        ? chosen.map((o, i) => `${inr(o.base_net)} ${legTabs[i].label.toLowerCase()}`).join(" + ")
+                        : `Choose ${missing.length === 1 ? "a fare for" : "fares for"} ${missing.map((t) => t.label.toLowerCase()).join(", ")}`}
+                    </small>
+                  </div>
+                  <div className="ow-sticky-btns">
+                    <button type="button" className="taw-btn taw-btn--primary" disabled={!!missing.length || !!lockingId}
+                      onClick={continueMulti}>
+                      {lockingId ? "Locking fares…" : "Continue"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })() : null}
           </>
         ) : null}
 
         {/* ── After the fare lock: optionally add a hotel to the same itinerary ── */}
         {step === "flightDone" && lock ? (() => {
-          const legs: any[] = selectedOffer ? [selectedOffer, ...(selectedReturn ? [selectedReturn] : [])] : [];
+          const legs: any[] = selectedOffer ? [selectedOffer, ...(selectedReturn ? [selectedReturn] : []), ...selectedMore] : [];
           const tab = drawerTab === "timeline" ? "timeline" : "book";
           return (
             <ItineraryDrawer
@@ -1144,6 +1470,16 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                     </div>
                   </div>
                   {expiryNote()}
+                  {travSaved ? (
+                    <div className="taw-banner" style={{ whiteSpace: "normal" }}>
+                      <Icon name="check" size={13} /> {travSaved} traveller{travSaved === 1 ? "" : "s"} saved to the order from the Travellers step.
+                    </div>
+                  ) : null}
+                  {travErr ? (
+                    <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
+                      The travellers could not be saved yet: {travErr} Correct them below under Travellers.
+                    </div>
+                  ) : null}
                   {bookErr ? (
                     <div className="taw-banner taw-banner--danger" style={{ whiteSpace: "normal" }}>
                       Couldn&apos;t load the order ({bookErr}).{" "}
@@ -1186,7 +1522,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
         {step === "seats" && selectedOffer ? (() => {
           // A round trip locks two fares as one itinerary: the onward segments come first,
           // then the return's — the same order the server numbers them in.
-          const legs: any[] = [selectedOffer, ...(selectedReturn ? [selectedReturn] : [])];
+          const legs: any[] = [selectedOffer, ...(selectedReturn ? [selectedReturn] : []), ...selectedMore];
           const segments: any[] = legs.flatMap((o) => getTripsureFlightOffer(o.id)?.raw?.segments || []);
           const fareTotal = lockInfo?.locked ?? legs.reduce((n, o) => n + o.base_net, 0);
           const priceMoved = lockInfo?.locked != null && Math.abs(lockInfo.locked - lockInfo.shown) > 1 ? lockInfo : null;
@@ -1263,7 +1599,7 @@ export function NewBookingModal({ onClose, onCreated, addToOrder, preset }: {
                   detail={d}
                   tab={tab as ExtrasTab}
                   sel={sel}
-                  pax={paxSlots(form.adults, form.children)}
+                  pax={extraSlots}
                   infants={form.infants}
                   seg={seatSeg}
                   onSeg={setSeatSeg}

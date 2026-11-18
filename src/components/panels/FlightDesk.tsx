@@ -5,18 +5,22 @@
  * depth expander, FlightFareDetail (line ~872, colocated here — only ever
  * used by FlightDesk in the original module too).
  * ===========================================================================*/
+import { useWorkbench } from "../../lib/workbenchContext";
+import { FitChip, useBudgetFit } from "../BudgetFit";
 import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { exportTripsureFlightOffers, fastapiFlightSearch, getTripsureFlightOffer, importTripsureFlightOffers, newFlightJourney, searchFlights, inr } from "../../services/api";
 import { AutosuggestInput } from "../AutosuggestInput";
 import { AIRPORTS, searchAirports } from "../../lib/airports";
 import { airportAutosuggest, liveAirports } from "../../lib/airportSuggest";
+import { nearbyDates } from "../../lib/searchDates";
 import { cx } from "../../lib/cx";
 import { errText, toast, todayISO, fmtDate, fareBrand, flightCartItem } from "../../lib/advisorHelpers";
 import { ALLOW_DEMO_DATA } from "../../lib/env";
 import { STALE_AFTER_MS, ageLabel, recallDesk, rememberDesk, useMinuteClock } from "../../lib/deskMemory";
 import { paxText, type PaxMix } from "../../lib/flightRequests";
-import { FlightQuoteDrawer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { FlightQuoteDrawer, autoPriceOffer, type FlightLivePrice } from "../orders/FlightQuoteDrawer";
+import { rankFlightOffers, withoutBudgetCarriers } from "../../lib/flightRank";
 import { LIVE_PRICE_EVENT, flightNum, takeLivePriceRequest, type LivePriceRequest } from "../../lib/livePriceRequest";
 import { Dropdown, Empty, Field, Spinner, Icon, SleekScroll } from "../ui";
 import { buildMockFlightOffers, classifyStopType } from "../../lib/mockFlightSearch";
@@ -97,7 +101,8 @@ function codeFromAsk(text: any): string | null {
 // shows the CURRENT option's own icon — giving them all the same one is
 // what makes it "always visible" without needing a separate prop for it).
 const SORT_OPTIONS = [
-  { key: "best", label: "Best", icon: "sort" },
+  { key: "recommended", label: "Recommended", icon: "sort" },
+  { key: "best", label: "Best value", icon: "sort" },
   { key: "cheapest", label: "Cheapest", icon: "sort" },
   { key: "fastest", label: "Fastest", icon: "sort" },
   { key: "earliest", label: "Earliest arrival", icon: "sort" },
@@ -204,6 +209,9 @@ function TravellerStepper({ value, onChange }: { value: PaxMix; onChange: (p: Pa
 
 export function FlightDesk(props: any) {
   const member = props.member;
+  // The travellers filled in on this itinerary: the add-on tabs (seats, meals…) use their names.
+  const { itinerariesByEnquiry } = useWorkbench();
+  const itineraryPassengers = (props.enquiry && props.enquiry.id && itinerariesByEnquiry[props.enquiry.id] && itinerariesByEnquiry[props.enquiry.id].passengers) || null;
   const ask = props.enquiry && props.enquiry.ask;
   // This enquiry's last flight search (lib/deskMemory.ts): restored on mount so
   // leaving the Console and coming back keeps the search, results and filters.
@@ -294,10 +302,15 @@ export function FlightDesk(props: any) {
   // current (cancelled, superseded, unmounted) is ignored.
   const searchRef = useRef<any>(null);
   useEffect(() => () => { if (searchRef.current) searchRef.current.cancel(); }, []);
+  // One TripSure trace per journey (guide section 3), which starts with the first airport lookup, so it is
+  // minted when the desk opens, before anything is typed. The first search keeps it; a later search starts a new one.
+  useState(() => newFlightJourney());
+  const journeyUsedRef = useRef(false);
   // Shopping controls (FLT-011 filters / FLT-012 sort) — applied client-side
   // over the offers the search adapter returns. Reset whenever a new search runs.
-  const [view, setView] = useState<{ sort: string; stops: string; refundable: boolean; carrier: string; depWindow: string }>(
-    () => saved?.view || { sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" }
+  // Starts on the system's recommendation, full-service airlines only (lib/flightRank.ts); both can be changed in the strip.
+  const [view, setView] = useState<{ sort: string; stops: string; refundable: boolean; carrier: string; depWindow: string; premium?: boolean }>(
+    () => saved?.view || { sort: "recommended", stops: "any", refundable: false, carrier: "all", depWindow: "any", premium: true }
   );
   function setV(k: string, v: any) {
     setView((f) => ({ ...f, [k]: v }));
@@ -445,16 +458,6 @@ export function FlightDesk(props: any) {
     setForm((f) => ({ ...f, originCode: f.destCode, destCode: f.originCode }));
   }
 
-  // offsetDateStr(dateStr, days) — a date-string offset from an ARBITRARY
-  // base date, unlike advisorHelpers' todayISO() which only offsets from
-  // today. Needed for building the ±3-day nearby-dates window around
-  // whatever date the advisor actually chose.
-  function offsetDateStr(dateStr: string, days: number) {
-    const d = new Date(dateStr + "T00:00:00");
-    d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
-  }
-
   // fetchOffersForDate(dateStr, fromCode, toCode) — the real API call for
   // ONE date on ONE leg, factored out of run() so it can be fired once
   // (normal search), in parallel across ±3 days (includeNearbyDates), and
@@ -587,20 +590,22 @@ export function FlightDesk(props: any) {
     setPaxOpen(null);
     setModifyOpen(false);
     setSearchedPax(paxRef.current);
-    // One TripSure trace per search, through to the live price checks of its results.
-    newFlightJourney();
+    // One TripSure trace per search, through to the live price checks of its results. The first search
+    // keeps the one the airport lookups already used; each later search starts a new one.
+    if (journeyUsedRef.current) newFlightJourney();
+    journeyUsedRef.current = true;
     setLoading(true);
     setRes(null);
     setSearchedAt(null);
     setLeg("outbound");
     setSelectedChipDate(includeNearbyDates ? searchDate : null);
     setChipWindowStart(0);
-    setView({ sort: "best", stops: "any", refundable: false, carrier: "all", depWindow: "any" });
+    setView({ sort: "recommended", stops: "any", refundable: false, carrier: "all", depWindow: "any", premium: true });
 
     const originCode = form.originCode.toUpperCase().trim();
     const destCode = form.destCode.toUpperCase().trim();
-    const outboundDates = includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(searchDate, d)) : [searchDate];
-    const returnDates = roundTrip ? (includeNearbyDates ? [-3, -2, -1, 0, 1, 2, 3].map((d) => offsetDateStr(form.returnDate, d)) : [form.returnDate]) : [];
+    const outboundDates = includeNearbyDates ? nearbyDates(searchDate, todayISO()) : [searchDate];
+    const returnDates = roundTrip ? (includeNearbyDates ? nearbyDates(form.returnDate, todayISO()) : [form.returnDate]) : [];
 
     if (searchRef.current) searchRef.current.cancel();
     const search = startSearch();
@@ -1037,7 +1042,7 @@ export function FlightDesk(props: any) {
         </div>
       ) : null}
       {!loading && res ? (
-        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax}
+        <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax} travellers={itineraryPassengers} leadName={member && member.name}
           autoPick={autoPick} onAutoPickDone={() => setAutoPick(null)} />
       ) : null}
     </div>
@@ -1051,7 +1056,8 @@ export function FlightDesk(props: any) {
 // "Add" opens the pricing drawer (orders/FlightQuoteDrawer.tsx): fare option, then
 // TripSure's live price for it, then the airline's seats / meals / baggage with their
 // prices. Only a live-checked price goes into the itinerary.
-function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, onAutoPickDone }: any) {
+function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, travellers, leadName, autoPick, onAutoPickDone }: any) {
+  const budgetFit = useBudgetFit();
   // The offer being priced, and the drawer section it opened on.
   // swap: priced for "+ Swap option" (an option for the itinerary's flight), not added as a flight.
   const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares"; swap?: boolean } | null>(null);
@@ -1073,8 +1079,30 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
         return nums.length === autoPick.length && nums.every((n: string, i: number) => n === flightNum(autoPick[i]));
       }) || null
     : null;
-  const active = quote || (autoOffer ? { offer: autoOffer, tab: "fares" as const } : null);
-  // A live-priced flight into the itinerary, with two swap options by default: the closest other
+  // "Get live price" prices that flight by itself (TripSure's Create Itinerary on the searched fare) and puts it in the
+  // itinerary in place of the draft. Only if TripSure refuses (sold out, stale search) does the drawer open instead, so the
+  // advisor can pick another fare option. autoFailed: the offer id that auto-pricing could not do, with the reason.
+  const [autoFailed, setAutoFailed] = useState<{ id: string; why: string } | null>(null);
+  const autoTried = useRef("");
+  const autoId = autoOffer ? String(autoOffer.id) : "";
+  useEffect(() => {
+    if (!autoOffer) { autoTried.current = ""; return; }
+    if (autoTried.current === autoId) return;
+    autoTried.current = autoId;
+    void runAuto(autoOffer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoId]);
+  async function runAuto(o: any) {
+    try {
+      const pricing = await autoPriceOffer(o);
+      addPriced(o, pricing);
+    } catch (e: any) {
+      setAutoFailed({ id: String(o.id), why: errText(e) });
+    }
+  }
+  const autoPricing = !!autoOffer && autoFailed?.id !== autoId;
+  const active = quote || (autoOffer && autoFailed?.id === autoId ? { offer: autoOffer, tab: "fares" as const } : null);
+  // A live-priced flight into the itinerary, with two swap options by default: the next best by the recommendation (else the closest) other
   // flights on the same route and day, at their fare for the same travellers (no add-ons — "fare
   // only"), bookable as they are. "+ Swap option" adds one priced live with its seats, meals and
   // bags when the customer is weighing options.
@@ -1083,7 +1111,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     const day = (x: any) => x._searchDate || (x.detail || {}).date;
     const alternatives = shown
       .filter((x: any) => x.id !== o.id && day(x) === day(o) && (x.detail || {}).flightNo !== (o.detail || {}).flightNo)
-      .sort((a: any, b: any) => Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet))
+      .sort((a: any, b: any) => (a._rec && b._rec ? a._rec.rank - b._rec.rank : Math.abs(offNet(a) - myNet) - Math.abs(offNet(b) - myNet)))
       .slice(0, 2)
       .map((alt: any) => {
         const ad = alt.detail || {};
@@ -1145,6 +1173,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     }
     return true;
   });
+  if (view.premium) shown = withoutBudgetCarriers(shown);
   // One card per flight. TripSure returns the same flight once per supplier it sells it through
   // (different price, baggage and fare families), which listed it twice. The card shows the
   // cheapest; the others stay one click away on it ("Also from another supplier").
@@ -1171,7 +1200,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
     const p = t.split(":");
     return Number(p[0]) * 60 + Number(p[1] || 0);
   };
-  shown = shown.slice().sort((a: any, b: any) => {
+  shown = view.sort === "recommended" ? rankFlightOffers(shown) : shown.slice().sort((a: any, b: any) => {
     const da = a.detail || {},
       db = b.detail || {};
     if (view.sort === "cheapest") return offNet(a) - offNet(b);
@@ -1204,6 +1233,10 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
             <Dropdown value={view.carrier} options={carrierOptions} onChange={(v: any) => setV("carrier", v)} ariaLabel="Filter by carrier" triggerClassName="taw-filter-dd" />
           ) : null}
           <Dropdown value={view.stops} options={STOPS_OPTIONS} onChange={(v: any) => setV("stops", v)} ariaLabel="Filter by stops" triggerClassName="taw-filter-dd" />
+          <button type="button" className={cx("taw-btn", "taw-btn--sm", view.premium ? "taw-btn--accent" : "")} aria-pressed={!!view.premium}
+            onClick={() => setV("premium", !view.premium)} title="Hide budget carriers while a full-service airline flies the route">
+            Full-service airlines
+          </button>
           {/* No Refundable chip (2026-10-30, the user's call): each card already says Refundable /
               Non-ref, and the fare options in the pricing drawer show it per fare. */}
         </div>
@@ -1248,6 +1281,12 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                         </span>
                       ) : null}
                     </div>
+                    {view.sort === "recommended" && o._rec ? (
+                      <div className="taw-muted" style={{ fontSize: 12, margin: "4px 0 2px" }}>
+                        {o._rec.rank <= 3 ? <b>{`Recommended #${o._rec.rank}: `}</b> : null}
+                        {o._rec.reasons.slice(0, 5).join(" · ")}
+                      </div>
+                    ) : null}
                     <button className="taw-linkbtn" onClick={() => setQuote({ offer: o, tab: "timeline" })}>
                       <Icon name="chevron" size={12} />
                       {"Timeline · " + (fareCount(o) > 1 ? fareCount(o) + " fare options" : "fare options") + " · seats"}
@@ -1277,6 +1316,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                       {net > 0 ? inr(net) : "—"}
                       <small>{added[o.id] ? "search price" : "net cost"}</small>
                     </div>
+                    {net > 0 && !added[o.id] ? <FitChip fit={budgetFit.flight(net)} what="for flights" /> : null}
                     {added[o.id] ? (
                       <div className="taw-res-priced" title="Live TripSure price this flight was added to the itinerary at">
                         <span><Icon name="check" size={12} /> In itinerary</span> <b>{inr(added[o.id].total)}</b>
@@ -1315,6 +1355,17 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
         )}
       </div>
       </SleekScroll>
+      {autoPricing ? (
+        <div className="taw-banner taw-banner--info" role="status" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          <Spinner />
+          <span>Getting TripSure&apos;s live price for {autoPick.join(" + ")} and putting it in the itinerary…</span>
+        </div>
+      ) : null}
+      {autoOffer && autoFailed?.id === autoId ? (
+        <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+          Couldn&apos;t price {autoPick.join(" + ")} automatically: {autoFailed.why}
+        </div>
+      ) : null}
       {autoPick && autoPick.length && !autoOffer && offers.length ? (
         <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
           {autoPick.join(" + ")} isn&apos;t in TripSure&apos;s results for this day — it may be sold out or not sold through TripSure. Pick another flight below.
@@ -1327,6 +1378,8 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
           offer={active.offer}
           startTab={active.tab}
           pax={pax}
+          travellers={travellers}
+          leadName={leadName}
           paxNote={"for " + paxText(pax)}
           addLabel={quote?.swap ? "Add as swap option" : undefined}
           onAdd={(p) => {
@@ -1336,7 +1389,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
             onAddSwap({ ...flightCartItem(active.offer, [], { pax, pricing: p }), _searchDate: active.offer._searchDate });
             setQuote(null);
           }}
-          onClose={() => { setQuote(null); if (onAutoPickDone) onAutoPickDone(); }}
+          onClose={() => { setQuote(null); setAutoFailed(null); if (onAutoPickDone) onAutoPickDone(); }}
         />
       ) : null}
     </div>

@@ -71,6 +71,10 @@ export interface FulfilmentItem {
   booking_ref?: string | null;
   confirmation_number?: string | null;
   pnrs?: string[];
+  /** flight only: the tickets issued once ticketed (guide 6.11 passengers[].ticketNumber). */
+  tickets?: { route?: string | null; name?: string | null; number: string }[];
+  /** flight only: the invoice number(s) from Booking Details (guide 6.12 invoiceNumber), once ticketed. */
+  invoice_numbers?: string[];
   error?: string | null;
   booked_at?: string | null;
   amount?: number | null;
@@ -81,12 +85,29 @@ export interface FulfilmentItem {
   /** hotel only: a confirmed room can be cancelled / has a tax invoice. */
   can_cancel?: boolean;
   can_invoice?: boolean;
+  /** flight only: a hold TripSure placed with the airline that is not ticketed yet (PNR kept until the last ticketing date). */
+  hold?: { pnr?: string | null; last_ticket_date?: string | null; booking_id?: string | null } | null;
+  /** flight only: what the customer paid TripSure directly for this flight ({ paid, amount }), or null while no payment was started. */
+  supplier_payment?: { paid: boolean; amount: number } | null;
+  /** flight only, not ticketed yet: the seat / baggage / meal extras picked on it (they can be removed while Tripsure will not price them). */
+  extras?: { amount: number; items: { kind: string; label: string; price: number; pax?: number | null; route?: string }[] } | null;
+  /** flight only: seat / baggage / meal extras the customer paid for that Tripsure left out of the ticket, for the advisor to arrange with the airline. */
+  extras_to_arrange?: { amount?: number | null; items: { kind: string; label: string; price: number; pax?: number | null; route?: string }[]; arranged: boolean; arranged_at?: string | null; note?: string | null } | null;
+  /** flight only: a ticketed flight can be cancelled / its date changed (cancellation and reschedule with TripSure). */
+  can_service?: boolean;
   /** flight only: documents the fare needs (Create Itinerary conditions): passport / pan / gst. */
   documents_required?: string[];
   /** flight only: the journey's x-trace-id, quoted to TripSure support. */
   trace_id?: string | null;
+  /** flight only: what TripSure support asks for next to the trace id: its itinerary id and the supplier booking id(s). */
+  tripsure_itinerary_id?: string | null;
+  supplier_booking_ids?: string[];
 }
-export interface PaymentRow { id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null }
+export interface PaymentRow {
+  id: string; amount: number; status: string; method?: string | null; reference?: string | null; note?: string | null; paid_at?: string | null;
+  /** Taken online on TripAgent's Razorpay and not refunded in full: it can be refunded to the customer's card / UPI from here. */
+  can_refund_online?: boolean; refundable_left?: number;
+}
 export interface Fulfilment {
   order_id: string;
   schema_ready: boolean;
@@ -101,7 +122,7 @@ export interface Fulfilment {
     mix_error?: string | null;
     list: any[];
   };
-  payment: { total: number; paid: number; refunded?: number; due: number; currency: string; payments: PaymentRow[] };
+  payment: { total: number; paid: number; refunded?: number; due: number; /** received (net of refunds) beyond what the order now costs */ refund_due?: number; currency: string; payments: PaymentRow[] };
   items: FulfilmentItem[];
 }
 export interface Order {

@@ -218,6 +218,12 @@ export function HotelRecommendations({
                             </span>
                             {hotel.board ? <span>{hotel.board}</span> : null}
                           </div>
+                          {hotel.reasons && hotel.reasons.length ? (
+                            <div className="taw-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                              <b>Why: </b>
+                              {hotel.reasons.slice(0, 5).join(" · ")}
+                            </div>
+                          ) : null}
                         </div>
                         <div className="taw-res-side">
                           <div className="taw-res-net ta-num">

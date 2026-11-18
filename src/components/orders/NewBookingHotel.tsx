@@ -3,14 +3,20 @@
    price-check -> "Confirm & add hotel" (POST /booking-orders/hotel-stay).
    The server re-runs priceCheck itself, so the price stored in booking_hotels
    is Tripsure's, not what this component displays. */
+import { HotelApiStatus } from "./HotelApiStatus";
+import { GuestNationality } from "./GuestNationality";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { sameHotelName } from "../../lib/livePriceRequest";
 import { Empty, Field, Icon, Spinner } from "../ui";
 import { cachedLiveCities } from "../../lib/citySuggest";
 import { fmtPill } from "./RangeCalendar";
 import { HotelSearchBar } from "./HotelSearchBar";
+import { detailsProblem, liveCheckChanges, plainInstructions, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
+import { mobileOk, nationalMobile, splitMobile } from "../../lib/phone";
 import {
   bookingAddHotelStay, bookingLockHotelItinerary, bookingKeepHotelStay, bookingDiscardHotelStay, currentHotelJourney, newHotelJourney, hotelAutosuggestV2, hotelDetailsV2, hotelFacts, hotelListingStart, hotelPriceCheckV2, inr,
 } from "../../services/api";
+import { cityGuide, hotelRatings } from "../../services/api";
 import { errText } from "../../lib/errText";
 import { hotelCartItem } from "../../lib/advisorHelpers";
 import { hotelAlternatives, pricedAlternatives } from "../../lib/hotelAlternatives";
@@ -20,6 +26,7 @@ import {
   DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, sortHotels, viewKey, type HotelView,
 } from "../../lib/hotelListing";
 import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
+import { rankHotels, type HotelRankCtx, type Rating } from "../../lib/hotelRank";
 import { HotelMap, placesFromSuggestion, type MapPlace } from "../panels/HotelMap";
 import { HotelLocationMap } from "../panels/HotelLocationMap";
 import {
@@ -74,25 +81,6 @@ function HotelImage({ src, alt, hero, thumb }: { src?: string; alt: string; hero
   );
 }
 
-// "+91 81728 36138" / "918172836138" / "08172836138" -> "8172836138" (the country code is sent separately).
-function nationalMobile(v: string): string {
-  let d = (v || "").replace(/\D/g, "");
-  if (d.length > 10 && d.startsWith("91")) d = d.slice(2);
-  if (d.length === 11 && d.startsWith("0")) d = d.slice(1);
-  return d;
-}
-
-// Tripsure sends check-in instructions as strings holding HTML-escaped HTML ("&lt;ul&gt;…").
-// Decoded and flattened to plain text lines — never injected as markup.
-function plainInstructions(list: any): string[] {
-  const decode = (t: string) => new DOMParser().parseFromString(t, "text/html").documentElement.textContent || "";
-  return (Array.isArray(list) ? list : [])
-    .map((x) => decode(decode(String(x || "")).replace(/<\/(li|p)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, "")))
-    .flatMap((t) => t.split("\n"))
-    .map((t) => t.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-}
-
 // Tripsure's review-page split: base fare per night per room, taxes & fees, total.
 function splitPrice(rb: any, total: number) {
   const base = rb && rb.baseFare != null ? Number(rb.baseFare) : null;
@@ -140,6 +128,9 @@ function roomOptions(det: any): any[] {
         // One card per supplier roomGroup; its rates are exactly that group's own options.
         gid: `${gi}:${(g.standardRoomIds || []).join(",")}`,
         code: String(o.recommendationId),
+        // roomType.bookingCode: what Price Check and Create Itinerary take (guide 6.3); `code` stays the key of the rate in the UI
+        bookingCode: rateBookingCode(o, rt),
+        requires: rateRequirements(rt),
         title: rt.roomTitle || rt.standardizedRoomTitle || "Room",
         board: rt.roomDescription || "",
         refundable: !!rt.refundable,
@@ -170,7 +161,7 @@ function roomOptions(det: any): any[] {
   return out;
 }
 
-export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, onBack, onAdded, onError, mode = "booking", initial, autoSearch, onAddToItinerary }: {
+export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, onBack, onAdded, onError, mode = "booking", initial, autoSearch, findName, onAddToItinerary }: {
   /** Who the booking is for (booking mode; the itinerary mode has no customer). */
   customer?: Customer;
   /** Attach as a new itinerary on this order. */
@@ -187,6 +178,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   initial?: { city: string; location: any | null; checkIn: string; checkOut: string; rooms: RoomGuests[] };
   /** Run `initial` as a search as soon as this opens. */
   autoSearch?: boolean;
+  /** With autoSearch: open the room list of the hotel with this name as soon as the search returns it. */
+  findName?: string;
   onAddToItinerary?: (item: any) => void;
 }) {
   const itinerary = mode === "itinerary";
@@ -216,10 +209,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [adding, setAdding] = useState(false);
 
   // Stage A: the recorded row + the handles needed to lock it.
-  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
+  const [added, setAdded] = useState<{ orderId: string; hotelId: string; handles: any; panRequired: boolean; addressRequired: boolean; passportRequired: boolean; label: string; price: { base: number; tax: number; total: number } | null } | null>(null);
   const [guest, setGuest] = useState({
     title: "Mr", firstName: customer.name.split(" ")[0] || "", lastName: customer.name.split(" ").slice(1).join(" "),
-    mobile: nationalMobile(customer.phone || ""), email: customer.email || "", pan: "",
+    mobile: splitMobile(customer.phone || "").national, mobileCountryCode: splitMobile(customer.phone || "").code, email: customer.email || "", pan: "",
+    passportNumber: "", passportExpiry: "", passportCountry: "",
     streetAddress1: "", city: "", state: "", postalCode: "",
     gstNumber: "", gstName: "", gstAddress: "", gstState: "", gstCity: "", gstPincode: "",
   });
@@ -261,13 +255,23 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // `hotels` are TripSure's hotels, each carrying the docKey/token of the response it came from
   // (`_session`): the first screen and every later page have their own, and details / price check
   // need the pair that came with the hotel.
-  const [view, setView] = useState<HotelView>(DEFAULT_HOTEL_VIEW);
+  // The advisor building an itinerary starts on the system's recommendation, luxury only (5-star, guests rate it very highly);
+  // both can be switched off from the chips below.
+  const initialView: HotelView = itinerary ? { ...DEFAULT_HOTEL_VIEW, sort: "recommended", luxury: true } : DEFAULT_HOTEL_VIEW;
+  const [view, setView] = useState<HotelView>(initialView);
+  // Where the search is centred, Google's guest ratings for the leading hotels, and the website's stay picks for the city:
+  // what the recommendation ranks on (lib/hotelRank.ts).
+  const [center, setCenter] = useState<{ lat: number; lon: number } | null>(null);
+  const [ratings, setRatings] = useState<Record<string, Rating | undefined>>({});
+  const [guideStays, setGuideStays] = useState<any[]>([]);
+  const askedRatings = useRef<Set<string>>(new Set());
   const setV = (k: keyof HotelView, v: any) => setView((f) => ({ ...f, [k]: v }));
   const [layout, setLayout] = useState<"list" | "map">("list");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
   const [moreInfo, setMoreInfo] = useState<{ loaded: number; failed?: boolean } | null>(null);
   const moreRef = useRef<MoreHandle | null>(null);
+  const [nationality, setNationality] = useState("IN"); // who is travelling: sent as the listing's nationalityCode
   const searchKeyRef = useRef("");
   const sentinel = useRef<HTMLDivElement | null>(null);
   const stopMore = () => { if (moreRef.current) moreRef.current.stop(); moreRef.current = null; setMoreInfo(null); };
@@ -278,7 +282,34 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     [hotels, nights, nRooms, intl]
   );
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
-  const shown = useMemo(() => sortHotels(filterHotels(offers, view), view), [offers, view]);
+  const rankCtx: HotelRankCtx = useMemo(
+    () => ({ lat: center && center.lat, lon: center && center.lon, where: form.city, nights, rooms: nRooms, ratings, guide: guideStays, luxury: view.luxury }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [center, form.city, nights, nRooms, ratings, guideStays, view.luxury]
+  );
+  const shown = useMemo(() => sortHotels(filterHotels(offers, view, rankCtx), view, rankCtx), [offers, view, rankCtx]);
+
+  // The website's stay picks for the searched city, once per city.
+  const guideFor = useRef("");
+  useEffect(() => {
+    if (!itinerary || sub !== "results" || !form.city.trim() || guideFor.current === form.city.trim().toLowerCase()) return;
+    guideFor.current = form.city.trim().toLowerCase();
+    cityGuide(form.city.trim()).then((r: any) => setGuideStays((r && r.guide && r.guide.stay) || [])).catch(() => setGuideStays([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sub, form.city, itinerary]);
+  // Google's guest rating for the hotels that lead the ranking (up to 12 at a time, each hotel asked once), so the ranking
+  // and the "very good only" filter have it. Hotels arrive page by page, so this runs again as they do.
+  useEffect(() => {
+    if (!itinerary || sub !== "results" || !offers.length || (view.sort !== "recommended" && !view.luxury)) return;
+    const lead = rankHotels(offers.filter((o) => (o.detail.stars || 0) >= 4), { ...rankCtx, luxury: true }).slice(0, 12)
+      .map((o) => String(o.detail.hotelName || "")).filter((n) => n && !askedRatings.current.has(n));
+    if (!lead.length) return;
+    lead.forEach((n) => askedRatings.current.add(n));
+    hotelRatings(form.city.trim(), lead)
+      .then((r: any) => setRatings((m) => ({ ...m, ...lead.reduce((acc: any, n) => { acc[n] = (r && r[n]) || null; return acc; }, {}) })))
+      .catch(() => lead.forEach((n) => askedRatings.current.delete(n)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers.length, sub, view.sort, view.luxury]);
   const filterKey = viewKey(view);
   const nFilters = activeFilterCount(view);
   useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
@@ -293,7 +324,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
   const sessOf = (h: any) => (h && h._session) || session;
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
-  const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
+  const hReset = () => setView((f) => ({ ...initialView, sort: f.sort }));
 
   function runSearch() {
     onError(null);
@@ -314,7 +345,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     withLoc
       .then((top: any): Promise<any> | any => {
         const countryCode = top.country || "IN";
-        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg)]);
+        if (top.coordinates) setCenter({ lat: Number(top.coordinates.lat), lon: Number(top.coordinates.lon) });
+        const key = JSON.stringify([form.city.trim().toLowerCase(), String(top.id), form.checkIn, form.checkOut, roomsKey(roomsCfg), nationality]);
         searchKeyRef.current = key;
         const kept = keptSearch(key);
         if (kept) return { kept };
@@ -328,7 +360,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           state: resolveState(top),
           countryName: top.country || "IN",
           circularSearch: false,
-          nationalityCode: "IN",
+          nationalityCode: nationality,
           countryCode,
           partnerCall: true,
           currency: "INR",
@@ -337,7 +369,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       })
       .then((out: any) => {
         stopMore();
-        setView(DEFAULT_HOTEL_VIEW); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
+        setView(initialView); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
         if (out.kept) {
           setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setIntl(!!out.kept.international); setHotels(out.kept.hotels); setSub("results");
           return;
@@ -390,7 +422,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     setSub("rooms");
     setBusy(true);
     hotelDetailsV2({ docKey: sess.docKey, token: sess.token, hotelId: String(h.hotelKey) })
-      .then((d: any) => { if (current()) setDetails(d || {}); })
+      .then((d: any) => {
+        const bad = detailsProblem(d);
+        if (bad) throw new Error(bad);
+        if (current()) setDetails(d || {});
+      })
       .catch((e: any) => { if (current()) { onError(errText(e)); setSub("results"); } })
       .finally(() => { if (current()) setBusy(false); });
   }
@@ -407,7 +443,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   function runCheck(opt: any): Promise<any> {
     const sess = sessOf(hotel);
     if (!sess || !hotel) return Promise.reject(new Error("Open a hotel first."));
-    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code, listedTotal: opt.total })
+    return hotelPriceCheckV2({ hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code, listedTotal: opt.total })
       .then((r: any) => {
         const rate = (r.roomRates || [])[0];
         if (!rate || r.validResponse === false) {
@@ -424,6 +460,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           roomTypeCode: rate.roomType && rate.roomType.roomTypeCode, roomTypeId: rate.roomType && rate.roomType.roomTypeId,
           panRequired: !!(r.panCardRequired || (rate.roomType && rate.roomType.isPANMandatory)),
           addressRequired: !!r.customerAddressRequired,
+          passportRequired: !!(r.passportRequired || (rate.roomType && rate.roomType.isPassportMandatory)),
           instructions: plainInstructions([...(r.checkInInstructions || []), r.specialCheckInInstructions].filter(Boolean)),
           rules: ((rate.cancellationRules || [])[0] || {}).rules || [],
           policyText: typeof rate.cancellation === "string" ? rate.cancellation : "",
@@ -431,19 +468,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           bed: String((rate && rate.bedType) || "").trim(),
           sleeps: Number(rate && ((rate.maxGuestCount) || (rate.roomType && rate.roomType.maxOccupancy))) || 0,
           refundable: rate.roomType && rate.roomType.refundable != null ? !!rate.roomType.refundable : opt.refundable,
-          // what the live check says that the room list didn't (guide: show the customer any change)
-          changes: [
-            rate.roomType && rate.roomType.roomTitle && opt.title && rate.roomType.roomTitle !== opt.title ? `Room is now "${rate.roomType.roomTitle}"` : null,
-            rate.roomType && rate.roomType.refundable != null && !!rate.roomType.refundable !== opt.refundable
-              ? `Now ${rate.roomType.refundable ? "refundable" : "non-refundable"}` : null,
-            // compared by calendar day: the room list and the live check write the same deadline
-            // with different time / timezone suffixes, which is not a change
-            (() => {
-              const live = (((rate.cancellationRules || [])[0] || {}).rules || []).find((x: any) => x.valueType === "Amount" && Number(x.value) === 0 && x.end)?.end;
-              return live && opt.freeUntil && String(live).slice(0, 10) !== String(opt.freeUntil).slice(0, 10)
-                ? `Free cancellation now ends ${String(live).slice(0, 10)} (was ${String(opt.freeUntil).slice(0, 10)})` : null;
-            })(),
-          ].filter(Boolean),
+          // what the live check says that the room list didn't (guide 6.4: show the customer any change)
+          changes: liveCheckChanges({
+            liveHotelName: String(r.hotelName || (r.hotelInfo && r.hotelInfo.hotelName) || ""),
+            wasHotelName: String(((details && details.hotelInfo && details.hotelInfo.hotelName) || (hotel && hotel.hotelInfo && hotel.hotelInfo.name)) || ""),
+            rate, opt,
+          }),
         };
       });
   }
@@ -483,7 +513,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       customer: { member_id: customer.member_id, name: customer.name, email: customer.email || null },
       itinerary_id: itineraryId || null,
       order_id: itineraryId ? null : orderId || null,
-      handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
+      handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code },
       snapshot: {
         name: info.name || "Hotel",
         address: info.address || null,
@@ -511,7 +541,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         setAdded({
           orderId: r.order_id, hotelId: r.hotel_id, panRequired: !!(fresh || checks[opt.code] || {}).panRequired,
           addressRequired: !!(fresh || checks[opt.code] || {}).addressRequired,
-          handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.code },
+          passportRequired: !!(fresh || checks[opt.code] || {}).passportRequired,
+          handles: { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token, bookingCode: opt.bookingCode || opt.code },
           label: `${info.name || "Hotel"} — ${opt.title}`,
           price: (fresh || checks[opt.code] || {}).price || opt.price || null,
         });
@@ -534,7 +565,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       || mapTripSureHotel(hotel, { international: intl, nights, rooms: nRooms, docKey: sess.docKey, token: sess.token });
     const handles = { hotelId: String(hotel.hotelKey), docKey: sess.docKey, token: sess.token };
     Promise.all([
-      Promise.resolve(hotelFacts({ ...handles, bookingCode: opt.code })).catch(() => null), // a failure just adds the hotel without them
+      Promise.resolve(hotelFacts({ ...handles, bookingCode: opt.bookingCode || opt.code })).catch(() => null), // a failure just adds the hotel without them
       pricedAlternatives(hotelAlternatives(shown, offer)),
     ])
       .then(([facts, alts]) => {
@@ -552,7 +583,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           occupancy: roomsCfg,
           requests: { ...req, note: req.note.trim() },
           distance: null,
-          tripsure: { ...handles, bookingCode: opt.code, roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
+          tripsure: { ...handles, bookingCode: opt.bookingCode || opt.code, roomTypeCode: chk.roomTypeCode, roomTypeId: chk.roomTypeId, bookingAmount: chk.total },
         });
       })
       .catch((e: any) => onError(errText(e)))
@@ -566,6 +597,48 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ...and then the rooms are priced by themselves too: the cheapest rate (the "from" price Tara quoted) is checked live with TripSure
+  // and added, so the draft is replaced with no clicks. A rate TripSure says is sold out is skipped for the next cheapest (up to 5);
+  // if none can be priced the room list stays open with the reason, for the advisor to pick by hand.
+  const autoRoomRef = useRef(false);
+  useEffect(() => {
+    if (!findName || autoRoomRef.current || !details || !hotel || sub !== "rooms" || !onAddToItinerary) return;
+    autoRoomRef.current = true;
+    const list = roomOptions(details).filter((o) => o.total > 0).sort((a, b) => a.total - b.total).slice(0, 5);
+    setTimeout(async () => {
+      let last: any = null;
+      for (const opt of list) {
+        try {
+          const chk = await runCheck(opt);
+          addToItinerary(opt, chk);
+          return;
+        } catch (e: any) {
+          last = e;
+        }
+      }
+      onError("Couldn't live-price " + findName + " automatically" + (last ? ": " + errText(last) : " — no room rates were listed") + ". Pick a room below.");
+    }, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [details, hotel, sub]);
+
+  // "Get live price" on a Tara draft stay: that hotel's rooms open by themselves (once; hotels keep arriving after the first page).
+  const foundRef = useRef(false);
+  const [notFound, setNotFound] = useState(false);
+  useEffect(() => {
+    if (!findName || foundRef.current || sub !== "results") return;
+    const h = hotels.find((x: any) => sameHotelName(String((x.hotelInfo && x.hotelInfo.name) || x.name || ""), findName));
+    if (h) {
+      foundRef.current = true;
+      const t = setTimeout(() => pickHotel(h), 0);
+      return () => clearTimeout(t);
+    }
+    if (!busy && (!moreInfo || moreInfo.failed)) {
+      const t = setTimeout(() => setNotFound(true), 0);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotels, sub, busy, moreInfo]);
 
   // Skip: the advisor chose to keep the room on the order unlocked, so it shows in Orders now.
   function keepWithoutLock() {
@@ -588,12 +661,14 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       handles: added.handles,
       guest: {
         title: guest.title, firstName: guest.firstName.trim(), lastName: guest.lastName.trim(),
-        mobile: nationalMobile(guest.mobile), email: guest.email.trim(), pan: guest.pan.trim() || null,
+        mobile: nationalMobile(guest.mobile, guest.mobileCountryCode), mobileCountryCode: guest.mobileCountryCode.replace(/\D/g, "") || "91", email: guest.email.trim(), pan: guest.pan.trim() || null,
+        ...(added.passportRequired ? { passportNumber: guest.passportNumber.trim().toUpperCase(), passportExpiry: guest.passportExpiry, passportCountry: (guest.passportCountry || nationality).toUpperCase() } : {}),
         streetAddress1: guest.streetAddress1.trim(), city: guest.city.trim(), state: guest.state.trim(), postalCode: guest.postalCode.trim(),
         gstNumber: guest.gstNumber.trim().toUpperCase(), gstName: guest.gstName.trim(), gstAddress: guest.gstAddress.trim(),
         gstState: guest.gstState.trim(), gstCity: guest.gstCity.trim(), gstPincode: guest.gstPincode.trim(),
       },
       accept_changes: acceptChanges,
+      nationality, // the guest's nationality from the search: Create Itinerary's country
     })
       .then((r: any) => { draftRef.current = null; setLockInfo(r); setSub("locked"); })
       .catch((e: any) => {
@@ -607,6 +682,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   if (sub === "search") {
     return (
       <>
+        <HotelApiStatus />
+        <GuestNationality value={nationality} onChange={setNationality} disabled={busy} />
         <HotelSearchBar
           city={form.city} onCity={(v) => set("city", v)}
           location={location} onLocation={setLocation}
@@ -639,10 +716,17 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </span>
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => { stopMore(); setSub("search"); }}>Change search</button>
         </div>
+        {findName && notFound ? (
+          <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>
+            {findName} isn&apos;t in TripSure&apos;s results for these dates — it may be sold out or not sold through TripSure. Pick another hotel below; it replaces the draft.
+          </div>
+        ) : null}
         {offers.length > 0 ? (
           <div className="ow-fchips">
             {chip(layout === "list", "List", () => setLayout("list"), "list")}
             {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
+            {itinerary ? chip(view.sort === "recommended", "Recommended", () => setV("sort", "recommended"), "star") : null}
+            {itinerary ? chip(view.luxury, "5-star, top-rated", () => setV("luxury", !view.luxury)) : null}
             {chip(view.sort === "best", "Best value", () => setV("sort", "best"))}
             {chip(view.sort === "cheapest", "Price ↑", () => setV("sort", view.sort === "cheapest" ? "best" : "cheapest"))}
             {chip(view.sort === "priceDesc", "Price ↓", () => setV("sort", view.sort === "priceDesc" ? "best" : "priceDesc"))}
@@ -718,6 +802,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
                       <span>{info.city || form.city}</span>
                     </div>
                     {info.address ? <div className="ow-hcard-addr">{info.address}</div> : null}
+                    {itinerary && view.sort === "recommended" && o._rec ? (
+                      <div className="ow-hcard-addr" style={{ opacity: 0.9 }}>
+                        {o._rec.rank <= 3 ? <b>{`Recommended #${o._rec.rank}: `}</b> : null}
+                        {o._rec.reasons.slice(0, 5).join(" · ")}
+                      </div>
+                    ) : null}
                     <div className="ow-fcard-tags" style={{ border: 0, paddingTop: 0 }}>
                       {hOpt(h, "freeCancellation") || (best && best.refundability === "Refundable") ? <span className="ow-tag ok">Free cancellation</span> : null}
                       {hOpt(h, "freeBreakfast") ? <span className="ow-tag ok">Breakfast included</span> : null}
@@ -756,8 +846,10 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     const pan = guest.pan.trim().toUpperCase();
     const panBad = (added.panRequired && !pan) || (pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan));
     const gstOk = guest.gstNumber.trim() === "" || guest.gstNumber.trim().length === 15;
+    const ppNo = guest.passportNumber.trim().toUpperCase();
+    const ppBad = added.passportRequired && (!/^[A-Z0-9]{6,9}$/.test(ppNo) || !guest.passportExpiry || Date.parse(guest.passportExpiry) <= Date.parse(form.checkOut));
     const addrBad = added.addressRequired && !(guest.streetAddress1.trim() && guest.city.trim() && guest.postalCode.trim());
-    const ready = guest.firstName.trim() && guest.lastName.trim() && /^\d{10}$/.test(nationalMobile(guest.mobile)) && guest.email.includes("@") && !panBad && !addrBad && gstOk;
+    const ready = guest.firstName.trim() && guest.lastName.trim() && mobileOk(nationalMobile(guest.mobile, guest.mobileCountryCode), guest.mobileCountryCode.replace(/\D/g, "") || "91") && guest.email.includes("@") && !panBad && !addrBad && !ppBad && gstOk;
     return (
       <>
         <div className="taw-banner taw-banner--info">
@@ -772,7 +864,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <span />
           <Field label="First name" htmlFor="nbg-fn"><input className="taw-input" value={guest.firstName} onChange={(e) => setG("firstName", e.target.value)} /></Field>
           <Field label="Last name" htmlFor="nbg-ln"><input className="taw-input" value={guest.lastName} onChange={(e) => setG("lastName", e.target.value)} /></Field>
-          <Field label="Mobile (India, 10 digits)" htmlFor="nbg-mob"><input className="taw-input" inputMode="numeric" value={guest.mobile} onChange={(e) => setG("mobile", e.target.value)} /></Field>
+          <Field label="Mobile country code" htmlFor="nbg-cc"><input className="taw-input" inputMode="numeric" maxLength={4} placeholder="91" value={guest.mobileCountryCode} onChange={(e) => setG("mobileCountryCode", e.target.value.replace(/\D/g, ""))} /></Field>
+          <Field label={guest.mobileCountryCode === "91" || !guest.mobileCountryCode ? "Mobile (10 digits)" : "Mobile (without the country code)"} htmlFor="nbg-mob"><input className="taw-input" inputMode="numeric" value={guest.mobile} onChange={(e) => setG("mobile", e.target.value)} /></Field>
           <Field label="Email" htmlFor="nbg-em"><input className="taw-input" type="email" value={guest.email} onChange={(e) => setG("email", e.target.value)} /></Field>
         </div>
         {added.panRequired ? (
@@ -782,6 +875,17 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             onChange={(e) => setG("pan", e.target.value.toUpperCase())} />
         </Field>
         <div className="ow-sub" style={{ whiteSpace: "normal" }}>PAN is sent to Tripsure only and is never stored.</div>
+          </>
+        ) : null}
+        {added.passportRequired ? (
+          <>
+            <div className="taw-banner taw-banner--info">This rate needs the guest&apos;s passport.</div>
+            <div className="ow-grid2">
+              <Field label="Passport number" htmlFor="nbg-pp"><input className="taw-input" maxLength={9} value={guest.passportNumber} onChange={(e) => setG("passportNumber", e.target.value.toUpperCase())} /></Field>
+              <Field label="Passport expiry" htmlFor="nbg-ppx"><input className="taw-input" type="date" value={guest.passportExpiry} onChange={(e) => setG("passportExpiry", e.target.value)} /></Field>
+              <Field label="Issuing country (ISO code)" htmlFor="nbg-ppc"><input className="taw-input" maxLength={2} placeholder={nationality} value={guest.passportCountry} onChange={(e) => setG("passportCountry", e.target.value.toUpperCase())} /></Field>
+            </div>
+            {guest.passportExpiry && Date.parse(guest.passportExpiry) <= Date.parse(form.checkOut) ? <div className="ow-sub" style={{ color: "var(--danger, #b00020)" }}>The passport must be valid beyond the check-out date.</div> : null}
           </>
         ) : null}
         {added.addressRequired ? (
@@ -836,6 +940,16 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <b>Room locked with Tripsure</b>
           <div>Reference {lockInfo.partner_reference_id}</div>
           <div>Locked amount {inr(Number(lockInfo.locked_total))}</div>
+          {lockInfo.confirmed && lockInfo.confirmed.message ? <div className="ow-sub" style={{ whiteSpace: "normal" }}>{lockInfo.confirmed.message}</div> : null}
+          {lockInfo.price_changed ? (
+            <div className="taw-banner taw-banner--warn" role="alert" style={{ marginTop: 8, flexDirection: "column", alignItems: "flex-start" }}>
+              <b>The price changed when the room was locked: was {inr(Number(lockInfo.previous_total))}, now {inr(Number(lockInfo.locked_total))}.</b>
+              <span style={{ fontSize: 12 }}>Tell the customer the new amount and get their OK before recording any payment.</span>
+            </div>
+          ) : null}
+          {lockInfo.confirmed && lockInfo.confirmed.rate_breakdown ? (
+            <PriceBreakdown price={{ base: Number(lockInfo.confirmed.rate_breakdown.baseFare) || 0, tax: Number(lockInfo.confirmed.rate_breakdown.tax) || 0, total: Number(lockInfo.confirmed.rate_breakdown.total) || Number(lockInfo.locked_total) }} nights={nights >= 1 ? nights : 1} rooms={nRooms} />
+          ) : null}
           <div className="ow-sub" style={{ whiteSpace: "normal" }}>
             The lock is short-lived. Next, on the order: add the travellers, record the payment and confirm the hotel from Booking progress.
           </div>
@@ -1233,6 +1347,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
                       <b>{r.board || (isBreakfast(r) ? "Breakfast included" : "Room only")}</b>
                       {r.inclusions ? <small>{r.inclusions}</small> : null}
                       <small className={r.refundable ? "ok" : "no"}>{r.refundable ? "Free cancellation" : "Non-refundable booking"}</small>
+                      {r.requires && r.requires.length ? <small className="no">{r.requires.join(" · ")} to book</small> : null}
                       {gone ? <small className="no"><b>Sold out</b> - Tripsure can&apos;t book this rate any more</small> : null}
                     </span>
                     <span className="ow-rate-pr">
@@ -1286,7 +1401,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
               <h3 className="ow-hd-name">{name}</h3>
               <div className="ow-hcard-sub">
                 {stars ? <span className="ow-hcard-stars">{"★".repeat(Math.min(5, Math.round(stars)))}</span> : null}
-                <span>{[listInfo.address || info.address, listInfo.city || info.city].filter(Boolean).join(", ")}</span>
+                <span>{[listInfo.address || info.address, listInfo.city || info.city, info.state].filter(Boolean).join(", ")}</span>
+                {details && details.partnerName ? <span className="ow-tag" title="Supplier that answered Hotel Details">via {details.partnerName}</span> : null}
                 {review && review.rating ? <span className="ow-tag">{review.rating}/5{review.count ? ` · ${review.count} review${review.count === "1" ? "" : "s"}` : ""}</span> : null}
               </div>
             </div>

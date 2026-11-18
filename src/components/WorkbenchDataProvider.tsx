@@ -565,7 +565,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // outright. Same "Building" signal as the scratch path: a real itinerary now exists.
   function loadTaraItinerary(enquiryId: string, itinerary: any) {
     if (refuseIfLocked(enquiryId)) return;
-    setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: itinerary }));
+    // The customer's budget belongs to the trip, not to one draft: it stays when a plan replaces the itinerary.
+    setItinerariesByEnquiry((m) => ({ ...m, [enquiryId]: m[enquiryId]?.budget && !itinerary.budget ? { ...itinerary, budget: m[enquiryId].budget } : itinerary }));
     setParkedItineraries((p) => {
       if (!p[enquiryId]) return p;
       const { [enquiryId]: _dropped, ...rest } = p;

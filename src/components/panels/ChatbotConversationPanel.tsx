@@ -24,10 +24,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { relTime } from "../../lib/relTime";
-import { getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
+import { addConversationBudget, getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 import MeshBackdrop from "../chat/MeshBackdrop";
-import { toast } from "../../lib/advisorHelpers";
+import { isAdmin, toast } from "../../lib/advisorHelpers";
 import "../../styles/convo-dark.css"; // the chatbot's dark surface for this card
 import { pullTripLinks } from "../../lib/taraTripLinks";
 import { TaraTripCard } from "./TaraTripCard";
@@ -56,6 +56,9 @@ interface Usage {
   spentUsd: number;
   capUsd: number | null;
   remainingUsd: number | null;
+  /** the base cap every code gets, and what admins have added for this one (both in USD) */
+  baseCapUsd?: number | null;
+  extraUsd?: number;
 }
 
 // WhatsApp's own mark (filled, so it keeps its green), for the "open WhatsApp" link in the header.
@@ -276,18 +279,62 @@ export function ChatbotConversationPanel({ member }: any) {
     return () => { cancelled = true; };
   }, [baseCode, memberKey, memberId, memberAltId, memberPhone, memberWaPhone, memberEmail]);
   const code = baseCode || (fallback.key === memberKey ? fallback.code : "");
-  const digits = waDigits(member && member.phone);
+  const digits = waDigits(member && (member.phone || member.wa_phone));
+  // Read by the thread loaders below without restarting them when it changes.
+  const phoneRef = useRef("");
+  useEffect(() => { phoneRef.current = digits; }, [digits]); // declared before the loaders, so it is set before their first read
   const waLink = digits ? "https://wa.me/" + digits : null;
   // The customer's own Tara chat on the website, opened signed in as them: the chatbot signs a member in from the
   // access code in the #fragment (never sent to a server), so the advisor sees the same conversation the customer does.
   const siteChatBase = ((process.env.NEXT_PUBLIC_TARA_CHAT_URL as string | undefined) || "https://chatbot.tripagent.vip/chat").trim();
   const siteChatLink = code ? siteChatBase + "#code=" + encodeURIComponent(code) : null;
 
+  // An admin adding budget for THIS customer's AI-desk conversation (the $5 cap): the amount chosen and whether it is saving.
+  const [topAmount, setTopAmount] = useState(5);
+  const [topBusy, setTopBusy] = useState(false);
+  const [topErr, setTopErr] = useState<string | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const usageRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    if (!usageOpen) return;
+    const close = (e: MouseEvent) => { if (usageRef.current && !usageRef.current.contains(e.target as Node)) setUsageOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setUsageOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [usageOpen]);
+
   const [convo, setConvo] = useState<ConvoState>(() => emptyConvo(""));
   const cur = convo.code === code ? convo : null;
   const messages = cur ? cur.messages : NO_MESSAGES;
   const usage = cur ? cur.usage : null;
   const error = cur ? cur.error : null;
+  const canAddBudget = isAdmin();
+  // A refresh that missed (the backend waking or restarting) must not flash a notice over the thread: it is shown only once the
+  // connection trouble has lasted a few seconds, and it goes the moment a refresh gets through.
+  const connIssue = !!error && messages.length > 0 && isConnectionError(error);
+  const [connLate, setConnLate] = useState(false);
+  useEffect(() => {
+    if (!connIssue) return;
+    const t = setTimeout(() => setConnLate(true), 6000);
+    return () => { clearTimeout(t); setConnLate(false); };
+  }, [connIssue]);
+  const showConn = connIssue && connLate;
+  async function addBudget() {
+    if (!code || topBusy) return;
+    setTopBusy(true);
+    setTopErr(null);
+    try {
+      const r: any = await addConversationBudget(code, topAmount);
+      // Show the new cap at once; the next poll confirms it.
+      if (r && r.usage) setConvo((prev) => (prev.code === code ? { ...prev, usage: r.usage } : prev));
+      toast("$" + topAmount + " added: Tara can reply to this customer again", "success");
+    } catch (e: any) {
+      setTopErr(String((e && e.message) || "Could not add the extra budget."));
+    } finally {
+      setTopBusy(false);
+    }
+  }
   const firstItemIndex = cur ? cur.firstItemIndex : START_INDEX;
   const hasMore = cur ? cur.hasMore : false;
   const olderLoading = cur ? cur.olderLoading : false;
@@ -386,7 +433,7 @@ export function ChatbotConversationPanel({ member }: any) {
     // chatbot-be. A failure is kept distinct from "empty" so an outage never reads as
     // "no conversation".
     function fullLoad(): Promise<void> {
-      const realP = getRealWhatsAppMessages(code, { limit: PAGE_SIZE })
+      const realP = getRealWhatsAppMessages(code, { limit: PAGE_SIZE, phone: phoneRef.current })
         .then((d: any) => (d && Array.isArray(d.messages) ? d : { messages: [] }))
         .catch((e: any) => ({ __err: e }));
       return Promise.all([getChatbotConversation(code).catch((e: any) => ({ __err: e })), realP])
@@ -420,7 +467,7 @@ export function ChatbotConversationPanel({ member }: any) {
     function poll(newest: string, hadUsage: boolean): Promise<void> {
       const wantUsage = hadUsage && tick % USAGE_EVERY === 0;
       return Promise.all([
-        getRealWhatsAppMessages(code, { after: newest, timeoutMs: 12000 }),
+        getRealWhatsAppMessages(code, { after: newest, timeoutMs: 12000, phone: phoneRef.current }),
         wantUsage ? getChatbotConversation(code).catch(() => null) : Promise.resolve(null),
       ]).then(([r, conv]: any[]) => {
         if (cancelled) return;
@@ -505,7 +552,7 @@ export function ChatbotConversationPanel({ member }: any) {
     if (olderBusyRef.current === code) return;
     olderBusyRef.current = code;
     setConvo((prev) => (prev.code === code ? { ...prev, olderLoading: true, olderError: null } : prev));
-    getRealWhatsAppMessages(code, { limit: PAGE_SIZE, before: snap.nextBefore })
+    getRealWhatsAppMessages(code, { limit: PAGE_SIZE, before: snap.nextBefore, phone: phoneRef.current })
       .then((r: any) => {
         setConvo((prev) => {
           if (prev.code !== code) return prev;
@@ -631,8 +678,50 @@ export function ChatbotConversationPanel({ member }: any) {
       title="Conversation"
       icon={<Icon name="chat" size={20} />}
       sub={member ? "with " + ((member && member.name) || code) : "no customer selected"}
-      actions={member || siteChatLink || waLink ? (
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      actions={usage || member || siteChatLink || waLink ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "nowrap", justifyContent: "flex-end" }}>
+          {usage ? (
+            (() => {
+              const capped = !!usage.capUsd;
+              const left = usage.remainingUsd ?? 0;
+              const pct = capped ? Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100)) : 0;
+              const out = capped && left <= 0;
+              const danger = out || pct >= 90;
+              return (
+                <span className="cv-usechip" ref={usageRef}>
+                  <button type="button" className={"cv-usebtn" + (danger ? " is-danger" : "")} aria-expanded={usageOpen} aria-haspopup="dialog"
+                    title="Claude usage for this customer: click for details" onClick={() => setUsageOpen((v) => !v)}>
+                    <span>{capped ? (out ? "Budget used up" : "Claude $" + usage.spentUsd.toFixed(2) + " / $" + usage.capUsd!.toFixed(2)) : "Claude $" + usage.spentUsd.toFixed(2)}</span>
+                    {capped ? <span className="cv-usebtn__bar" aria-hidden="true"><i className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} /></span> : null}
+                    {canAddBudget && capped ? <b aria-hidden="true">+</b> : null}
+                  </button>
+                  {usageOpen ? (
+                    <div className="cv-usepop" role="dialog" aria-label="Claude usage for this customer">
+                      <div className="cv-usage__row"><b>Claude usage</b>
+                        <span>{capped ? "$" + usage.spentUsd.toFixed(2) + " of $" + usage.capUsd!.toFixed(2) + " used · $" + left.toFixed(2) + " left" : "$" + usage.spentUsd.toFixed(2) + " (no cap set)"}</span>
+                      </div>
+                      {capped ? <div className="cv-usage__bar"><div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} /></div> : null}
+                      {usage.extraUsd && usage.extraUsd > 0 ? <div className="cv-usepop__note">Includes ${usage.extraUsd.toFixed(2)} added for this customer</div> : null}
+                      {out ? (
+                        <div role="alert" className="cv-usepop__warn">Tara has stopped replying to this customer{canAddBudget ? "." : ". Ask an admin to add more."}</div>
+                      ) : null}
+                      {canAddBudget && capped ? (
+                        <div className="cv-usepop__add">
+                          <select value={topAmount} disabled={topBusy} onChange={(e) => setTopAmount(Number(e.target.value))} aria-label="Amount to add in US dollars">
+                            {[5, 10, 20, 50].map((n) => <option key={n} value={n} style={{ color: "#111" }}>${n}</option>)}
+                          </select>
+                          <button type="button" className="cv-btn" disabled={topBusy} onClick={addBudget}>
+                            {topBusy ? "Adding…" : "Add $" + topAmount + " for this customer"}
+                          </button>
+                          {topErr ? <span role="alert" className="cv-usepop__warn">{topErr}</span> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </span>
+              );
+            })()
+          ) : null}
           {siteChatLink ? (
             <a
               href={siteChatLink}
@@ -687,43 +776,22 @@ export function ChatbotConversationPanel({ member }: any) {
         <div style={{ display: "flex", flexDirection: "column", flex: "1 1 auto", minHeight: 480 }}>
           {(() => {
             const pl = presenceLine(presence, Date.now());
-            return pl ? (
-              <div aria-live="polite" className={"cv-presence" + (pl.online ? " is-online" : "")}>
-                <i />
-                {pl.text}
+            return pl || showConn ? (
+              <div aria-live="polite" className={"cv-presence" + (pl && pl.online ? " is-online" : "")}>
+                {pl ? (<><i />{pl.text}</>) : null}
+                {showConn ? (
+                  <span className="cv-conn" role="status">
+                    <i />
+                    Reconnecting: new messages may be delayed
+                    <button type="button" className="cv-link" onClick={() => reloadRef.current && reloadRef.current()}>Retry</button>
+                  </span>
+                ) : null}
               </div>
             ) : null;
           })()}
-          {usage && usage.capUsd ? (
-            (() => {
-              const pct = Math.min(100, Math.round((usage.spentUsd / usage.capUsd!) * 100));
-              const danger = pct >= 90;
-              return (
-                <div className="cv-usage">
-                  <div className="cv-usage__row">
-                    <b>Claude usage</b>
-                    <span>
-                      ${usage.spentUsd.toFixed(2)} of ${usage.capUsd!.toFixed(2)} used · ${(usage.remainingUsd ?? 0).toFixed(2)} left
-                    </span>
-                  </div>
-                  <div className="cv-usage__bar">
-                    <div className={danger ? "is-danger" : ""} style={{ width: pct + "%" }} />
-                  </div>
-                </div>
-              );
-            })()
-          ) : usage ? (
-            <div className="cv-usage">
-              Claude usage: ${usage.spentUsd.toFixed(2)} (no cap set)
-            </div>
-          ) : null}
-          {error && messages.length > 0 ? (
+          {error && messages.length > 0 && !isConnectionError(error) ? (
             <div role="alert" className="cv-banner">
-              <span>
-                {isConnectionError(error)
-                  ? "The connection is slow, so new messages may be delayed. Showing the last messages loaded; retrying."
-                  : <>Couldn&apos;t refresh: {error} Showing the last messages loaded.</>}
-              </span>
+              <span>Couldn&apos;t refresh: {error} Showing the last messages loaded.</span>
               <button type="button" className="cv-link" onClick={() => reloadRef.current && reloadRef.current()}>
                 Retry
               </button>

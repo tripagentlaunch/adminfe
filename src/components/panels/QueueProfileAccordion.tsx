@@ -175,7 +175,7 @@ export function QueueProfileAccordion(props: any) {
               ) : travellerProfileLoading ? (
                 <Empty icon={<Icon name="user" size={26} />}>Loading traveller profile…</Empty>
               ) : travellerProfile ? (
-                <Member360 member={travellerProfile.member} enquiry={travellerProfile.enquiry} />
+                <Member360 member={travellerProfile.member} enquiry={travellerProfile.enquiry} websiteQueries={travellerProfile.website_queries} />
               ) : (
                 <Empty icon={<Icon name="user" size={26} />}>
                   Couldn&apos;t load this traveller&apos;s profile — try selecting the enquiry again.

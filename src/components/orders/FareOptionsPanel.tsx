@@ -52,6 +52,8 @@ export function FareOptionsList({ offer, selected, onSelect }: {
 
   const [opts, setOpts] = useState<Option[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // Airline sources that did not answer (guide 4 / 6.3: errors[] inside a 200 is a partial answer, not a failure).
+  const [sourceErrs, setSourceErrs] = useState<string[]>([]);
   const [rules, setRules] = useState<Record<string, { busy?: boolean; err?: string; sectors?: any[] }>>({});
   const [open, setOpen] = useState<string | null>(null);
 
@@ -68,6 +70,7 @@ export function FareOptionsList({ offer, selected, onSelect }: {
         if (!live) return;
         const list: Option[] = r.options || [];
         setOpts(list);
+        setSourceErrs(Array.isArray(r.errors) ? r.errors : []);
         // Nothing chosen yet: the searched fare is the selected one (as on TripSure).
         if (!selected) onSelect(list.find((o) => o.is_current) || list[0] || fallback);
       })
@@ -95,6 +98,11 @@ export function FareOptionsList({ offer, selected, onSelect }: {
       {err ? (
         <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
           Couldn&apos;t load the other fare options ({err}). The fare you searched is selected — you can continue with it.
+        </div>
+      ) : null}
+      {!err && sourceErrs.length ? (
+        <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+          {(opts || []).length ? "Some fare options may be missing" : "No other fare options came back"}: an airline source did not answer ({sourceErrs.join("; ")}).
         </div>
       ) : null}
       {(opts || []).map((o) => {
@@ -140,6 +148,7 @@ export function FareOptionsList({ offer, selected, onSelect }: {
                   <div key={s.route}>
                     <div className="ow-sub"><b>{s.route}</b>{s.rebooking_allowed === false ? " · rerouting not allowed" : ""}{s.partial_cancel_allowed === false ? " · no partial cancellation" : ""}</div>
                     {s.warnings.map((w: string, i: number) => <div key={i} className="taw-banner taw-banner--warn">{w}</div>)}
+                    {s.summary ? <RulesSummary s={s.summary} /> : null}
                     {s.rules.map((x: any, i: number) => (
                       <div key={i} className="ow-fare-rule"><b>{x.category}</b><span>{x.text}</span></div>
                     ))}
@@ -153,4 +162,24 @@ export function FareOptionsList({ offer, selected, onSelect }: {
       })}
     </div>
   );
+}
+
+// Guide 6.6's penaltySummary / noShowPolicy: the headline of a fare's rules, above the rule text.
+function penaltyText(label: string, p: any): string | null {
+  if (!p) return null;
+  const part = (when: string, e: any) =>
+    !e ? null : e.allowed === false ? `${when} departure: not allowed` : `${when} departure: ${e.fee != null ? inr(e.fee) : "allowed"}`;
+  const bits = [part("Before", p.before), part("after", p.after)].filter(Boolean);
+  return bits.length ? `${label} — ${bits.join("; ")}` : null;
+}
+
+function RulesSummary({ s }: { s: any }) {
+  const lines = [
+    s.refundable === true ? "Refundable" : s.refundable === false ? "Non-refundable" : null,
+    penaltyText("Cancellation", s.cancellation),
+    penaltyText("Date change", s.date_change),
+    s.no_show ? (s.no_show.message || (s.no_show.window_hours != null ? `No-show within ${s.no_show.window_hours} hours` : null)) : null,
+  ].filter(Boolean) as string[];
+  if (!lines.length) return null;
+  return <ul className="fi-fare-feat fi-fare-rules">{lines.map((t, i) => <li key={i}>{t}</li>)}</ul>;
 }

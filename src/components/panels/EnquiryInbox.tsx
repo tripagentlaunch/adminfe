@@ -8,6 +8,7 @@
 import { cx } from "../../lib/cx";
 import { enqSla } from "../../lib/advisorHelpers";
 import { Empty, Icon, SleekScroll } from "../ui";
+import { detailOf, EMPTY_NOTE, isWebsiteQuery } from "../../lib/enquiryDetail";
 
 export function EnquiryInbox(props: any) {
   const { enquiries, membersById, loading, selectedId } = props;
@@ -60,7 +61,8 @@ export function EnquiryInbox(props: any) {
       {ordered.map((e: any) => {
         const m = e.member_id ? membersById[e.member_id] : null;
         const intent = e.intent || {};
-        let dests = intent.destinations || intent.destination || [];
+        const det = detailOf(e.detail);
+        let dests = intent.destinations || intent.destination || det.destination || [];
         if (typeof dests === "string") dests = [dests];
         let services = intent.services || [];
         if (typeof services === "string") services = [services];
@@ -71,14 +73,17 @@ export function EnquiryInbox(props: any) {
         // the breach/ok color still lines up with the real SLA state.
         const createdMs = e.created_at ? new Date(e.created_at).getTime() : 0;
         const hours = createdMs ? Math.floor(Math.max(0, Date.now() - createdMs) / 3600000) : null;
-        const pax = e.ask && e.ask.persons ? e.ask.persons.length : null;
+        const pax = e.ask && e.ask.persons ? e.ask.persons.length : /^\d+$/.test(String(det.travelers_count || "")) ? Number(det.travelers_count) : null;
+        // Sent from the website's Plan a trip (/enquire) form.
+        const fromForm = isWebsiteQuery(e);
         const bookings = (services || []).map((s: string) => s.charAt(0).toUpperCase() + s.slice(1)).join(" + ");
         const destText = (dests || []).slice(0, 2).join(", ");
         // "Departure day" — the enquiry data model only carries a month
         // (ask.dates), not an exact calendar date, for the 3 mock
         // enquiries; real Supabase enquiries don't have `ask` at all yet.
         // Shows what's actually known rather than inventing a day.
-        const departs = e.ask && e.ask.dates && e.ask.dates.month ? "Departs " + e.ask.dates.month : "No dates yet";
+        const departs = e.ask && e.ask.dates && e.ask.dates.month ? "Departs " + e.ask.dates.month
+          : det.travel_window ? String(det.travel_window) : "No dates yet";
         return (
           <button
             key={e.id}
@@ -98,6 +103,7 @@ export function EnquiryInbox(props: any) {
               <div className="taw-enq-name">
                 {m ? m.name : "New lead"}
                 {pax ? <span className="taw-enq-pax">· {pax} pax</span> : null}
+                {fromForm ? <span className="taw-chip taw-chip--dom" style={{ marginLeft: 6 }} title="Sent from the website's Plan a trip form">Website enquiry</span> : null}
               </div>
               {hours != null ? (
                 <span className={"taw-enq-hours" + (sla && sla.cls === "breach" ? " is-breach" : "")}>{hours}h</span>
@@ -108,7 +114,10 @@ export function EnquiryInbox(props: any) {
               {destText && bookings ? " · " : ""}
               {bookings}
             </div>
-            <div className="taw-enq-depart">{departs}</div>
+            <div className="taw-enq-depart">{departs}{det.budget_total ? " · " + det.budget_total : ""}</div>
+            {fromForm && e.message && e.message !== EMPTY_NOTE ? (
+              <div className="taw-enq-depart" style={{ fontStyle: "italic" }}>“{e.message}”</div>
+            ) : null}
           </button>
         );
       })}

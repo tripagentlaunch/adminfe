@@ -10,8 +10,12 @@
 // hotels alone until a price filter is chosen, and the price filter is offered only when some
 // hotel has a price.
 
+import { luxuryPool, rankHotels, type HotelRankCtx } from "./hotelRank";
+
 export type HotelView = {
   sort: string;
+  /** Luxury only: 5-star hotels guests rate very highly (see hotelRank.ts). */
+  luxury: boolean;
   stars: string;
   refundable: boolean; // free cancellation
   board: string;
@@ -24,6 +28,7 @@ export type HotelView = {
 
 export const DEFAULT_HOTEL_VIEW: HotelView = {
   sort: "best",
+  luxury: false,
   stars: "any",
   refundable: false,
   board: "all",
@@ -130,10 +135,10 @@ function parsePrice(price: string): { min: number | null; max: number | null } |
 
 const fold = (x: string) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
-export function filterHotels(offers: any[], view: HotelView): any[] {
+export function filterHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx): any[] {
   const range = parsePrice(view.price);
   const words = fold(view.name || "").split(/\s+/).filter(Boolean);
-  return offers.filter((o) => {
+  const kept = offers.filter((o) => {
     const d = (o && o.detail) || {};
     if (words.length) {
       const hay = fold(String(d.hotelName || "") + " " + String(d.address || ""));
@@ -154,9 +159,11 @@ export function filterHotels(offers: any[], view: HotelView): any[] {
     }
     return true;
   });
+  return view.luxury ? luxuryPool(kept, (ctx && ctx.ratings) || {}) : kept;
 }
 
-export function sortHotels(offers: any[], view: HotelView): any[] {
+export function sortHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx): any[] {
+  if (view.sort === "recommended" && ctx) return rankHotels(offers, { ...ctx, luxury: view.luxury });
   const priced = offers.map(offerNet).filter((n) => n > 0);
   const minNet = priced.length ? Math.min.apply(null, priced) : 0;
   const stars = (o: any) => (o.detail || {}).stars || 0;
@@ -186,12 +193,13 @@ export function sortHotels(offers: any[], view: HotelView): any[] {
 
 /** Changes whenever the advisor changes a filter or the sort, but not when more hotels arrive. */
 export function viewKey(view: HotelView): string {
-  return JSON.stringify([view.sort, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType, view.name || ""]);
+  return JSON.stringify([view.sort, view.luxury, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType, view.name || ""]);
 }
 
 /** Number of filters switched on (the sort order is not a filter). */
 export function activeFilterCount(view: HotelView): number {
   return (
+    (view.luxury ? 1 : 0) +
     (view.stars !== "any" ? 1 : 0) +
     (view.refundable ? 1 : 0) +
     (view.breakfast ? 1 : 0) +

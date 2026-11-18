@@ -11,6 +11,7 @@
  * behavior to the original — this is a port, not a rewrite.
  * ===========================================================================*/
 import { accessToken } from "./auth";
+import { noSupplierAnswered } from "../lib/searchOutage";
 import { AIRPORTS } from "../lib/airports";
 import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
 import { detailToText } from "../lib/errText";
@@ -1471,6 +1472,11 @@ function siteSuperKeys() {
   return adminbeSuperKeyCall("", "GET");
 }
 
+// A new super key: { label, code? (8 letters/digits; one is made if blank), expires_in_days? } -> { code, label, active, expires_at }
+function siteCreateSuperKey(body) {
+  return adminbeSuperKeyCall("", "POST", body || {});
+}
+
 function siteSetSuperKeyActive(code, active) {
   return adminbeSuperKeyCall("/" + encodeURIComponent(code) + "/active", "POST", { active: !!active });
 }
@@ -1478,8 +1484,58 @@ function siteSetSuperKeyActive(code, active) {
 // siteApproveAccessRequest(id) -> { ok, code, link, email_sent, ... } — a
 // real invite code, emailed to the applicant. email_sent=false means the
 // send failed; the code is still valid and the UI shows it for sharing.
-function siteApproveAccessRequest(id) {
-  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", {});
+// opts (optional): { seats: 1-10 } lets that many people join with this one invitation (default: just them);
+// { expiry_days } sets how long they have to claim it; { new_code: true } gives THIS email its own code even though the phone number
+// already belongs to a member (the same person's second address). Returns { code, link, expires_at, email_sent, first_name, phone, seats }.
+function siteApproveAccessRequest(id, opts?) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/approve", "POST", opts || {});
+}
+
+// Sharing an approved person's invitation (adminbe /admin/access-requests/{id}/...):
+//   resend  -> emails their live code again       nudge  -> a reminder email for one nobody has claimed
+//   reissue -> a new code (and 14 days); the old one stops working
+// each returns { code, link, email_sent, email_error, first_name, phone }.
+function siteResendInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/resend", "POST", {});
+}
+function siteNudgeInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/nudge", "POST", {});
+}
+function siteReissueInvite(id) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/reissue", "POST", {});
+}
+// How many people in all can join with this invitation (1-10). -> { seats, seats_used }
+function siteSetInviteSeats(id, seats) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/seats", "POST", { seats: seats });
+}
+// Add one more person to an approved invitation: { name, email, phone? }. They get an invitation of their own (their own link,
+// chat and login), emailed to them, and the claim page asks them nothing. -> { code, link, first_name, phone, email_sent, email_error }
+function siteAddInvitePerson(id, body) {
+  return adminbeAccessRequestCall("/" + encodeURIComponent(id) + "/people", "POST", body || {});
+}
+// An added person's own invitation code: "resend" emails them again, "revoke" takes their place back (their access ends if they
+// had claimed, and the place is free again).
+function adminbeInviteCodeCall(code, action) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/invite-codes/" + encodeURIComponent(code) + "/" + action, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: "{}",
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
+      }
+      return data;
+    });
+  });
+}
+function siteResendInvitePerson(code) {
+  return adminbeInviteCodeCall(code, "resend");
+}
+function siteRevokeInviteSeat(code) {
+  return adminbeInviteCodeCall(code, "revoke");
 }
 
 // siteDenyAccessRequest(id, declineReason?) -> { ok: true }
@@ -1614,6 +1670,9 @@ function currentHotelJourney() {
   return hotelJourney;
 }
 
+// Tripsure answers HTTP 429 when a rate limit is hit (guide section 4): back off, don't hammer it.
+var RATE_LIMIT_MSG = "Tripsure is receiving too many requests right now. Wait a few seconds, then try again.";
+
 function fastapiHotelCall(path, options) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
@@ -1631,7 +1690,7 @@ function fastapiHotelCall(path, options) {
   }, options.signal).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
-        throw new ApiError(body.detail || "Hotel request failed.", { status: res.status, body: body });
+        throw new ApiError(body.detail || (res.status === 429 ? RATE_LIMIT_MSG : "Hotel request failed."), { status: res.status, body: body });
       }
       return body;
     });
@@ -1681,6 +1740,31 @@ function hotelFacts(payload) {
 // ({hotelId: {...} | null}). Prices the swap alternatives saved with a stay.
 function hotelRates(hotels) {
   return fastapiHotelCall("/hotels/rates", { method: "POST", body: { hotels: hotels } });
+}
+
+// hotelRatings(city, names[]) — POST /hotels/ratings: Google's guest rating for up to 15 hotels,
+// { name: { rating, reviews } | null }. Ranks the hotels the builder lists (never shown as TripSure's).
+function hotelRatings(city, names) {
+  return fastapiHotelCall("/hotels/ratings", { method: "POST", body: { city: city || null, names: names } });
+}
+
+// cityGuide(city) — GET /hotels/city-guide: the website's city page for a city (where to base yourself, and its
+// stay / eat / do / after-dark picks, best tier first), { guide: {...} | null }.
+// whereToEat(city) — GET /hotels/where-to-eat: the website's "Where to eat" for a city exactly as its city page lists it
+// (photo, tag, awards, area; best tier first), { guide: {city, slug, url, source, items: [...]} | null }.
+function whereToEat(city) {
+  return fastapiHotelCall("/hotels/where-to-eat?city=" + encodeURIComponent(city), { method: "GET" });
+}
+
+// whereToEatDistances({ origin: {lat, lng}, items: [{id, place_id}] }) — POST /hotels/where-to-eat/distances: how far each
+// restaurant is from the hotel, { results: { id: {km, minutes, approx} | null }, note }.
+function whereToEatDistances(payload) {
+  return fastapiHotelCall("/hotels/where-to-eat/distances", { method: "POST", body: payload });
+}
+
+// `limit` (default 8, max 20) is how many picks of each kind to return.
+function cityGuide(city, limit?: number) {
+  return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city) + (limit ? "&limit=" + limit : ""), { method: "GET" });
 }
 
 // hotelPhoto(name, city) — GET /hotels/photo: a Google Places photo for a stay
@@ -1788,7 +1872,7 @@ function fastapiFlightCall(path, options) {
   }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (body) {
       if (!res.ok) {
-        throw new ApiError(body.detail || "Flight request failed.", { status: res.status, body: body });
+        throw new ApiError(body.detail || (res.status === 429 ? RATE_LIMIT_MSG : "Flight request failed."), { status: res.status, body: body });
       }
       return body;
     });
@@ -1978,7 +2062,8 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
 // supplierTraceIds, searchKey}) into the {count, offers, errors} shape
 // FlightDesk.jsx's run() already reads off searchFlights()'s old result.
 function mapTripSureSearchResponse(searchResponse, ctx) {
-  _tripsureFlightOfferCache.clear();
+  // A multi-city trip searched leg by leg keeps the offers of the legs already answered (ctx.keepCache).
+  if (!ctx.keepCache) _tripsureFlightOfferCache.clear();
   var searchResult = searchResponse.search_result || searchResponse.searchResult || {};
   var offers = [];
   Object.keys(searchResult).forEach(function (leg) {
@@ -1994,7 +2079,12 @@ function mapTripSureSearchResponse(searchResponse, ctx) {
       );
     });
   });
-  return { count: offers.length, offers: offers, errors: searchResponse.errors || [] };
+  return {
+    count: offers.length, offers: offers, errors: searchResponse.errors || [],
+    // Empty AND no airline supplier answered at all (an outage on Tripsure's side, not a route without seats).
+    noSuppliers: noSupplierAnswered(searchResponse, offers.length),
+    searchKey: searchResponse.searchKey || null,
+  };
 }
 
 // fastapiFlightSearch({ originCode, destCode, date, pax, cabin }) — same
@@ -2034,8 +2124,40 @@ function fastapiFlightSearch(params) {
     nationality: String(params.nationality || "IN").toUpperCase(),
   };
   return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
+    return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1, keepCache: !!params.keepCache });
+  });
+}
+
+// fastapiMultiCitySearch({ legs: [{ from, to, date }], pax, children, infants, cabin, ... }) — ONE search with trip_type
+// MULTI_CITY (guide 6.2: 2+ segments). The offers come back tagged with whatever TripSure names each leg's group; the caller
+// splits them into legs (lib/multiCity.ts regroupByLeg) because that naming is not documented.
+function fastapiMultiCitySearch(params) {
+  params = params || {};
+  var body = {
+    trip_type: "MULTI_CITY",
+    segments: (params.legs || []).map(function (l) {
+      return { origin: String(l.from || "").toUpperCase(), destination: String(l.to || "").toUpperCase(), departure_date: l.date };
+    }),
+    adults: Number(params.pax) || 1,
+    children: Number(params.children) || 0,
+    infants: Number(params.infants) || 0,
+    cabin_class: String(params.cabin || "economy").toUpperCase(),
+    max_stops: params.maxStops || "ALL",
+    refundable: !!params.refundable,
+    preferred_airlines: params.preferredAirlines || [],
+    excluded_airlines: params.excludedAirlines || [],
+    results_limit: params.resultsLimit || 50,
+    currency: String(params.currency || "INR").toUpperCase(),
+    nationality: String(params.nationality || "IN").toUpperCase(),
+  };
+  return fastapiFlightCall("/flights/search", { method: "POST", body: body, signal: params.signal }).then(function (searchResponse) {
     return mapTripSureSearchResponse(searchResponse, { cabin: params.cabin, pax: Number(params.pax) || 1 });
   });
+}
+
+// clearFlightOfferCache() — forget the offers of earlier searches (a multi-city search made leg by leg starts clean, then keeps).
+function clearFlightOfferCache() {
+  _tripsureFlightOfferCache.clear();
 }
 
 // fastapiFlightAutosuggest(query, limit?) — GET /flights/autosuggest
@@ -2193,10 +2315,35 @@ function hotelPaymentVerify(hotelId, payload) {
 function hotelPaymentStatus(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/payment/status", { method: "GET" });
 }
+// A flight paid to TripSure directly (the customer pays TripSure's Razorpay; we only hold the API keys):
+//   bookingFlightSupplierPayment  -> { key_id, razorpay_order_id, amount (paise), currency } to open Checkout,
+//   ...Verify  records the payment once TripSure has re-checked Razorpay's signature,
+//   ...Status  is polled after verify until TripSure reports it settled: { payment_status, settled, terminal }.
+function bookingFlightSupplierPayment(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment", { method: "POST" });
+}
+function bookingFlightSupplierPaymentVerify(itineraryId, payload) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment/verify", { method: "POST", body: payload });
+}
+function bookingFlightSupplierPaymentStatus(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/supplier-payment/status", { method: "GET" });
+}
 // Irreversible: attaches passengers, re-checks the fare, issues the ticket.
-function bookingIssueTicket(itineraryId, acceptFareChange) {
+function bookingIssueTicket(itineraryId, acceptFareChange, dropExtras, arrangeExtras) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/ticket", {
-    method: "POST", body: { accept_fare_change: !!acceptFareChange },
+    // dropExtras: the airline would not take the extras the customer paid for: ticket the bare fare and take them off the order.
+    // arrangeExtras: ticket the bare fare, keep the extras' money on the order and arrange them with the airline yourself.
+    method: "POST", body: { accept_fare_change: !!acceptFareChange, ...(dropExtras ? { drop_extras: true } : {}), ...(arrangeExtras ? { arrange_extras: true } : {}) },
+  });
+}
+// Takes the seat / baggage / meal extras off a flight that is not ticketed yet (Tripsure will not price them).
+function bookingRemoveExtras(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/remove-extras", { method: "POST", body: {} });
+}
+// The advisor has arranged (and paid the airline for) the extras Tripsure left out of a ticket: closes the to-do on the flight.
+function bookingExtrasArranged(itineraryId, note) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/extras-arranged", {
+    method: "POST", body: { note: note || null },
   });
 }
 // Booking Details for a flight whose ticketing is unclear (Tripsure guide 6.9).
@@ -2206,6 +2353,19 @@ function bookingTripsureOrder(itineraryId) {
 }
 function bookingCheckFlight(itineraryId) {
   return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/check-status", { method: "POST" });
+}
+// TripSure's FINAL price for the order's travellers and add-ons (Update Itinerary, guide 6.7), locked for ~15 minutes.
+// Books and charges nothing -> { total, pay_by }. The lock token itself never comes to the browser.
+function bookingFlightFareLock(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/" + encodeURIComponent(itineraryId) + "/fare-lock", { method: "POST" });
+}
+// Booking Details for every flight / room left unclear (guide 6.12). Read-only towards TripSure: it never books.
+// -> { checked, settled, still_open, skipped, failed }
+function bookingReconcileFlights() {
+  return fastapiBookingCall("/booking-orders/flight-itinerary/reconcile", { method: "POST" });
+}
+function bookingReconcileHotels() {
+  return fastapiBookingCall("/booking-orders/hotels/reconcile", { method: "POST" });
 }
 // Irreversible: TripSure booking/create for a locked room (one attempt only).
 function bookingConfirmHotel(hotelId) {
@@ -2219,19 +2379,106 @@ function bookingCheckHotel(hotelId) {
 function bookingHotelCancelQuote(hotelId) {
   return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancellation-quote", { method: "GET" });
 }
+// A customer's saved travellers: {available, travellers:[{id, title, first_name, last_name, gender, date_of_birth, email, phone,
+// nationality, passport_last4, passport_expiry, has_pan, relation, last_used_at}]}. The passport is only ever its last four digits.
+function bookingMemberTravellers(memberId) {
+  return fastapiBookingCall("/booking-orders/customers/" + encodeURIComponent(memberId) + "/travellers", { method: "GET" });
+}
+function bookingDeleteMemberTraveller(memberId, travellerId) {
+  return fastapiBookingCall("/booking-orders/customers/" + encodeURIComponent(memberId) + "/travellers/" + encodeURIComponent(travellerId), { method: "DELETE" });
+}
+// ---- flight cancellation / date change on a ticketed flight (itineraryId = the flight item's id) ----------------
+// servicing: each leg (TripSure order line item) with status, PNR, passengers, refund and what the airline allows.
+function bookingFlightServicing(itineraryId) {
+  return fastapiBookingCall("/booking-orders/flights/" + encodeURIComponent(itineraryId) + "/servicing", { method: "GET" });
+}
+function _flightServicingCall(itineraryId, path, body) {
+  return fastapiBookingCall("/booking-orders/flights/" + encodeURIComponent(itineraryId) + path, { method: "POST", body: body });
+}
+// Records a cancellation TripSure SUPPORT did for a ticket TripSure holds no order for (so the cancel call can't be used).
+// Sends nothing to TripSure and moves no money: the flight is marked cancelled with the support reference.
+function bookingFlightRecordManualCancel(itineraryId, body) {
+  return _flightServicingCall(itineraryId, "/cancellation/manual", body);
+}
+// Records a date change TripSure SUPPORT did for a ticket TripSure holds no order for: the flights move to the new date.
+// Sends nothing to TripSure and moves no money.
+function bookingFlightRecordManualDateChange(itineraryId, body) {
+  return _flightServicingCall(itineraryId, "/reschedule/manual", body);
+}
+// What TripSure would refund for one leg now: {cancellation_key, base_refund, tax_refund, cancellation_fee, net_refund, warnings,
+// partial, pax_ids, passengers}. paxIds (TripSure's paxId): only those passengers, each with their own ticket; empty = the whole leg.
+function bookingFlightCancelQuote(itineraryId, lineItemId, paxIds?) {
+  return _flightServicingCall(itineraryId, "/cancellation/quote", { line_item_id: lineItemId, pax_ids: paxIds || [] });
+}
+// Cancels the leg (or those passengers) at the quoted refund (irreversible): {request_id, status:"pending"}.
+function bookingFlightCancel(itineraryId, lineItemId, cancellationKey, paxIds?) {
+  return _flightServicingCall(itineraryId, "/cancellation/cancel", { line_item_id: lineItemId, cancellation_key: cancellationKey, pax_ids: paxIds || [] });
+}
+// {status:"pending"|"success"|"failed", refunded, cancellation_charges, pax[], itinerary_cancelled}.
+function bookingFlightCancelStatus(itineraryId, lineItemId, requestId) {
+  return _flightServicingCall(itineraryId, "/cancellation/status", { line_item_id: lineItemId, request_id: String(requestId) });
+}
+// paxIds: move only those passengers to the new date (the others stay on their present flight); empty = everyone.
+function bookingFlightRescheduleSearch(itineraryId, lineItemId, newDate, paxIds?) {
+  return _flightServicingCall(itineraryId, "/reschedule/search", { line_item_id: lineItemId, new_date: newDate, pax_ids: paxIds || [] });
+}
+function bookingFlightRescheduleReview(itineraryId, lineItemId, searchKey, fareSourceCode) {
+  return _flightServicingCall(itineraryId, "/reschedule/review", { line_item_id: lineItemId, search_key: searchKey, fare_source_code: fareSourceCode });
+}
+// chargeCollected: the advisor has collected what the customer owes for the change; the server refuses without it.
+function bookingFlightRescheduleConfirm(itineraryId, lineItemId, searchKey, fareSourceCode, chargeCollected?) {
+  return _flightServicingCall(itineraryId, "/reschedule/confirm", {
+    line_item_id: lineItemId, search_key: searchKey, fare_source_code: fareSourceCode, charge_collected: !!chargeCollected,
+  });
+}
+// The baggage / meals / seats the airline offers on the booking: {pnr, sectors:[{route, status, baggage[], meals[], seats[], special_services[]}], note}.
+function bookingFlightRescheduleSsr(itineraryId, lineItemId) {
+  return _flightServicingCall(itineraryId, "/reschedule/ssr", { line_item_id: lineItemId });
+}
+function bookingFlightRescheduleStatus(itineraryId, lineItemId, changeRequestId) {
+  return _flightServicingCall(itineraryId, "/reschedule/status", { line_item_id: lineItemId, change_request_id: changeRequestId });
+}
+// Orders where the customer has paid but the ticket / hotel room is not done, and why (read-only):
+// {items:[{order_id, order_number, customer_name, kind, label, code, severity, headline, next_step, paid, total,
+// minutes_waiting, itinerary_id}], counts:{high, medium, orders}, unavailable}.
+function bookingTicketingWatch() {
+  return fastapiBookingCall("/booking-orders/ticketing-watch", { method: "GET" });
+}
+// What TripSure itself says about one flight order (read-only): {tripsure_status, meaning, pnrs, our_status, out_of_sync}.
+function bookingAskTripsure(itineraryId) {
+  return fastapiBookingCall("/booking-orders/ticketing-watch/flights/" + encodeURIComponent(itineraryId) + "/ask-tripsure", { method: "POST" });
+}
 // Money paid back to the customer outside the portal (e.g. after a hotel cancellation).
 function bookingRecordRefund(orderId, payload) {
   return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/refunds", { method: "POST", body: payload });
 }
-function bookingCancelHotel(hotelId) {
-  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST" });
+// Refunds the customer to the card / UPI they paid with, through TripAgent's Razorpay (money moves; irreversible):
+// { payment_id: the order's payment row, amount, note? } -> the order's fulfilment. The same request twice is one refund.
+function bookingRefundOnline(orderId, payload) {
+  return fastapiBookingCall("/booking-orders/" + encodeURIComponent(orderId) + "/refunds/online", { method: "POST", body: payload });
+}
+// Tripsure's own record of a hotel booking (guide 6.7 Booking Details): status, confirmation,
+// amounts and the cancellation policy. NEEDS a backend route (GET .../tripsure-booking) that
+// returns the booking-details response for this hotel's partnerReferenceId.
+function bookingHotelTripsureBooking(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/tripsure-booking", { method: "GET" });
+}
+// Tripsure hotel API health (guide healthCheck): GET /hotels/health -> { ok, ... }.
+function hotelApiHealth() {
+  return fastapiHotelCall("/hotels/health", { method: "GET" });
+}
+// bookingCancelHotel(hotelId, expectedFee?) — expectedFee is the fee that was shown ({cancellation_charges, refund_amount}):
+// the server reads TripSure's fee again and refuses with 409 if it has moved (guide 7.2: confirm the fee first).
+function bookingCancelHotel(hotelId, expectedFee?: { cancellation_charges?: number | null; refund_amount?: number | null }) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/cancel", { method: "POST", body: expectedFee || undefined });
 }
 // Resolves { blob } for a file, { url } for a hosted document, or { data } when
 // TripSure's answer is neither (shown as-is).
-function bookingHotelInvoice(hotelId) {
+// regenerate=true asks Tripsure to rebuild the invoice instead of serving its cached copy (guide 7.3).
+function bookingHotelInvoice(hotelId, regenerate?: boolean) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
-  return fetch(FASTAPI_BASE + "/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/tax-invoice", {
+  return fetch(FASTAPI_BASE + "/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/tax-invoice" + (regenerate ? "?regenerate=true" : ""), {
     method: "GET",
     headers: { Authorization: "Bearer " + jwt },
   }).then(function (res) {
@@ -2242,6 +2489,11 @@ function bookingHotelInvoice(hotelId) {
       return body.url ? { url: body.url } : { data: body.invoice };
     });
   });
+}
+// bookingHotelVoucher(hotelId) — GET /booking-orders/hotels/{id}/voucher: the guest voucher for a CONFIRMED room,
+// generated by our backend from the booking record (Tripsure has no voucher endpoint). Answers { voucher, html }.
+function bookingHotelVoucher(hotelId) {
+  return fastapiBookingCall("/booking-orders/hotels/" + encodeURIComponent(hotelId) + "/voucher", { method: "GET" });
 }
 // kind: "flight" | "hotel" — after verifying with TripSure that nothing was booked.
 // Cancel an order with nothing booked with a supplier (its records are kept), or delete one
@@ -2642,6 +2894,8 @@ function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/
 function proposalFlightPayTrace(token) { return fastapiFlightCall("/proposal-share/" + encodeURIComponent(token) + "/pay/flights/trace", { method: "GET" }); }
 function proposalFlightPayChoose(token, flightId, key) { return proposalPublicCall(token, "/pay/flights/choose", { method: "POST", body: { flight_id: flightId, key: key } }); }
 function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
+// The traveller details window opened: the server starts the slow supplier lookups now (returns at once), so Next is faster.
+function proposalFlightPayWarm(token) { return proposalPublicCall(token, "/pay/flights/warm", { method: "POST" }); }
 function proposalFlightPayPrepare(token, payload) { return proposalPublicCall(token, "/pay/flights/prepare", { method: "POST", body: payload }); }
 function proposalFlightPayStart(token, orderId) { return proposalPublicCall(token, "/pay/flights/order/" + encodeURIComponent(orderId) + "/start", { method: "POST" }); }
 function proposalFlightPayConfirm(token, payload) { return proposalPublicCall(token, "/pay/flights/confirm", { method: "POST", body: payload }); }
@@ -2844,6 +3098,7 @@ export {
   setConversationHandoff,
   getMemberCode,
   sendChatbotReply,
+  addConversationBudget,
   getDestinationPhoto,
 
   // RAG / AI
@@ -2893,6 +3148,7 @@ export {
   proposalFlightPayRefresh,
   proposalFlightPayChoose,
   proposalFlightPayTrace,
+  proposalFlightPayWarm,
   proposalFlightPayPrepare,
   proposalFlightPayStart,
   proposalFlightPayConfirm,
@@ -2963,11 +3219,17 @@ export {
   hotelDistances,
   hotelFacts,
   hotelRates,
+  hotelRatings,
+  cityGuide,
+  whereToEat,
+  whereToEatDistances,
   hotelPhoto,
   hotelRecommendations,
   hotelSetWebsite,
   fastapiFlightSearch,
   fastapiFlightAutosuggest,
+  fastapiMultiCitySearch,
+  clearFlightOfferCache,
   bookingCustomerSearch,
   bookingCreateFlightItinerary,
   flightSsr,
@@ -2985,7 +3247,17 @@ export {
   bookingSaveTravellers,
   bookingRecordPayment,
   bookingIssueTicket,
+  bookingFlightSupplierPayment,
+  bookingFlightSupplierPaymentVerify,
+  bookingFlightSupplierPaymentStatus,
+  bookingFlightRecordManualCancel,
+  bookingFlightRecordManualDateChange,
+  bookingExtrasArranged,
+  bookingRemoveExtras,
   bookingCheckFlight,
+  bookingFlightFareLock,
+  bookingReconcileFlights,
+  bookingReconcileHotels,
   bookingTripsureOrder,
   bookingCancelOrder,
   bookingDeleteOrder,
@@ -2993,11 +3265,28 @@ export {
   bookingConfirmHotel,
   bookingCheckHotel,
   bookingHotelCancelQuote,
+  bookingTicketingWatch,
+  bookingMemberTravellers,
+  bookingDeleteMemberTraveller,
+  bookingFlightServicing,
+  bookingFlightCancelQuote,
+  bookingFlightCancel,
+  bookingFlightCancelStatus,
+  bookingFlightRescheduleSearch,
+  bookingFlightRescheduleReview,
+  bookingFlightRescheduleConfirm,
+  bookingFlightRescheduleSsr,
+  bookingFlightRescheduleStatus,
+  bookingAskTripsure,
   bookingCancelHotel,
   bookingRecordRefund,
+  bookingRefundOnline,
   newHotelJourney,
   currentHotelJourney,
   bookingHotelInvoice,
+  bookingHotelVoucher,
+  bookingHotelTripsureBooking,
+  hotelApiHealth,
   bookingResetItem,
   bookingPaymentGateway,
   flightFareOptions,
@@ -3026,6 +3315,14 @@ export {
   siteAccessRequestsApproved,
   siteSuperKeys,
   siteSetSuperKeyActive,
+  siteCreateSuperKey,
+  siteResendInvite,
+  siteNudgeInvite,
+  siteReissueInvite,
+  siteSetInviteSeats,
+  siteRevokeInviteSeat,
+  siteAddInvitePerson,
+  siteResendInvitePerson,
   siteApproveAccessRequest,
   siteDenyAccessRequest,
 
@@ -3154,6 +3451,9 @@ function getRealWhatsAppMessages(code, opts) {
   if (o.limit) qs.push("limit=" + encodeURIComponent(o.limit));
   if (o.before) qs.push("before=" + encodeURIComponent(o.before));
   if (o.after) qs.push("after=" + encodeURIComponent(o.after));
+  // The customer's number from the CRM: used by the server only when the code itself gives no number, so their
+  // WhatsApp messages can still be read (otherwise only the advisor's own sent messages show).
+  if (o.phone) qs.push("phone=" + encodeURIComponent(o.phone));
 
   return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/real-messages" + (qs.length ? "?" + qs.join("&") : ""), {
     headers: { Authorization: "Bearer " + jwt },
@@ -3253,6 +3553,24 @@ function sendChatbotReply(code, text, clientMsgId, channel) {
       if (!res.ok) {
         throw new ApiError((body && body.detail) || "Failed to send reply.", { status: res.status, body: body });
       }
+      return body;
+    });
+  });
+}
+
+// addConversationBudget(code, amountUsd, note?) — an ADMIN gives one customer's AI-desk conversation more budget (the cap is $5 a
+// code), so Tara answers them again. amountUsd is one of 5 / 10 / 20 / 50. Not retried: a repeat would add twice, so a timeout says
+// to look at the usage meter first. Resolves { ok, usage: { spentUsd, capUsd, extraUsd, remainingUsd, ... } }.
+function addConversationBudget(code, amountUsd, note?) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetchWithTimeout(FASTAPI_BASE + "/admin/conversation/" + encodeURIComponent(code) + "/budget", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: JSON.stringify({ amount_usd: amountUsd, note: note || null }),
+  }, 20000, "No answer after 20s — the extra budget may or may not have been added. Check the usage meter before trying again.").then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (body) {
+      if (!res.ok) throw new ApiError((body && typeof body.detail === "string" && body.detail) || "Could not add the extra budget.", { status: res.status, body: body });
       return body;
     });
   });

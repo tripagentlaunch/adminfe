@@ -10,14 +10,17 @@
  *   3. Razorpay checkout -> POST /pay/flights/confirm (signature + captured check)
  * The amount always comes from the server; nothing here prices anything.
  * ===========================================================================*/
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { proposalFlightPayPrepare, inr } from "../../services/api";
+import { proposalFlightPayPrepare, proposalFlightPayRefresh, proposalFlightPayWarm, inr } from "../../services/api";
 import { payHeldOrder } from "../../lib/proposalPayment";
 import { errText } from "../../lib/advisorHelpers";
 import { Spinner } from "../ui";
 import { PayTimer } from "./PayTimer";
 import { addonLines } from "../../lib/flightAddons";
+import { payCheckWords } from "../../lib/payCheckWords";
+import { canReuseHold } from "../../lib/heldOrder";
+import { checkCountdown } from "../../lib/checkCountdown";
 
 export type FlightPayQuote = {
   payable: boolean; amount: number; currency: string; international: boolean; gateway_configured: boolean; mock: boolean;
@@ -30,6 +33,8 @@ export type FlightPayQuote = {
   travellers?: "all" | "lead";
   /** Flights: the advisor has entered every passenger (needed before TripSure takes payment). */
   passengers_ready?: boolean;
+  /** The passengers entered so far (names, gender, date of birth; a passport only as its last characters), to pre-fill or show. */
+  passengers?: { pax_type: "adult" | "child" | "infant"; title: string | null; first_name: string; last_name: string; gender: "male" | "female" | null; date_of_birth: string | null; is_lead: boolean; passport_tail: string | null }[];
   /** The proposal's total, and our markup + GST in it (shown on its own line; `amount` is what TripSure charges). */
   trip_total?: number;
   /** Of the trip total above it: our service fee, and the GST (and TCS) on the trip. Together with `amount` they make `trip_total`. */
@@ -41,6 +46,10 @@ export type FlightPayQuote = {
   /** What Pay now charges: the whole trip (one payment on TripAgent's Razorpay), else the suppliers' part. */
   pay_amount?: number;
   pays_trip_total?: boolean;
+  /** Offline-priced items (entered by hand): held 12 hours on the server's clock; `now` is that clock. null when none. */
+  offline?: { hours: number; now: string; valid_until: string | null; expired: boolean; items: { id: string; type: string; title: string; valid_until: string | null; expired: boolean }[] } | null;
+  /** Why the trip can't be paid right now (nothing payable online, or offline prices no longer held). */
+  reason?: string | null;
 };
 
 type Pax = {
@@ -57,11 +66,29 @@ const fmtDate = (iso: string) => {
 
 export { MOCK_PAY_KEY } from "../../lib/proposalPayment";
 
-export function ProposalFlightPayModal({ token, quote, onClose }: { token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void }) {
+export function ProposalFlightPayModal({ token, quote, onClose, onChecked }: {
+  token: string; quote: FlightPayQuote; onClose: (paid: boolean) => void;
+  /** The live check is back (Next): the page behind shows the final prices too. */
+  onChecked?: (r: any) => void;
+}) {
+  const words = payCheckWords(quote);
+  // The slow supplier lookups start now, while the customer types their details: Next then only has the short steps left.
+  useEffect(() => { proposalFlightPayWarm(token).catch(() => { /* a cold start is just slower */ }); }, [token]);
   const router = useRouter();
-  const [step, setStep] = useState<"form" | "working" | "changed" | "done">("form");
+  // form -> (Next) checking -> review (the final price) -> (Pay) paying -> done. The live price check runs once, on Next.
+  const [step, setStep] = useState<"form" | "checking" | "review" | "paying" | "done">("form");
+  // what the held order was made for: pressing Next again with the same details (after Back) reuses it while it is held
+  const [heldFor, setHeldFor] = useState<string>("");
+  // seconds since Next was pressed, for the countdown while the live check holds the booking
+  const [waited, setWaited] = useState(0);
+  useEffect(() => {
+    if (step !== "checking") return;
+    const t0 = Date.now();
+    const t = setInterval(() => setWaited(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [step]);
   const [err, setErr] = useState<string | null>(null);
-  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null } | null>(null);
+  const [prep, setPrep] = useState<{ order_id: string; order_number?: string; amount: number; quoted: number; pay_by?: string | null; pay_amount?: number; trip_total?: number; price_changed?: boolean } | null>(null);
   const [paidRef, setPaidRef] = useState<string | null>(null);
   const stays = quote.stays || [];
   const kinds: Pax["pax_type"][] = quote.travellers === "lead" ? ["adult"] : [
@@ -71,10 +98,19 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const panBad = pan !== "" && !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan);
   // The enquiry's traveller fills the lead passenger and the contact; everything stays editable.
   const guest = quote.guest || null;
-  const [pax, setPax] = useState<Pax[]>(() => kinds.map((k, i) => ({
-    pax_type: k, title: TITLES[k][0], first_name: i === 0 && guest ? guest.firstName : "", last_name: i === 0 && guest ? guest.lastName : "",
-    gender: "", date_of_birth: "", nationality: "IN", passport_number: "", passport_expiry: "",
-  })));
+  // What the advisor has already entered pre-fills each traveller (a passport is never sent to the browser: it is typed again if the trip needs it).
+  const saved = quote.passengers || [];
+  const [pax, setPax] = useState<Pax[]>(() => kinds.map((k, i) => {
+    const sp = saved[i];
+    const title = sp && sp.title && TITLES[k].includes(sp.title) ? sp.title : TITLES[k][0];
+    return {
+      pax_type: k, title, first_name: (sp && sp.first_name) || (i === 0 && guest ? guest.firstName : ""), last_name: (sp && sp.last_name) || (i === 0 && guest ? guest.lastName : ""),
+      gender: (sp && sp.gender) || "", date_of_birth: (sp && sp.date_of_birth) || "", nationality: "IN", passport_number: "", passport_expiry: "",
+    };
+  }));
+  // Every passenger is already on file (the advisor entered them): the window shows them to check, and Next runs the live check with them.
+  const [editing, setEditing] = useState(false);
+  const useSaved = quote.passengers_ready === true && !editing;
   const [contact, setContact] = useState({ email: guest?.email || "", mobile: guest?.mobile || "" });
   const setP = (i: number, k: keyof Pax, v: string) => setPax((cur) => cur.map((p, j) => (j === i ? { ...p, [k]: v } : p)));
 
@@ -82,12 +118,32 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
   const paxOk = pax.every((p) => p.first_name.trim() && p.last_name.trim() && p.gender
     && (p.pax_type === "adult" && !intl ? true : !!p.date_of_birth)
     && (!intl || (p.passport_number.trim() && p.passport_expiry)));
-  const ready = paxOk && !panBad && contact.email.includes("@") && /^\d{10}$/.test(contact.mobile.replace(/\D/g, "").slice(-10));
+  const ready = useSaved || (paxOk && !panBad && contact.email.includes("@") && /^\d{10}$/.test(contact.mobile.replace(/\D/g, "").slice(-10)));
 
   async function prepare() {
     setErr(null);
-    setStep("working");
+    const key = JSON.stringify({ useSaved, pax, contact, pan });
+    // Same details and the hold is still running: no second live check, straight back to the final price.
+    if (prep && canReuseHold({ payBy: prep.pay_by, heldFor, key, now: Date.now() })) { setStep("review"); return; }
+    setWaited(0);
+    setStep("checking");
     try {
+      // On file: the same live check with the passengers the advisor entered (passports included). Otherwise: the details typed here.
+      if (useSaved) {
+        const r: any = await proposalFlightPayRefresh(token);
+        if (r && (r.status === "needs_passengers" || r.status === "needs_details")) {
+          setEditing(true);
+          setErr("We need a few more details before we can hold your booking. Please fill them in.");
+          setStep("form");
+          return;
+        }
+        if (!r || !r.order_id) throw new Error((r && r.message) || "We couldn't confirm the live price. Please try again.");
+        setPrep(r);
+        setHeldFor(key);
+        if (onChecked) onChecked(r);
+        setStep("review");
+        return;
+      }
       const travellers = pax.map((p, i) => ({
         title: p.title, first_name: p.first_name.trim(), last_name: p.last_name.trim(), gender: p.gender, pax_type: p.pax_type,
         date_of_birth: p.date_of_birth || null, is_lead: i === 0,
@@ -97,9 +153,10 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
       }));
       const r: any = await proposalFlightPayPrepare(token, { travellers, pan: stays.length && pan ? pan : null });
       setPrep(r);
-      // The airline's price moved since the proposal: show it before taking any money.
-      if (r.price_changed) { setStep("changed"); return; }
-      await pay(r);
+      setHeldFor(key);
+      if (onChecked) onChecked(r);
+      // Details saved and the live check is back: show the final price first (Next), then the customer presses Pay.
+      setStep("review");
     } catch (e) {
       setErr(errText(e));
       setStep("form");
@@ -108,7 +165,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
 
   async function pay(p: { order_id: string; amount: number; pay_by?: string | null }) {
     setErr(null);
-    setStep("working");
+    setStep("paying");
     try {
       const out = await payHeldOrder(token, p, (url) => router.push(url));
       if (out.kind === "redirected") return;
@@ -116,11 +173,11 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
       setStep("done");
     } catch (e) {
       setErr(errText(e));
-      setStep(prep && prep.amount !== prep.quoted ? "changed" : "form");
+      setStep(prep ? "review" : "form");
     }
   }
 
-  const busy = step === "working";
+  const busy = step === "checking" || step === "paying";
   return (
     <div role="dialog" aria-modal="true" aria-label="Pay for your flights" onClick={() => !busy && onClose(step === "done")}
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", display: "grid", placeItems: "center", zIndex: 1000, padding: 16 }}>
@@ -135,7 +192,7 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
           </div>
         ) : (
           <>
-            <h2 style={{ margin: "0 0 6px" }}>{quote.flights.length && stays.length ? "Pay for your trip" : quote.flights.length ? "Pay for your flights" : "Pay for your stay"}</h2>
+            <h2 style={{ margin: "0 0 6px" }}>{step === "review" || step === "paying" ? "Confirm and pay" : quote.flights.length && stays.length ? "Traveller details for your trip" : quote.flights.length ? "Traveller details for your flights" : "Pay for your stay"}</h2>
             <div style={{ display: "grid", gap: 8, margin: "0 0 14px" }}>
               {quote.flights.map((f) => (
                 <div key={f.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
@@ -156,22 +213,54 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
             {quote.mock ? <div style={banner("info")}>Test server: payment opens a mock payment page instead of Razorpay. No money moves.</div> : null}
             {err ? <div style={banner("err")}>{err}</div> : null}
 
-            {step === "changed" && prep ? (
+            {(step === "review" || step === "paying") && prep ? (() => {
+              // What Pay takes: the whole-trip amount when it is one payment (our fee and GST in it), else the airline and hotel part.
+              const charge = Number(prep.pay_amount ?? prep.trip_total ?? prep.amount);
+              const before = Number(quote.pay_amount ?? quote.trip_total ?? prep.quoted);
+              const moved = Math.abs(charge - before) >= 1;
+              return (
+                <>
+                  <PayTimer payBy={prep.pay_by} what={quote.flights.length ? "trip" : "room"} onExpire={() => { setPrep(null); setHeldFor(""); setStep("form"); setErr("Your 15 minutes ran out and the booking was released. Press Next to start again with a fresh price."); }} />
+                  <div style={banner(moved ? "warn" : "info")}>
+                    {moved ? (
+                      <>The price has changed since your proposal: was <s>{inr(before)}</s>, now <b>{inr(charge)}</b>. The same flight, fare and add-ons are held for you at the new price.</>
+                    ) : (
+                      <>Your {words.live} price is confirmed live: <b>{inr(charge)}</b>. The same flight, fare and add-ons are held for you.</>
+                    )}
+                    {words.offlineUnchanged ? <div style={{ marginTop: 6 }}>{words.offlineUnchanged}</div> : null}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+                    <button type="button" onClick={() => setStep("form")} disabled={step === "paying"} style={{ ...btn(false), opacity: step === "paying" ? 0.6 : 1 }}>Back</button>
+                    <button type="button" onClick={() => pay(prep)} disabled={step === "paying"} style={{ ...btn(true), opacity: step === "paying" ? 0.7 : 1 }}>
+                      {step === "paying" ? <><Spinner /> Opening secure payment…</> : `Pay ${inr(charge)}`}
+                    </button>
+                  </div>
+                </>
+              );
+            })() : (
               <>
-                <PayTimer payBy={prep.pay_by} onExpire={() => { setPrep(null); setStep("form"); setErr("Your 15 minutes ran out and the booking was released. Press Pay to start again with a fresh price."); }} />
-                <div style={banner("warn")}>
-                  The airline&apos;s price has changed since your proposal: was <s>{inr(prep.quoted)}</s>, now <b>{inr(prep.amount)}</b>.
-                  The same flight, fare and add-ons are held for you at the new price.
-                </div>
-                <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
-                  <button type="button" onClick={() => onClose(false)} style={btn(false)}>Not now</button>
-                  <button type="button" onClick={() => pay(prep)} style={btn(true)}>Pay {inr(prep.amount)}</button>
-                </div>
-              </>
-            ) : (
-              <>
+                {useSaved ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <p style={{ color: "#555", fontSize: 13, margin: 0 }}>
+                      Please check the traveller details we hold for this trip. Press Next: we check the live price with the airline and show you the final price before you pay.
+                    </p>
+                    {saved.map((p, i) => (
+                      <div key={i} style={{ border: "1px solid #eee", borderRadius: 10, padding: "10px 12px", fontSize: 13.5 }}>
+                        <b>{[p.title, p.first_name, p.last_name].filter(Boolean).join(" ")}</b>
+                        <span style={{ color: "#777" }}>{" · " + (p.pax_type === "adult" ? "Adult" : p.pax_type === "child" ? "Child" : "Infant") + (p.is_lead || i === 0 ? " · lead traveller" : "")}</span>
+                        <div style={{ color: "#666", marginTop: 3 }}>
+                          {[p.gender ? (p.gender === "male" ? "Male" : "Female") : null, p.date_of_birth ? "born " + fmtDate(p.date_of_birth) : null, p.passport_tail ? "passport " + p.passport_tail : null].filter(Boolean).join(" · ")}
+                        </div>
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => setEditing(true)} style={{ background: "none", border: 0, padding: 0, color: "#555", textDecoration: "underline", cursor: "pointer", fontSize: 13, justifySelf: "start" }}>
+                      Change traveller details
+                    </button>
+                  </div>
+                ) : (
+                  <>
                 <p style={{ color: "#555", fontSize: 13, margin: "0 0 10px" }}>
-                  Names exactly as on {intl ? "the passport" : "a government ID"}. We check the live price with the airline before you pay.
+                  Names exactly as on {intl ? "the passport" : "a government ID"}. Press Next: we save the details, check the live price with the airline, and show you the final price before you pay.
                 </p>
                 <div style={{ display: "grid", gap: 14 }}>
                   {pax.map((p, i) => (
@@ -216,14 +305,28 @@ export function ProposalFlightPayModal({ token, quote, onClose }: { token: strin
                       onChange={(e) => setPan(e.target.value.toUpperCase())} style={{ ...inp, borderColor: panBad ? "#c0392b" : "#ddd" }} />
                   ) : null}
                 </div>
+                  </>
+                )}
                 <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                   <button type="button" onClick={() => onClose(false)} disabled={busy} style={btn(false)}>Cancel</button>
                   <button type="button" onClick={prepare} disabled={!ready || !quote.gateway_configured || busy} style={{ ...btn(true), opacity: !ready || busy ? 0.6 : 1 }}>
-                    {busy ? <><Spinner /> Checking the live price…</> : `Pay ${inr(quote.amount)}`}
+                    {step === "checking" ? <><Spinner /> {words.buttonChecking}</> : "Next"}
                   </button>
                 </div>
+                {step === "checking" ? (() => {
+                  const c = checkCountdown(waited);
+                  return (
+                    <div style={{ marginTop: 12, textAlign: "center" }} role="status" aria-live="polite">
+                      {c.remaining != null ? (
+                        <div style={{ fontSize: 34, fontWeight: 600, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{c.remaining}</div>
+                      ) : null}
+                      <div style={{ color: "#555", fontSize: 13, marginTop: 6 }}>{c.text}</div>
+                      <div style={{ color: "#777", fontSize: 12, marginTop: 4 }}>Holding your booking with {words.supplier}. Please keep this window open.</div>
+                    </div>
+                  );
+                })() : null}
                 <p style={{ color: "#999", fontSize: 11.5, marginTop: 12, textAlign: "center" }}>
-                  Secured by Razorpay. Price includes taxes and fees; it is re-checked with the airline{stays.length ? " and the hotel" : ""} when you press Pay.
+                  Secure payment. Price includes taxes and fees; it is re-checked with {words.supplier} when you press Pay.{words.offlineLine ? " " + words.offlineLine : ""}
                 </p>
               </>
             )}

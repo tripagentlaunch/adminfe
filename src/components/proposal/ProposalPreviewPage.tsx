@@ -31,7 +31,7 @@
  *      only ever shows the real visa record, and is omitted entirely when
  *      there is none.
  * ===========================================================================*/
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { getDestinationPhoto, hotelPhoto, inr, proposalFlightPayQuote, proposalFlightPayRefresh, proposalPayQuote } from "../../services/api";
 import { errText } from "../../lib/errText";
@@ -52,8 +52,138 @@ const readDebug = () => new URLSearchParams(window.location.search).get("debug")
 import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
+import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
+import { eatPlaceholder } from "../../lib/eatPlaceholder";
+import { leftText, untilText } from "../../lib/offlineBanner";
+import { payCheckWords } from "../../lib/payCheckWords";
+import { finalPriceView } from "../../lib/finalPrice";
 
-const TABS = ["Plan", "Days", "Decisions"] as const;
+// Restaurants from our city page: photo, name, the award that earned the place its spot, the area, and how far it is from the hotel.
+// Small outline icons for the kinds of place, as on the website's tabs (a wine glass for Fine, a shirt for Smart).
+function TierIcon({ tier }: { tier: string }) {
+  const common = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
+  if (tier === "Fine") return <svg {...common}><path d="M8 3h8v5a4 4 0 0 1-8 0V3z" /><path d="M12 12v8M8.5 20h7" /></svg>;
+  if (tier === "Smart") return <svg {...common}><path d="M8 4 3 7l2 4 2-1v10h10V10l2 1 2-4-5-3a4 4 0 0 1-8 0z" /></svg>;
+  if (tier === "Destination") return <svg {...common}><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z" /></svg>;
+  if (tier === "Casual") return <svg {...common}><path d="M5 8h11v6a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5zM16 9h2a2 2 0 0 1 0 5h-2M8 3v2M12 3v2" /></svg>;
+  return null;
+}
+
+// The picture on a card: the restaurant's photo, or a placeholder when it has none or can't be loaded.
+function EatCardPhoto({ src, name }: { src: string | null; name: string }) {
+  const [bad, setBad] = useState(false);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className="pv-eatc-photo" src={src && !bad ? src : eatPlaceholder(name, 900, 600)} alt={name} loading="lazy" onError={() => setBad(true)} />;
+}
+
+// "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
+// the restaurant's name, one headline tag, every award in its own box, the description, and the area; ours adds how far it is from the hotel.
+function EatCards({ entries }: { entries: any[] }) {
+  const tiers = tiersOf(entries);
+  const [picked, setPicked] = useState<string>("");
+  const tier = tiers.includes(picked) ? picked : tiers[0];
+  const shown = tiers.length > 1 ? entries.filter((e) => (e.tier || "Picks") === tier) : entries;
+  return (
+    <>
+      {tiers.length > 1 ? (
+        <div className="pv-eatt" role="tablist" aria-label="Kind of place">
+          {tiers.map((t) => (
+            <button key={t} type="button" role="tab" aria-selected={t === tier} className={"pv-eatt-btn" + (t === tier ? " is-active" : "")} onClick={() => setPicked(t)}>
+              <TierIcon tier={t} /> {t}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="pv-eatg">
+        {shown.map((e: any) => {
+          const { headline, rest } = cardTags(e);
+          return (
+            <article className="pv-eatc" key={e.id}>
+              <EatCardPhoto src={e.photo || null} name={e.name} />
+              <h3 className="pv-eatc-name">{e.name}</h3>
+              {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
+              {rest.map((c: string, i: number) => <span className="pv-eatc-cred" key={i}>{c}</span>)}
+              {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
+              {e.area ? (
+                <div className="pv-eatc-loc">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21z" /><circle cx="12" cy="10" r="2.5" /></svg>
+                  <span>{e.area}</span>
+                </div>
+              ) : null}
+              {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
+            </article>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// The restaurant's photo from the city page; a placeholder picture when it has none or it can't be loaded.
+function EatPhoto({ src, name }: { src: string | null; name: string }) {
+  const [bad, setBad] = useState(false);
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img className="pv-eat-photo" src={src && !bad ? src : eatPlaceholder(name, 300, 300)} alt={name} loading="lazy" onError={() => setBad(true)} />;
+}
+
+// "3.2 km from Taj West End · 11 min drive"
+const distanceLine = (d: any) => distanceText(d);
+
+function EatList({ entries }: { entries: any[] }) {
+  return (
+    <div className="pv-eat-list">
+      {entries.map((e: any) => (
+        <div className="pv-eat-row" key={e.id}>
+          <EatPhoto src={e.photo || null} name={e.name} />
+          <div className="pv-eat-text">
+            <div className="pv-eat-name">
+              {e.name}
+              {e.meal ? <span className="pv-eat-meal">{e.meal === "lunch" ? "Lunch" : "Dinner"}</span> : null}
+            </div>
+            {e.area ? <div className="pv-eat-area">{e.area}</div> : null}
+            {e.distance ? <div className="pv-eat-dist">{distanceLine(e.distance)}</div> : null}
+            {e.tag || (e.credentials && e.credentials.length) ? <div className="pv-eat-cred">{e.tag || e.credentials[0]}</div> : null}
+            {e.description ? <div className="pv-eat-desc">{e.description}</div> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Offline prices: a flight or stay the advisor priced by hand because another vendor quoted it. They are held for 12 hours and are
+// never re-checked with the airline or hotel, so the page says until when. On the customer's link the time comes from the server
+// (offsetMs = server clock - this computer's), so a wrong computer clock changes nothing.
+type OfflineNotice = { validUntil: string | null; expired: boolean; offsetMs: number };
+
+function OfflineBanner({ notice }: { notice: OfflineNotice }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const msLeft = notice.validUntil ? Date.parse(notice.validUntil) - (now + notice.offsetMs) : 0;
+  const expired = notice.expired || !(msLeft > 0);
+  return (
+    <div className={"pv-offline" + (expired ? " is-expired" : "")} role="status">
+      {expired ? (
+        <>
+          <b>The offline prices in this proposal are no longer held.</b>
+          <span>Lines marked &ldquo;Quoted offline&rdquo; were quoted by your advisor from another vendor. Please ask your advisor to confirm them again before you pay.</span>
+        </>
+      ) : (
+        <>
+          <b>Offline prices held until {untilText(notice.validUntil)} · {leftText(msLeft)}</b>
+          <span>Lines marked &ldquo;Quoted offline&rdquo; were quoted by your advisor from another vendor. They aren&apos;t live prices: they&apos;re held for 12 hours, and your advisor confirms them with you.</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+const OfflineTag = () => <span className="pv-offtag" title="Quoted by your advisor from another vendor: held for 12 hours, not a live price">Quoted offline</span>;
+
+const TABS = ["Plan", "Days", "Where to eat", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
 
 function Chip({ label }: { label: string }) {
@@ -292,16 +422,18 @@ function StayDetails({ facts, skip = [] }: { facts: any; skip?: string[] }) {
   if (!facts) return null;
   const room = facts.room || {};
   const photos: string[] = [...(room.images || []), ...(facts.images || [])].filter((u, i, a) => a.indexOf(u) === i).slice(0, 10);
-  const lines: [string, string][] = [];
+  const lines: [string, string | string[]][] = [];
   if ((room.inclusions || []).length) lines.push(["Included", room.inclusions.join(" · ")]);
   const roomBits = [room.view, room.bed, room.size].filter(Boolean).join(" · ");
   if (roomBits) lines.push(["Room", roomBits]);
   if (facts.checkIn || facts.checkOut)
     lines.push(["Check-in / out", [facts.checkIn ? facts.checkIn + (facts.checkInUntil ? " – " + facts.checkInUntil : "") : null, facts.checkOut].filter(Boolean).join(" / ")]);
   if ((room.cancellation || []).length) lines.push(["Cancellation", room.cancellation[0]]);
-  if ((facts.highlights || []).length) lines.push(["Highlights", facts.highlights.slice(0, 6).join(" · ")]);
-  if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 3).join(" · ")]);
-  if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 4).join(" · ")]);
+  // Highlights, good to know and nearby are lists, shown as one item per line (chips for the highlights), not run together
+  // with " · " into one paragraph: that is what made the wide card's columns uneven.
+  if ((facts.highlights || []).length) lines.push(["Highlights", facts.highlights.slice(0, 8)]);
+  if ((facts.mustKnow || []).length) lines.push(["Good to know", facts.mustKnow.slice(0, 4)]);
+  if ((facts.nearby || []).length) lines.push(["Nearby", facts.nearby.slice(0, 5)]);
   if (facts.guestRating && facts.guestRating.rating) lines.push(["Guest rating", facts.guestRating.rating + (facts.guestRating.count ? " (" + facts.guestRating.count + " reviews)" : "")]);
   const shown = lines.filter(([k]) => !skip.includes(k));
   return (
@@ -317,7 +449,16 @@ function StayDetails({ facts, skip = [] }: { facts: any; skip?: string[] }) {
       {shown.length ? (
         <dl className="pv-stayfacts">
           {shown.map(([k, v]) => (
-            <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>
+                {Array.isArray(v) ? (
+                  <ul className={k === "Highlights" ? "pv-stayfacts-chips" : "pv-stayfacts-list"}>
+                    {v.map((x, i) => <li key={i}>{x}</li>)}
+                  </ul>
+                ) : v}
+              </dd>
+            </div>
           ))}
         </dl>
       ) : null}
@@ -487,16 +628,18 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         <img className="pv-altcard-photo" src={a.image} alt="" onError={hideBrokenImage} />
       ) : <div className="pv-altcard-photo" aria-hidden="true" />}
       <div className="pv-altcard-body">
+        {st.originalHotelKey && a.hotelKey === st.originalHotelKey ? <span className="pv-chip pv-chip--choice" style={{ alignSelf: "flex-start", marginBottom: 4 }}>Our choice</span> : null}
         <span className="pv-option-name pv-option-name--block">{a.name}</span>
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
         <div className="pv-altcard-foot">
-          <span className="pv-option-price">{inr(a.price)}</span>
+          <span className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</span>
           {onSwap && st.id ? (
             <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
               Swap
             </button>
           ) : null}
         </div>
+        {a.offline && a.offlineUntil ? <div className="pv-option-detail pv-option-off">Held until {untilText(a.offlineUntil)}</div> : null}
       </div>
     </div>
   ));
@@ -508,11 +651,13 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         <img className="pv-option-thumb" src={a.image} alt="" onError={hideBrokenImage} />
       ) : null}
       <div className="pv-option-body">
+        {st.originalHotelKey && a.hotelKey === st.originalHotelKey ? <span className="pv-chip pv-chip--choice" style={{ alignSelf: "flex-start", marginBottom: 4 }}>Our choice</span> : null}
         <span className="pv-option-name pv-option-name--block">{a.name}</span>
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
       </div>
       <div className="pv-option-side">
-        <div className="pv-option-price">{inr(a.price)}</div>
+        <div className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</div>
+        {a.offline && a.offlineUntil ? <div className="pv-option-detail pv-option-off">Held until {untilText(a.offlineUntil)}</div> : null}
         {onSwap && st.id ? (
           <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
             Swap
@@ -578,22 +723,23 @@ export function ProposalPreviewPage({
   const autoOpened = useRef(false);
   const payment = useSyncExternalStore(noSubscribe, readPayment, () => "");
   const paymentRef = useSyncExternalStore(noSubscribe, readPaymentRef, () => "");
-  // As soon as the link is opened, every payable item is re-checked live and held on the server
-  // (refresh): Pay now then goes straight to payment, or a changed price is shown first. The
-  // short details form only appears when we don't hold the traveller's name, email or mobile.
+  // The live price check runs when the customer presses Pay now (2026-11-03, direct request), not
+  // when the link opens: every payable item is re-checked and held on the server (refresh — for a
+  // flight that is TripSure's Update Itinerary with the passengers and add-ons), then payment
+  // opens, or a changed price is shown first. Each press checks again. The short details form only
+  // appears when we don't hold the traveller's name, email or mobile.
   const router = useRouter();
   const [check, setCheck] = useState<{ status: "idle" | "checking" | "ready" | "needs_details" | "needs_passengers" | "paid" | "error"; data?: any; message?: string }>({ status: "idle" });
   // "Payment 1 of 2 · Flight BLR → DEL" while TripSure's payments are taken booking by booking.
   const [payStep, setPayStep] = useState<{ step: number; steps: number; label: string } | null>(null);
   const [changeSeen, setChangeSeen] = useState(false);
-  // Pay now pressed while the check was still running (or opened with ?pay=open): pay as soon as it is ready.
+  // Pay now pressed (or opened with ?pay=open): pay as soon as the check is ready.
   const [wantPay, setWantPay] = useState(false);
   const wantPayRef = useRef(false);
   const want = (v: boolean) => { wantPayRef.current = v; setWantPay(v); };
   const [paying, setPaying] = useState(false);
   const [payErr, setPayErr] = useState<string | null>(null);
-  // The automatic check runs once per page view (the effect below can fire again as the URL
-  // flags settle); "Check again" and an ended hold run it on purpose.
+  // The quotes load once per page view (the effect below can fire again as the URL flags settle).
   const checkStarted = useRef(false);
   function runCheck() {
     if (!payToken) return;
@@ -610,7 +756,7 @@ export function ProposalPreviewPage({
         want(false);
         // A changed price is shown first (the popup); otherwise straight on to payment.
         if (next.status === "ready" && !r.price_changed) void payNow(next);
-        else if (next.status === "needs_details") setPayingFlights(true);
+        else if (next.status === "needs_details" || next.status === "needs_passengers") setPayingFlights(true);   // the customer enters the traveller details
       })
       .catch((e: any) => { want(false); setCheck({ status: "error", message: errText(e) }); });
   }
@@ -625,22 +771,34 @@ export function ProposalPreviewPage({
     proposalFlightPayQuote(payToken)
       .then((q: any) => {
         setFlightQuote(q);
-        if (q && q.payable && payment !== "success") {
-          runCheck();
-        }
+        // ?pay=open is a Pay now press: the same traveller details window as pressing Pay now.
+        if (q && q.payable && payment !== "success" && wantPayRef.current) { want(false); setPayingFlights(true); }
       })
-      .catch(() => setFlightQuote(null));
+      .catch(() => { want(false); setFlightQuote(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payToken, payOpen]);
 
-  // After a swap on the link: the new quote, then the live check and hold for the trip as chosen.
+  // After a swap on the link: the new quote. An earlier check was for the old flights, so it is
+  // cleared; Pay now checks the trip as chosen.
   useEffect(() => {
     if (!payToken || !choiceVersion) return;
     proposalFlightPayQuote(payToken).then((q: any) => setFlightQuote(q)).catch(() => setFlightQuote(null));
-    runCheck();
+    setCheck({ status: "idle" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choiceVersion]);
 
+  // The Pay now button: a fresh live check every press, then payment (or the price-change popup).
+  function startPay() {
+    if (!payToken || paying || check.status === "checking") return;
+    setPayErr(null);
+    // The airline needs every passenger's details before it takes payment. When we don't hold them yet the customer enters them now
+    // (Next saves them, checks the live price and shows the final price), instead of waiting for the advisor.
+    // Every Pay now press (and ?pay=open) is the same flow: the traveller details window (pre-filled, or showing what we hold to
+    // check), then Next runs the live check once and shows the final price, then Pay.
+    if (flightQuote && flightQuote.payable) { setPayingFlights(true); return; }
+    want(true);
+    runCheck();
+  }
   async function payNow(current = check) {
     if (!payToken) return;
     if (current.status === "checking") { want(true); return; }
@@ -652,8 +810,8 @@ export function ProposalPreviewPage({
       const out = await payHeldOrder(payToken, current.data, (url) => router.push(url), setPayStep);
       if (out.kind === "paid") setCheck({ status: "paid", data: { order_number: out.orderNumber } });
     } catch (e: any) {
-      // The hold ended while the page sat open: check again for a fresh price and hold.
-      if (e && e.status === 410) runCheck();
+      // The hold ended while the page sat open: check again for a fresh price and hold, then pay.
+      if (e && e.status === 410) { want(true); runCheck(); }
       else setPayErr(errText(e));
     } finally {
       setPaying(false);
@@ -661,6 +819,22 @@ export function ProposalPreviewPage({
     }
   }
   const priceChange = check.status === "ready" && check.data?.price_changed && !changeSeen ? check.data : null;
+  // What is charged, before and after the live check: the whole-trip amount Pay now takes (our fee and GST included), so the popup,
+  // the button and the summary all say the same number.
+  const chargeOf = (d: any) => Number(d?.pay_amount ?? d?.trip_total ?? d?.amount ?? 0);
+  const chargedBefore = Number(flightQuote?.pay_amount ?? flightQuote?.trip_total ?? data.grandTotal ?? 0);
+  // Offline prices (entered by hand): on the link the server's own clock and the live trip decide; else what this proposal was built with.
+  const offlineNotice: OfflineNotice | null = flightQuote && flightQuote.offline
+    ? { validUntil: flightQuote.offline.valid_until, expired: !!flightQuote.offline.expired, offsetMs: Date.parse(flightQuote.offline.now) - Date.now() || 0 }
+    : data.offlineNotice ? { validUntil: data.offlineNotice.validUntil, expired: !!data.offlineNotice.expired, offsetMs: 0 } : null;
+  // What Pay now says it is checking: only the online (live) items; vendor-quoted ones are said not to change.
+  const words = payCheckWords(flightQuote);
+  // One price table: once the live check is back, "What it costs" itself shows the final price (a moved line shows its old price struck
+  // through), so a line never has two prices on the page.
+  const finalView = check.status === "ready" && check.data && check.data.trip_total != null
+    ? finalPriceView(data.costLines || [], check.data.lines, Number(data.grandTotal) || 0, Number(check.data.trip_total))
+    : null;
+  const costRows: any[] = finalView ? finalView.lines : data.costLines || [];
   // Advisor's own preview: the live-priced flights the customer will be able to pay for.
   const previewPayable = !payToken && !data._locked && ((data.flights || []).some((f: any) => f.fareLine)
     || (data.stays || []).some((st: any) => st.hotelKey && Number(st.price) > 0 && st.checkIn && st.roomType));
@@ -673,7 +847,9 @@ export function ProposalPreviewPage({
   }, [tab]);
 
   const hasVisa = !!data.visa;
-  const visibleTabs: Tab[] = hasVisa ? [...TABS] : TABS.filter((t) => t !== "Decisions");
+  // Where to eat has a tab of its own once restaurants from the city guide were added; Decisions only with a visa.
+  const hasEat = !!(data.whereToEat && data.whereToEat.length);
+  const visibleTabs: Tab[] = TABS.filter((t) => (t === "Decisions" ? hasVisa : t === "Where to eat" ? hasEat : true));
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
   // A Google Places photo for each stay without one — through our own adminbe
@@ -727,23 +903,35 @@ export function ProposalPreviewPage({
         <div className="pv-pchg-back" role="dialog" aria-modal="true" aria-label="Price change">
           <div className="pv-pchg">
             <h2>The price has changed</h2>
-            <p>Since your proposal was prepared, the airline or hotel has changed the price. We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
+            <p>{words.changedIntro} We&apos;ve held the same flights, fare, seats and rooms for you at the new price.</p>
+            {words.offlineUnchanged ? <p className="pv-pchg-off">{words.offlineUnchanged}</p> : null}
             <div className="pv-pchg-rows">
-              <div><span>In your proposal</span><s>{inr(priceChange.quoted)}</s></div>
-              <div className="now"><span>Now</span><b>{inr(priceChange.amount)}</b></div>
-              <div className="diff"><span>{priceChange.amount > priceChange.quoted ? "Increase" : "Decrease"}</span><span>{inr(Math.abs(priceChange.amount - priceChange.quoted))}</span></div>
+              <div><span>In your proposal</span><s>{inr(finalView ? finalView.was ?? chargedBefore : chargedBefore)}</s></div>
+              <div className="now"><span>Final price now</span><b>{inr(finalView ? finalView.total : chargeOf(priceChange))}</b></div>
+              <div className="diff"><span>{(finalView ? finalView.total : chargeOf(priceChange)) > (finalView ? finalView.was ?? chargedBefore : chargedBefore) ? "Increase" : "Decrease"}</span><span>{inr(Math.abs((finalView ? finalView.total : chargeOf(priceChange)) - (finalView ? finalView.was ?? chargedBefore : chargedBefore)))}</span></div>
             </div>
+            {finalView && finalView.moved.length ? (
+              <div className="pv-pchg-lines">
+                <div className="pv-pchg-lines-h">What moved</div>
+                {finalView.moved.map((l, i) => (
+                  <div key={i}><span>{l.label}</span><span><s>{inr(l.was)}</s> → <b>{inr(l.now)}</b></span></div>
+                ))}
+                <div className="pv-pchg-lines-n">Our service fee and GST move with it. The table below now shows the final prices.</div>
+              </div>
+            ) : null}
             <div className="pv-pchg-actions">
               <button type="button" className="pv-cta pv-cta--ghost" onClick={() => setChangeSeen(true)}>Not now</button>
               <button type="button" className="pv-cta pv-cta--pay" onClick={() => { setChangeSeen(true); void payNow(); }}>
-                Pay <span className="pv-cta-amt">{inr(priceChange.amount)}</span>
+                Pay <span className="pv-cta-amt">{inr(chargeOf(priceChange))}</span>
               </button>
             </div>
           </div>
         </div>
       ) : null}
       {payToken && payingFlights && flightQuote ? (
-        <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)} />
+        <ProposalFlightPayModal token={payToken} quote={flightQuote} onClose={() => setPayingFlights(false)}
+          // the live check is back (Next): the prices on the page behind show the final price too, and the old popup stays quiet
+          onChecked={(r) => { setChangeSeen(true); setCheck({ status: "ready", data: r }); }} />
       ) : null}
       {payToken && payingStay ? (
         <ProposalPayModal
@@ -824,6 +1012,7 @@ export function ProposalPreviewPage({
             ) : payment === "failed" ? (
               <div className="pv-paid-note pv-paid-note--err" role="status">The payment didn&apos;t go through and you haven&apos;t been charged. You can try again with Pay now below.</div>
             ) : null}
+            {offlineNotice ? <OfflineBanner notice={offlineNotice} /> : null}
             <div className="pv-tabs">
               <span className="pv-tab-indicator" style={{ transform: `translateX(${indicator.left}px)`, width: indicator.width }} />
               {visibleTabs.map((t) => (
@@ -872,7 +1061,10 @@ export function ProposalPreviewPage({
                     <>
                       <h2 className="pv-section-title">Getting there</h2>
                       {data.flights.map((f: any, i: number) =>
-                        f.depTime ? (f.alternatives?.length ? <FlightGroup key={i} f={f} onSwap={onSwapFlight} /> : <RecommendedFlightRow key={i} f={f} />) : <PendingFlightRow key={i} f={f} />
+                        <Fragment key={i}>
+                          {f.offline ? <div style={{ marginTop: 6 }}><OfflineTag /></div> : null}
+                          {f.depTime ? (f.alternatives?.length ? <FlightGroup f={f} onSwap={onSwapFlight} /> : <RecommendedFlightRow f={f} />) : <PendingFlightRow f={f} />}
+                        </Fragment>
                       )}
                     </>
                   ) : null}
@@ -883,7 +1075,7 @@ export function ProposalPreviewPage({
                       {enrichedData.stays.map((st: any, i: number) => (
                         <div className="pv-recgroup" key={i}>
                           <div className="pv-recgroup-head">
-                            <span className="pv-recgroup-title">{st.area ? `${st.city} · ${st.area}` : st.city}</span>
+                            <span className="pv-recgroup-title">{st.area ? `${st.city} · ${st.area}` : st.city}{st.offline ? <> <OfflineTag /></> : null}</span>
                             {st.dateRange ? <span className="pv-recgroup-sub">{st.dateRange}</span> : null}
                           </div>
                           {st.alternatives?.length ? <StayGroup st={st} onSwap={onSwapHotel} /> : <RecommendedStayRow st={st} />}
@@ -930,13 +1122,14 @@ export function ProposalPreviewPage({
                     <>
                       <h2 className="pv-section-title">What it costs</h2>
                       <div className="pv-costtable">
-                        {data.costLines.map((ln: any, i: number) =>
-                          ln.breakdown?.length ? (
+                        {costRows.map((ln: any, i: number) =>
+                          // a line that moved at the live check no longer matches its fare breakdown, so it shows as a plain row
+                          ln.breakdown?.length && ln.was == null ? (
                             // A live-priced flight: its line opens into what the price is made of.
                             <details className="pv-costrow-wrap" key={i}>
                               <summary className="pv-costrow pv-costrow--open">
-                                <span>{ln.label}<span className="pv-costrow-caret" aria-hidden="true" /></span>
-                                <span>{inr(ln.sell)}</span>
+                                <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}<span className="pv-costrow-caret" aria-hidden="true" /></span>
+                                <span>{ln.was != null ? <s className="pv-was">{inr(ln.was)}</s> : null}{inr(ln.sell)}</span>
                               </summary>
                               <div className="pv-costbreak">
                                 {ln.breakdown.map((b: any, j: number) => (
@@ -949,14 +1142,14 @@ export function ProposalPreviewPage({
                             </details>
                           ) : (
                             <div className="pv-costrow" key={i}>
-                              <span>{ln.label}</span>
-                              <span>{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
+                              <span>{ln.label}{ln.offline ? <> <OfflineTag /></> : null}</span>
+                              <span>{ln.was != null ? <s className="pv-was">{inr(ln.was)}</s> : null}{Number(ln.sell) > 0 ? inr(ln.sell) : "To be confirmed"}</span>
                             </div>
                           ),
                         )}
                         <div className="pv-costrow pv-costrow--total">
-                          <span>Trip total</span>
-                          <span>{inr(data.grandTotal)}</span>
+                          <span>{finalView ? "Final trip total" : "Trip total"}{finalView ? <small className="pv-final-tag"> · checked live just now</small> : null}</span>
+                          <span>{finalView && finalView.was != null ? <s className="pv-was">{inr(finalView.was)}</s> : null}{inr(finalView ? finalView.total : data.grandTotal)}</span>
                         </div>
                       </div>
                       {data.costRange && (data.costRange.unpriced.length || data.costRange.budgetCap) ? (
@@ -978,12 +1171,13 @@ export function ProposalPreviewPage({
                       See the day-by-day plan
                     </button>
                     {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
-                      <button type="button" className="pv-cta pv-cta--pay" onClick={() => payNow()} disabled={check.status === "error" || check.status === "needs_passengers" || paying}
+                      <button type="button" className="pv-cta pv-cta--pay" onClick={startPay} disabled={check.status === "checking" || paying}
                         aria-busy={check.status === "checking" || paying}>
                         {paying ? (payStep && payStep.steps > 1 ? `Paying ${payStep.step} of ${payStep.steps}…` : "Opening payment…")
-                          : check.status === "checking" && wantPay ? "Checking live prices…" : "Pay now"}
-                        {!paying && !(check.status === "checking" && wantPay) ? (
-                          <span className="pv-cta-amt">{inr(check.status === "ready" && check.data ? (check.data.pay_amount ?? check.data.amount) : (flightQuote.pay_amount ?? flightQuote.amount))}</span>
+                          : check.status === "checking" && wantPay ? words.buttonChecking : "Pay now"}
+                        {/* the amount only once the live check has confirmed it: before that it is not final */}
+                        {!paying && !(check.status === "checking" && wantPay) && check.status === "ready" && check.data ? (
+                          <span className="pv-cta-amt">{inr(chargeOf(check.data))}</span>
                         ) : null}
                       </button>
                     ) : payToken && !data._locked && payQuote?.payable && !flightQuote?.payable ? (
@@ -992,13 +1186,15 @@ export function ProposalPreviewPage({
                       </button>
                     ) : previewPayable ? (
                       payPreviewUrl ? (
-                        <a className="pv-cta pv-cta--pay" href={`${payPreviewUrl}?pay=open&debug=1`} target="_blank" rel="noreferrer"
-                          title="Opens the customer's web link in a new tab, with the payment window open and the live check details shown (for you only)">
-                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span> <span aria-hidden="true">↗</span>
+                        // The very link "Copy web link" copies, opened in a new tab: the customer's own page and flow (Pay now there asks for the
+                        // traveller details, checks the live price once, shows the final price, then pays). No extra settings, so nothing runs by itself.
+                        <a className="pv-cta pv-cta--pay" href={payPreviewUrl} target="_blank" rel="noreferrer"
+                          title="Opens the customer's web link in a new tab, exactly as the customer sees it: press Pay now there">
+                          Pay now <span aria-hidden="true">↗</span>
                         </a>
                       ) : (
                         <button type="button" className="pv-cta pv-cta--pay" disabled title="Create the web link first: Pay now runs on the customer's link">
-                          Pay now <span className="pv-cta-amt">{inr(data.grandTotal)}</span>
+                          Pay now
                         </button>
                       )
                     ) : null}
@@ -1006,45 +1202,41 @@ export function ProposalPreviewPage({
                   {payToken && flightQuote?.payable && payment !== "success" ? (
                     <div className={"pv-actions-note" + (check.status === "error" || payErr ? " is-err" : "")} role="status">
                       {payErr ? payErr
-                        : check.status === "checking" ? <><span className="pv-dot" /> Checking live prices with the airline and hotel…</>
-                        : check.status === "needs_passengers" ? "Your advisor is completing the passenger details — Pay now opens as soon as they're in."
-                        : check.status === "ready" ? <>✓ Live prices confirmed{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment by Razorpay
+                        : check.status === "checking" ? <><span className="pv-dot" /> {words.checking}</>
+                        : check.status === "needs_passengers" ? <>We need the traveller details before you can pay. <button type="button" className="pv-linkbtn" onClick={() => setPayingFlights(true)}>Enter traveller details</button></>
+                        : check.status === "ready" ? <>{words.ready}{check.data?.price_changed ? ` — now ${inr(check.data.pay_amount ?? check.data.amount)}` : ""} · secure payment
+                            {Number(check.data?.addons_by_advisor || 0) > 0 ? " · your seats, meals and bags are included — your advisor confirms them with the airline right after booking" : ""}
                             {(check.data?.bookings || []).length > 1 ? ` · ${check.data.bookings.length} payments, one per booking` : ""}</>
                         : check.status === "paid" ? `Payment received${check.data?.order_number ? ` · booking ${check.data.order_number}` : ""}. Your advisor is completing the booking.`
-                        : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={runCheck}>Check again</button></>
-                        : "Secure payment by Razorpay"}
+                        : check.status === "error" ? <>{check.message || "We couldn't confirm the live price."} <button type="button" className="pv-linkbtn" onClick={startPay}>Try again</button></>
+                        : words.idle}
                     </div>
-                  ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
-                    <div className="pv-actions-note">Secure payment by Razorpay · prices are re-checked with the airline and hotel before you pay</div>
                   ) : null}
-                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && (check.data?.pays_trip_total ?? flightQuote.pays_trip_total) ? (
-                    // One payment for the whole trip (TripAgent's Razorpay): the fee and GST are in it.
-                    <div className="pv-actions-note">
-                      Pay now {inr(check.data?.pay_amount ?? flightQuote.pay_amount ?? 0)} is the whole trip in one payment
-                      {Number(check.data?.service_fee ?? flightQuote.service_fee ?? 0) > 0 ? <> — incl. TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} and GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</> : null}
-                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)} are settled with them</> : null}.
-                    </div>
-                  ) : payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && Number((check.data?.fee ?? flightQuote.fee) || 0) > 0 ? (
-                    // The three parts that make the trip total: the airline / hotel amount paid now through
-                    // TripSure, our service fee, and the GST on the trip.
-                    <div className="pv-actions-note">
-                      Pay now {inr(check.data?.amount ?? flightQuote.amount)} covers the airline and hotel fares
-                      {(check.data?.service_fee ?? flightQuote.service_fee) != null ? (
-                        <> · TripAgent service fee {inr(check.data?.service_fee ?? flightQuote.service_fee ?? 0)} · GST {inr(check.data?.tax ?? flightQuote.tax ?? 0)}</>
-                      ) : " and TripAgent service fee & GST " + inr(check.data?.fee ?? flightQuote.fee ?? 0)}
-                      {Number(check.data?.other ?? flightQuote.other ?? 0) > 0 ? (
-                        // Items on the proposal that aren't paid online (your advisor confirms them).
-                        <> · other items your advisor confirms {inr(check.data?.other ?? flightQuote.other ?? 0)}</>
-                      ) : null}
-                      {" "}= trip total {inr(check.data?.trip_total ?? flightQuote.trip_total ?? data.grandTotal)}.
-                    </div>
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" && words.offlineLine ? (
+                    // the vendor-quoted items are not part of the live check, so the page says they don't change
+                    <div className="pv-actions-note pv-offnote" role="note">{words.offlineLine}</div>
+                  ) : (payToken && !data._locked && payQuote?.payable && payment !== "success") || previewPayable ? (
+                    <div className="pv-actions-note">Secure payment · prices are re-checked with the airline and hotel before you pay</div>
+                  ) : null}
+                  {payToken && flightQuote?.payable && payment !== "success" && check.status !== "paid" ? (
+                    // The price table above is the one price: it says what is final once the live check is back.
+                    check.status === "ready" && check.data ? (
+                      Number(check.data.pays_trip_total ?? flightQuote.pays_trip_total) ? null : (
+                        <div className="pv-actions-note">Pay now {inr(check.data.amount ?? flightQuote.amount)} covers the airline and hotel fares; our service fee, GST and any other items are settled with your advisor.</div>
+                      )
+                    ) : (
+                      <div className="pv-actions-note">{words.summaryNote}</div>
+                    )
+                  ) : null}
+                  {payToken && flightQuote && !flightQuote.payable && flightQuote.reason && payment !== "success" && check.status !== "paid" ? (
+                    <div className="pv-actions-note is-err" role="status">{flightQuote.reason}</div>
                   ) : null}
                   {payToken && debug ? (
                     <LiveCheckTrace token={payToken} version={`${check.status}:${choiceVersion}:${payErr || ""}:${paying}`}
                       onRerun={runCheck} busy={check.status === "checking"} />
                   ) : null}
                   {payToken && check.status === "ready" && check.data?.pay_by && payment !== "success" ? (
-                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={runCheck} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
+                    <div className="pv-hold"><PayTimer payBy={check.data.pay_by} onExpire={() => setCheck({ status: "idle" })} what={flightQuote?.flights?.length ? "trip" : "room"} /></div>
                   ) : null}
                 </>
               ) : null}
@@ -1056,9 +1248,11 @@ export function ProposalPreviewPage({
                   </h2>
                   {data.dayPlan?.length ? (
                     <>
-                      <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
-                        AI-drafted day plan — suggestions only, not checked against availability or booked.
-                      </div>
+                      {data.dayPlan.some((d: any) => d.description) ? (
+                        <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+                          AI-drafted day plan — suggestions only, not checked against availability or booked.
+                        </div>
+                      ) : null}
                       <div className="pv-days">
                         {data.dayPlan.map((d: any, i: number) => (
                           <div className="pv-day" key={i}>
@@ -1070,6 +1264,12 @@ export function ProposalPreviewPage({
                                   {d.date ? ` · ${d.date}` : ""}
                                 </div>
                                 {d.description ? <div className="pv-day-body">{d.description}</div> : null}
+                                {d.dining && d.dining.length ? (
+                                  <div className="pv-eat">
+                                    <div className="pv-eat-title">Where to eat <span>· from our {d.dining[0].city} guide, not booked</span></div>
+                                    <EatList entries={d.dining} />
+                                  </div>
+                                ) : null}
                               </div>
                               {d.photoQuery ? <DayPhoto query={d.photoQuery} /> : null}
                             </div>
@@ -1097,6 +1297,23 @@ export function ProposalPreviewPage({
                 </>
               ) : null}
 
+              {activeTab === "Where to eat" && data.whereToEat?.length ? (
+                <>
+                  <h2 className="pv-section-title">Where to eat</h2>
+                  <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+                    Our picks from the {data.whereToEat.map((g: any) => g.city).join(" and ")} city guide: suggestions only, not booked.
+                  </div>
+                  {data.whereToEat.map((g: any) => (
+                    <div className="pv-recgroup" key={g.city}>
+                      <div className="pv-recgroup-head">
+                        <span className="pv-recgroup-title">{g.city}</span>
+                        {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                      </div>
+                      <EatCards entries={g.picks} />
+                    </div>
+                  ))}
+                </>
+              ) : null}
               {activeTab === "Decisions" && hasVisa ? (
                 <>
                   <h2 className="pv-section-title">Before money moves</h2>

@@ -43,6 +43,9 @@
  * Still deliberately NOT in scope: editing occupancy/price/meal plan,
  * or a real financial-rollup visualization.
  * ===========================================================================*/
+import { BudgetBar } from "../BudgetBar";
+import { takePendingBudget } from "../../lib/pendingBudget";
+import { normalizeBudget } from "../../lib/tripBudget";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
@@ -50,14 +53,21 @@ import { inr } from "../../services/api";
 import { Empty, Icon, SleekScroll, Spinner } from "../ui";
 import { PassengersPanel } from "./PassengersPanel";
 import { PaidTripHistory } from "./PaidTripHistory";
-import { requestLivePrice } from "../../lib/livePriceRequest";
+import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, applyManualPriceToAlternative, clearManualPrice, clearManualPriceOfAlternative, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
+import { leftText, untilText } from "../../lib/offlineBanner";
+import { useMinuteClock } from "../../lib/deskMemory";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
+import { FlightRecommendations } from "./FlightRecommendations";
+import { CityGuidePanel } from "./CityGuidePanel";
+import { itineraryCityTexts } from "../../lib/cityGuideText";
+import { dayCityTexts, hotelForDay, type DiningEntry } from "../../lib/diningPlan";
+import { DayDining } from "./DayDining";
 
 // editValue/type (2026-09-04) — added for the day date, the one field
 // here where the DISPLAYED text ("Thu 12 Oct") and the value that needs
@@ -138,6 +148,88 @@ function EditableText({
 // attention statuses share the "warn" amber bucket, so the concrete
 // next step (not just the color) is what keeps them distinguishable,
 // and it has to live IN the pill so it survives a collapsed row (#2).
+// ManualPrice — for a flight or stay quoted OFFLINE by another vendor (not TripSure): the advisor types the vendor's total for the whole
+// party / whole stay and it becomes the item's price everywhere (totals, quote, proposal, PDF), so nothing has to be edited in the PDF
+// afterwards. Vendor and note are internal. "Back to the earlier price" restores what the item had before (e.g. Tara's draft figure).
+function ManualPrice({ item, onSave, onClear, defaultOpen, onClose, label }: {
+  item: any; onSave: (v: { amount: number; vendor: string; note: string }) => void; onClear: () => void;
+  /** Opens straight on the form (a swap option's price), and says when it is closed again. */
+  defaultOpen?: boolean; onClose?: () => void; label?: string;
+}) {
+  const mp = item.manualPrice || null;
+  const now = useMinuteClock();
+  const hold = mp ? manualPriceState(mp, now) : null; // an offline price is held for 12 hours from when it was entered
+  const [open, setOpen] = useState(!!defaultOpen);
+  const [amount, setAmount] = useState(defaultOpen && mp ? String(mp.amount) : "");
+  const [vendor, setVendor] = useState(defaultOpen && mp ? mp.vendor || "" : "");
+  const [note, setNote] = useState(defaultOpen && mp ? mp.note || "" : "");
+  const [bad, setBad] = useState(false);
+  function start() {
+    setAmount(mp ? String(mp.amount) : "");
+    setVendor(mp ? mp.vendor || "" : "");
+    setNote(mp ? mp.note || "" : "");
+    setBad(false);
+    setOpen(true);
+  }
+  function save() {
+    const n = Number(String(amount).replace(/[,\s₹]/g, ""));
+    if (!(n > 0) || !Number.isFinite(n)) { setBad(true); return; }
+    onSave({ amount: n, vendor, note });
+    setOpen(false);
+    if (onClose) onClose();
+  }
+  const what = label || (item.type === "hotel" ? "the whole stay" : "all travellers");
+  return (
+    <div className="taw-itin-manual">
+      {mp && !open ? (
+        <div className="taw-itin-manual-row">
+          <span>
+            <b>Price entered manually: {inr(mp.amount)}</b> ({what}){mp.vendor ? " · " + mp.vendor : ""}{mp.note ? " · " + mp.note : ""}
+          </span>
+          {hold ? (
+            <span className={"taw-itin-manual-hold" + (hold.expired ? " is-expired" : "")} title="An offline price is held for 12 hours from when it was entered. Edit it, or use Refresh offline prices, to hold it for 12 more hours.">
+              {hold.expired ? "Offline price expired: confirm it with the vendor and refresh it" : `Held until ${untilText(hold.validUntil)} · ${leftText(hold.msLeft)}`}
+            </span>
+          ) : null}
+          <button type="button" className="taw-linkbtn" onClick={start}>Edit</button>
+          <button type="button" className="taw-linkbtn" onClick={() => { onClear(); if (onClose) onClose(); }}>Back to the earlier price</button>
+        </div>
+      ) : null}
+      {!mp && !open ? (
+        <button type="button" className="taw-btn taw-btn--sm" onClick={start} title="For a price you got offline from another vendor">
+          Enter price manually
+        </button>
+      ) : null}
+      {open ? (
+        <div className="taw-itin-manual-form">
+          <label>
+            Total price for {what} (₹)
+            <input className="taw-itin-edit-input" inputMode="decimal" autoFocus value={amount} placeholder="e.g. 64500"
+              onChange={(e) => { setAmount(e.target.value); setBad(false); }} onKeyDown={(e) => { if (e.key === "Enter") save(); }} />
+          </label>
+          <label>
+            Vendor (optional, internal)
+            <input className="taw-itin-edit-input" value={vendor} placeholder="Who quoted it" onChange={(e) => setVendor(e.target.value)} />
+          </label>
+          <label>
+            Note (optional, internal)
+            <input className="taw-itin-edit-input" value={note} placeholder="e.g. valid till Friday" onChange={(e) => setNote(e.target.value)} />
+          </label>
+          {item.pricing || (mp && mp.prev && mp.prev.pricing) ? (
+            <div className="taw-itin-manual-live">This flight has a live TripSure price. An offline price replaces it, is held for 12 hours, and isn&apos;t re-checked when the customer pays. &ldquo;Back to the earlier price&rdquo; brings the live price back.</div>
+          ) : null}
+          {bad ? <div className="taw-itin-manual-err" role="alert">Enter an amount above 0.</div> : null}
+          <div className="taw-itin-manual-btns">
+            <button type="button" className="taw-btn taw-btn--sm taw-btn--accent" onClick={save}>Save price</button>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setOpen(false); if (onClose) onClose(); }}>Cancel</button>
+            {mp ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => { onClear(); setOpen(false); if (onClose) onClose(); }}>Back to the earlier price</button> : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StatusPill({ status, nextStep }: { status: ItineraryItemStatus; nextStep?: string }) {
   const meta = STATUS_META[status];
   return (
@@ -209,6 +301,13 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   function setData(updater: (d: any) => any) {
     updateItineraryData(enquiryId, updater);
   }
+  // A budget typed on the "Start this itinerary" screen waits for the itinerary to exist, then lands on it.
+  useEffect(() => {
+    if (data.budget) return;
+    const waiting = takePendingBudget(enquiryId);
+    if (waiting) updateItineraryData(enquiryId, (d: any) => (d && !d.budget ? { ...d, budget: waiting } : d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enquiryId, data]);
   // ask (2026-09-15, hotel-suggestion flow) — the SAME real enquiry `ask`
   // Member360/FlightDesk.tsx already read off travellerProfile (GET
   // /enquiries/{id}/traveller-profile), reused here so HotelRecommendations
@@ -236,6 +335,9 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // open it — clicking "Send to Proposal" should be reversible without
   // side effects until they commit.
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // Offline prices (entered by hand) are held for 12 hours: the banner below counts it down.
+  const nowTick = useMinuteClock();
+  const offlineNow = offlineNoticeOf(data.days || [], nowTick);
   function sendToProposal() {
     // No longer refuses a draft hotel (2026-10-21, direct request): the summary modal still warns
     // about it (hasDraftHotel), but the advisor may continue to the Proposal Composer anyway.
@@ -293,6 +395,44 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     }));
   }
 
+  function setManualPrice(dayId: string, itemId: string, v: { amount: number; vendor: string; note: string }) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? applyManualPrice(it, v) : it)) })),
+    }));
+    toast("Price saved: " + inr(v.amount) + " — it is in the totals, the quote and the proposal", "success");
+  }
+  function clearItemManualPrice(dayId: string, itemId: string) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? clearManualPrice(it) : it)) })),
+    }));
+  }
+
+  // "Where to eat": restaurants from our city guides, kept on the day as `dining` (the proposal's Days and Plan tabs show them).
+  function addDiningToDay(dayId: string, entry: DiningEntry) {
+    setData((d: any) => ({
+      ...d,
+      days: d.days.map((day: any) => (day.id !== dayId || (day.dining || []).some((e: DiningEntry) => e.id === entry.id) ? day : { ...day, dining: (day.dining || []).concat([entry]) })),
+    }));
+    toast("Added to the day: " + entry.name, "success");
+  }
+  // A hotel swap option can have an offline price of its own (the same 12-hour hold); swapping carries it with the hotel.
+  const [editingAlt, setEditingAlt] = useState<{ itemId: string; ai: number } | null>(null);
+  function setAltManualPrice(dayId: string, itemId: string, ai: number, v: { amount: number; vendor: string; note: string }) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? applyManualPriceToAlternative(it, ai, v) : it)) })) }));
+  }
+  function clearAltManualPrice(dayId: string, itemId: string, ai: number) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, items: day.items.map((it: any) => (it.id === itemId ? clearManualPriceOfAlternative(it, ai) : it)) })) }));
+  }
+  // Offline prices are held for 12 hours; this restarts the clock once the advisor has re-confirmed them with the vendors.
+  function refreshOfflinePrices() {
+    setData((d: any) => refreshManualPrices(d));
+    toast("Offline prices are held for 12 more hours.", "success");
+  }
+  function removeDining(dayId: string, entryId: string) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, dining: (day.dining || []).filter((e: DiningEntry) => e.id !== entryId) })) }));
+  }
   function reorderItems(dayId: string, dragItemId: string, dropItemId: string) {
     if (dragItemId === dropItemId) return;
     setData((d: any) => ({
@@ -466,6 +606,11 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
 
   return (
     <div className="taw-itin">
+      {/* One scroll for the whole builder (2026-11-02, direct request): the summary, alerts and
+          passengers scroll away with the plan instead of pinning it into a strip at the bottom; the
+          category tabs stick to the top so the filter is always at hand. */}
+      <SleekScroll className="taw-itin-days-scroll">
+      <div className="taw-itin-body">
       <div className="taw-itin-summary">
         <div className="taw-itin-summary-head">
           <div>
@@ -524,6 +669,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             <div className="taw-itin-fin-seg taw-itin-fin-seg--unresolved" style={{ flexBasis: (unresolved / finTotal) * 100 + "%" }} />
           ) : null}
         </div>
+        <BudgetBar data={data} budget={normalizeBudget(data.budget)} pax={summary.pax || 0} spent={totals.grand}
+          onSave={(b) => setData((d: any) => { const { budget: _old, ...rest } = d || {}; return b ? { ...rest, budget: b } : rest; })} />
       </div>
 
       {searchPending ? (
@@ -596,6 +743,22 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
       {/* Flight passengers, filled by the advisor before the link goes out (TripSure needs them
           before it takes a flight's payment). Only when a flight has a live price. */}
       <PassengersPanel data={data} member={member} onChange={(rows) => setData((d: any) => ({ ...d, passengers: rows }))} />
+      {offlineNow ? (
+        <div className={"taw-itin-offline" + (offlineNow.expired ? " is-expired" : "")} role="status">
+          <span>
+            {offlineNow.expired
+              ? "Some offline prices are no longer held. Customers can't pay until you confirm them with the vendors and refresh them."
+              : `Offline prices are held until ${untilText(offlineNow.validUntil)} · ${leftText(Date.parse(offlineNow.validUntil || "") - nowTick)}. The proposal and PDF say so.`}
+          </span>
+          <button type="button" className="taw-btn taw-btn--sm" onClick={refreshOfflinePrices}>Refresh offline prices</button>
+        </div>
+      ) : null}
+      <div className="taw-itin-diningbar">
+      <CityGuidePanel texts={itineraryCityTexts(data)} onAddDining={addDiningToDay}
+        dayTexts={Object.fromEntries((data.days || []).map((d: any) => [d.id, dayCityTexts(d)]))} hotelForDay={(id) => hotelForDay(data.days || [], id)}
+        dining={Object.fromEntries((data.days || []).map((d: any) => [d.id, (d.dining || []).map((e: DiningEntry) => e.id)]))}
+        days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
+      </div>
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly
@@ -603,7 +766,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
           filter to match ("All" shows every item, unfiltered — the
           original combined view). Trip-wide totals/bar above stay
           unaffected — those are deliberately whole-trip, not per-tab. */}
-      <div className="taw-leg-switch">
+      <div className="taw-leg-switch taw-itin-tabs">
         <button className={cx("taw-leg-tab", category === "all" && "is-active")} onClick={() => setCategory("all")}>
           All
         </button>
@@ -618,12 +781,6 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         </button>
       </div>
 
-      {/* SleekScroll (2026-09-04, direct request) — only THIS, the day/
-          visa list below the tabs, scrolls now; the summary, alerts
-          banner, and tabs above stay fixed in view (see
-          .taw-itin-card .taw-card-b's own comment for the flex chain
-          this depends on). */}
-      <SleekScroll className="taw-itin-days-scroll">
       {/* .taw-itin-days (2026-09-03) — a plain divider-separated
           section (each .taw-itin-day gets a border-bottom, no more
           individual card box), not another gapped list; see the CSS
@@ -883,7 +1040,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                             </div>
                           ) : null}
                           {item.meta ? <div className="taw-itin-item-meta">{item.meta}</div> : null}
-                          {item.type === "flight" && !item.pricing && item.status !== "confirmed" ? (
+                          {item.type === "flight" && !item.pricing && !item.manualPrice && item.status !== "confirmed" ? (
                             // Not live-priced (Tara's draft, or added before live pricing): no live fare, no
                             // breakdown in the proposal and not payable online until priced from Search.
                             <div className="taw-itin-reprice">
@@ -905,6 +1062,29 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                               ) : null}
                             </div>
                           ) : null}
+                          {item.type === "hotel" && item.status === "draft" && !item.hotelKey ? (
+                            // Tara's draft stay: no live room rate yet, so nothing for the proposal to price or pay online.
+                            <div className="taw-itin-reprice">
+                              <Icon name="alert" size={12} />
+                              <span>
+                                {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || ""))
+                                  ? "Not live-priced yet — get TripSure's live room rates for this hotel (city, dates and hotel name filled in for you); the cheapest room is priced and replaces this draft."
+                                  : "Not live-priced yet — this draft doesn't say its city or check-in date clearly; search the hotel in Search and Add it."}
+                              </span>
+                              {(item.city || day.city) && /^\d{4}-\d{2}-\d{2}$/.test(String(day._iso || "")) ? (
+                                <button type="button" className="taw-btn taw-btn--sm taw-btn--accent"
+                                  onClick={() => requestLiveHotelPrice({
+                                    itemId: String(item.id), name: String(item.title || ""), city: String(item.city || day.city),
+                                    checkIn: day._iso, nights: parseInt(String(item.duration || "1"), 10) || 1,
+                                  })}>
+                                  Get live price
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                          {(item.type === "hotel" || item.type === "flight") && item.status !== "confirmed" && item.status !== "booked" ? (
+                            <ManualPrice item={item} onSave={(v) => setManualPrice(day.id, item.id, v)} onClear={() => clearItemManualPrice(day.id, item.id)} />
+                          ) : null}
                           {item.distance ? <div className="taw-itin-item-meta taw-itin-dist">{item.distance}</div> : null}
                           {item.facts ? <StayFacts facts={item.facts} /> : null}
                           {item.alternatives && item.alternatives.length ? (
@@ -925,6 +1105,18 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                     </small>
                                   ) : null}
                                   {a.price ? <em>{item.type === "flight" && item.pricing ? "from " : ""}{inr(a.price)}</em> : null}
+                                  {a.manualPrice ? <small className="taw-itin-alt-off" title="Offline price: held for 12 hours from when it was entered">{(() => { const h = manualPriceState(a.manualPrice, nowTick); return h.expired ? "offline · expired" : "offline · " + leftText(h.msLeft); })()}</small> : null}
+                                  {item.type === "hotel" && item.status !== "confirmed" && item.status !== "booked" ? (
+                                    <button
+                                      type="button"
+                                      className="taw-itin-alt-edit"
+                                      aria-label={"Enter the price of " + (a.name || "this option") + " manually"}
+                                      title="Enter this option's price manually (an offline price from another vendor)"
+                                      onClick={() => setEditingAlt({ itemId: item.id, ai })}
+                                    >
+                                      ₹
+                                    </button>
+                                  ) : null}
                                   <button
                                     type="button"
                                     aria-label="Remove this swap option"
@@ -936,6 +1128,17 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                                 </span>
                               ))}
                             </div>
+                          ) : null}
+                          {editingAlt && editingAlt.itemId === item.id && item.alternatives && item.alternatives[editingAlt.ai] ? (
+                            <ManualPrice
+                              key={item.id + ":" + editingAlt.ai}
+                              item={{ ...item.alternatives[editingAlt.ai], type: "hotel" }}
+                              label={"the whole stay at " + (item.alternatives[editingAlt.ai].name || "this hotel")}
+                              defaultOpen
+                              onClose={() => setEditingAlt(null)}
+                              onSave={(v) => setAltManualPrice(day.id, item.id, editingAlt.ai, v)}
+                              onClear={() => clearAltManualPrice(day.id, item.id, editingAlt.ai)}
+                            />
                           ) : null}
                           {item.note ? <div className="taw-itin-note">{item.note}</div> : null}
                           {/* Remove (2026-09-03, flow-testing hurdle) —
@@ -967,12 +1170,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                     </div>
                   );
                 })}
+                {category === "all" && day.dining && day.dining.length ? <DayDining entries={day.dining} onRemove={(id) => removeDining(day.id, id)} /> : null}
               </div>
             ) : null}
           </div>
         );
       });
       })() : null}
+      {/* Flights tab: the legs of the trip that have no flight yet are searched live, like the Hotels tab's stays. */}
+      {category === "flights" ? <FlightRecommendations data={data} ask={ask} /> : null}
+      </div>
       </div>
       </SleekScroll>
 
