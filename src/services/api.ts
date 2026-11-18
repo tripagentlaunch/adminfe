@@ -1515,13 +1515,13 @@ function siteAddInvitePerson(id, body) {
 }
 // An added person's own invitation code: "resend" emails them again, "revoke" takes their place back (their access ends if they
 // had claimed, and the place is free again).
-function adminbeInviteCodeCall(code, action) {
+function adminbeInviteCodeCall(code, action, body?) {
   var jwt = authBearer();
   if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
   return fetch(FASTAPI_BASE + "/admin/invite-codes/" + encodeURIComponent(code) + "/" + action, {
     method: "POST",
     headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify(body || {}),
   }).then(function (res) {
     return res.json().catch(function () { return {}; }).then(function (data) {
       if (!res.ok) {
@@ -1536,6 +1536,11 @@ function siteResendInvitePerson(code) {
 }
 function siteRevokeInviteSeat(code) {
   return adminbeInviteCodeCall(code, "revoke");
+}
+// A claimed code can be handed on: whoever enters it signs in as its owner. This is the advisor's switch for one code
+// (off = nobody but the owner's own email sign-in gets in). -> { ok, code, shared_access }
+function siteSetCodeSharing(code, enabled) {
+  return adminbeInviteCodeCall(code, "sharing", { enabled: !!enabled });
 }
 
 // siteDenyAccessRequest(id, declineReason?) -> { ok: true }
@@ -3321,6 +3326,7 @@ export {
   siteReissueInvite,
   siteSetInviteSeats,
   siteRevokeInviteSeat,
+  siteSetCodeSharing,
   siteAddInvitePerson,
   siteResendInvitePerson,
   siteApproveAccessRequest,

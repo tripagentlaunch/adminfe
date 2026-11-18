@@ -15,6 +15,7 @@ import {
   siteResendInvite,
   siteResendInvitePerson,
   siteRevokeInviteSeat,
+  siteSetCodeSharing,
   siteSetInviteSeats,
 } from "../../services/api";
 import { cx } from "../../lib/cx";
@@ -87,6 +88,102 @@ export function ShareBar({ code, link, phone, firstName, advisor }: ShareProps) 
       <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => copyText(message, "Message copied")}>
         <Icon name="note" size={13} /> Copy message
       </button>
+    </div>
+  );
+}
+
+const ENTRY_KIND: any = { claim: "First claim", shared: "Entered on the website", tara: "Entered in Tara" };
+
+/** Where an entry came from: the place they chose to share, else what the network tells us, else why there is none. */
+function entryWhere(e: any) {
+  if (e.location_allowed === true) return e.place || "Location allowed (place not found)";
+  const net = e.network_place ? "Near " + e.network_place + " (network)" : "";
+  if (e.location_allowed === false) return net || "Location not shared";
+  return net || "Location not answered";
+}
+
+// CodeAccess: a claimed code can be handed on by its owner (a daughter, a PA). Whoever enters it signs in as the owner and sees their
+// profile and Tara chats. This shows how many times the code was used, from how many devices and where, the latest entries, and the
+// switch that stops anyone else entering with it.
+export function CodeAccess({ code, name, access, tracking = true, onChanged }: { code: string; name: string; access: any; tracking?: boolean; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  if (!access) {
+    return tracking ? null : <Note tone="wait" text="Code use is not tracked yet: apply db/169_shared_code_access.sql to the database." />;
+  }
+  const on = access.shared_access !== false;
+
+  function toggle() {
+    const next = !on;
+    if (!next && !window.confirm("Stop anyone else using this code? Everyone who came in with it is signed out within a few seconds, and entering the code again will not work. " + name + " can still sign in with their email.")) return;
+    setBusy(true);
+    siteSetCodeSharing(code, next)
+      .then(() => {
+        setBusy(false);
+        toast(next ? "Anyone with this code can enter as " + name + " again." : "Done. Others are signed out and only " + name + " can use this code now.", "success");
+        onChanged();
+      })
+      .catch((e: any) => {
+        setBusy(false);
+        toast(errText(e), "error");
+      });
+  }
+
+  return (
+    <div style={{ marginTop: 10, padding: "8px 10px", border: "1px solid var(--line, rgba(0,0,0,.08))", borderRadius: 8 }}>
+      <div className="taw-qrow-top">
+        <span className="taw-qtype taw-icrow">
+          <Icon name="shield" size={13} /> Code use
+        </span>
+        <span className={cx("taw-status", "taw-status--" + (on ? "success" : "danger"))}>{on ? "Others can enter" : "Owner only"}</span>
+      </div>
+      <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 6 }}>
+        Used <b>{access.total_uses}</b> {access.total_uses === 1 ? "time" : "times"}
+        {access.total_uses ? " · " + access.other_uses + " after the first claim" : ""}
+        {access.devices ? " · from " + access.devices + (access.devices === 1 ? " device or network" : " devices or networks") : ""}
+        {access.last_used_at ? " · last " + fmtDate(access.last_used_at) + " " + fmtTime(access.last_used_at) : ""}
+      </div>
+      {access.places && access.places.length ? (
+        <div style={{ fontSize: 12.5, color: "var(--ink)", marginTop: 4 }}>
+          <Icon name="compass" size={12} /> Shared a location from: {access.places.join(" · ")}
+        </div>
+      ) : null}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+        <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={toggle}>
+          {busy ? <Spinner /> : <Icon name={on ? "x" : "check"} size={12} />} {on ? "Stop others entering" : "Let others enter again"}
+        </button>
+        {access.entries.length ? (
+          <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => setOpen(!open)}>
+            {open ? "Hide entries" : "Show entries"}
+          </button>
+        ) : null}
+      </div>
+      {open ? (
+        <div className="taw-qlist" style={{ marginTop: 8 }}>
+          {access.entries.map((e: any) => (
+            <div key={e.id} className="taw-qrow" style={{ display: "block" }}>
+              <div className="taw-qrow-top">
+                <span className="taw-qtype taw-icrow">
+                  <Icon name="compass" size={13} />
+                  {entryWhere(e)}
+                </span>
+                <span style={{ fontSize: 12, color: "var(--taupe)" }}>
+                  {fmtDate(e.entered_at)} {fmtTime(e.entered_at)}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 3 }}>
+                {ENTRY_KIND[e.kind] || e.kind} · {e.device}
+                {e.ip ? " · " + e.ip : ""}
+              </div>
+            </div>
+          ))}
+          {access.total_uses > access.entries_shown ? (
+            <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 6 }}>
+              Showing the latest {access.entries_shown} of {access.total_uses}.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -178,6 +275,8 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
               {mail ? <Note tone={mail.tone} text={mail.text} /> : null}
               {remind ? <Note tone={remind.tone} text={remind.text} /> : null}
 
+              {r.claim_status === "claimed" && r.code ? <CodeAccess code={r.code} name={r.first_name || r.name} access={r.access} tracking={r.access_tracking !== false} onChanged={onChanged} /> : null}
+
               {pending && r.link ? <ShareBar code={r.code} link={r.link} phone={r.phone} firstName={r.first_name} advisor={r.approved_by} /> : null}
 
               {r.claim_status === "pending" || r.claim_status === "expired" ? (
@@ -250,6 +349,7 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
                               </span>
                               <span className={cx("taw-status", "taw-status--" + (st.tone === "ok" ? "success" : st.tone === "bad" ? "danger" : "warn"))}>{st.text}</span>
                             </div>
+                            {j.status === "redeemed" && j.access ? <CodeAccess code={j.code} name={j.first_name || j.name || "them"} access={j.access} onChanged={onChanged} /> : null}
                             {j.status === "unused" && j.link && !j.expired ? <ShareBar code={j.code} link={j.link} phone={j.phone} firstName={j.first_name} advisor={r.approved_by} /> : null}
                             {j.status !== "revoked" ? (
                               <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>

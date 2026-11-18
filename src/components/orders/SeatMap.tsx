@@ -31,6 +31,27 @@ function bandsOf(seats: MapSeat[]) {
   return bands;
 }
 
+// Decorative cabin furniture (lavatory + galley) drawn at the front and rear like a real seat chart.
+const IconLav = () => (
+  <svg viewBox="0 0 32 24" width="30" height="22" aria-hidden fill="currentColor">
+    <circle cx="9" cy="4.5" r="2.6" /><path d="M5.5 9h7a1.5 1.5 0 0 1 1.5 1.5V17h-2v5h-2.2v-5h-1.6v5H6V17H4v-6.5A1.5 1.5 0 0 1 5.5 9Z" />
+    <circle cx="23" cy="4.5" r="2.6" /><path d="M23 9c1.6 0 3 1 3.5 2.6L29 19h-2.8l-.7 3h-5l-.7-3H17l2.5-7.4C20 10 21.4 9 23 9Z" />
+  </svg>
+);
+const IconGalley = () => (
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden fill="currentColor">
+    <path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Zm13 1.5h1.5a2.5 2.5 0 0 1 0 5H17v-1.800h1.5a.7.7 0 0 0 0-1.400H17V10.5ZM8 2.5c1 1 1 2 0 3m4-3c1 1 1 2 0 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+  </svg>
+);
+const Facilities = ({ exits = false }: { exits?: boolean }) => (
+  <div className="ow-sm-fac" aria-hidden>
+    {exits ? <span className="ow-sm-door">E</span> : null}
+    <span className="ow-sm-tile"><IconLav /></span>
+    <span className="ow-sm-tile"><IconGalley /></span>
+    {exits ? <span className="ow-sm-door">E</span> : null}
+  </div>
+);
+
 const feat = (s: MapSeat) =>
   [s.window ? "window" : s.aisle ? "aisle" : "middle", s.legroom ? "extra legroom" : "", s.exit ? "exit row" : "", s.wca ? "wheelchair-accessible" : ""].filter(Boolean).join(" · ");
 
@@ -76,7 +97,7 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
         <span><i className="ow-sm-seat sel" /> Selected</span>
         <span><i className="ow-sm-seat booked" /> Taken</span>
         <span><i className="ow-sm-seat plain leg" /> Extra legroom</span>
-        <span><i className="ow-sm-seat plain exit" /> Exit row</span>
+        <span><i className="ow-sm-seat plain exit key" /> Exit row</span>
         {m.hasWca ? <span><i className="ow-sm-seat plain wca" /> Wheelchair-accessible</span> : null}
       </div>
 
@@ -87,7 +108,9 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
             <small>{feat(tip.s)}</small>
           </div>
         ) : null}
-        <div className="ow-sm-nose">Front of cabin</div>
+        <div className="ow-sm-body">
+        <div className="ow-sm-cockpit" aria-hidden><i /><i /><i /><i /></div>
+        <Facilities />
         <div className="ow-sm-row ow-sm-head" aria-hidden>
           <span className="ow-sm-no" />
           {m.positions.map((p) => <span key={p} className={`ow-sm-col${m.letter(p) ? "" : " aisle"}`}>{m.letter(p)}</span>)}
@@ -115,10 +138,12 @@ export function SeatMap({ seats, grid, selected, disabled, onPick }: {
                       onClick={() => onPick(on ? null : s)} />
                   );
                 })}
-                <span className="ow-sm-no">{r}</span>
+                <span className="ow-sm-no ghost">{r}</span>
               </div>
             );
           })}
+        </div>
+        <Facilities exits={m.exitRows.size > 0} />
         </div>
       </div>
 
