@@ -607,6 +607,7 @@ export function ConversationTab() {
     ensureEnquiryForMember, convoTarget, setConvoTarget, setSummaryDismissedFor, membersById,
   } = useWorkbench();
   const router = useRouter();
+  const [opening, setOpening] = useState(false); // a customer is being looked up from the bell / ?code=
 
   // Opened from the notification bell: /console/conversation?code=<access code> (or the bell's event while this
   // tab is already open) switches the conversation to that customer.
@@ -617,6 +618,7 @@ export function ConversationTab() {
       if (!code) return;
       const known = Object.values(membersById || {}).find((m: any) => memberCode(m).toUpperCase() === code);
       if (known) { setConvoTarget(known); return; }
+      setOpening(true);
       siteMembers("select=*&invitation_code=eq." + encodeURIComponent(code) + "&limit=1")
         .then((rows: any) => {
           if (cancelled) return;
@@ -625,7 +627,10 @@ export function ConversationTab() {
         })
         .catch(() => { if (!cancelled) setConvoTarget({ id: code, name: code, invitation_code: code }); });
     }
-    const fromUrl = new URLSearchParams(window.location.search).get("code");
+    // The code left by the bell (it is there even when the address bar has not caught up yet), else ?code= in the URL.
+    let pending: string | null = null;
+    try { pending = window.sessionStorage.getItem("ta.pending.conversation"); window.sessionStorage.removeItem("ta.pending.conversation"); } catch { /* storage blocked */ }
+    const fromUrl = pending || new URLSearchParams(window.location.search).get("code");
     if (fromUrl) openByCode(fromUrl);
     const onOpen = (e: Event) => openByCode((e as CustomEvent).detail);
     window.addEventListener("ta:open-conversation", onOpen);
@@ -639,6 +644,9 @@ export function ConversationTab() {
   const convoMember = convoTarget || member || (travellerProfile && travellerProfile.member);
   const enquiryTraveller = findEnquiryTraveller(travellers, convoTarget, member, travellerProfile);
 
+  if (!convoMember && opening) {
+    return <Empty icon="chat" title="Opening the conversation…" message="Loading this customer's messages." />;
+  }
   if (!convoMember) {
     return <Empty icon="chat" title="No traveller selected" message="Pick a traveller or enquiry in the Console tab to see their conversation." />;
   }
