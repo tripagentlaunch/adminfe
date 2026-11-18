@@ -2081,7 +2081,7 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 /* Customer's budget (Itinerary Builder header, the start screen, and the fit chips in Search). */
 .taw-budget{margin-top:10px;padding:10px 12px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--ivory,#fff);text-align:left;}
 .taw-budget--empty{padding:6px 0;border:0;background:none;margin-top:6px;}
-.taw-budget--start{width:100%;max-width:360px;margin:12px 0 4px;}
+.taw-budget--start{width:100%;margin:12px 0 4px;}
 .taw-budget-title{font-size:12.5px;color:var(--taupe);margin-bottom:6px;}
 .taw-budget-title b{color:var(--ink);font-weight:600;}
 .taw-budget-top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;}
@@ -2099,16 +2099,15 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-budget-split>div{display:grid;grid-template-columns:104px auto 1fr;gap:8px;align-items:baseline;}
 .taw-budget-split span{color:var(--taupe);}
 .taw-budget-split small{color:var(--taupe);}
-.taw-budget-fields{display:grid;gap:8px;}
-.taw-budget-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
-.taw-budget-row label{display:grid;gap:3px;flex:1 1 120px;font-size:11.5px;color:var(--taupe);}
-.taw-budget-row input{height:34px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:0 10px;font:inherit;font-size:13.5px;color:var(--ink);background:#fff;}
-.taw-budget-row small{min-height:14px;color:var(--gold-ink);}
-.taw-budget-row--per{align-items:center;}
-.taw-budget-pax{flex:0 0 90px !important;}
-.taw-budget .taw-seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden;}
-.taw-budget .taw-seg button{border:0;background:#fff;padding:6px 12px;font:inherit;font-size:12.5px;color:var(--taupe);cursor:pointer;}
-.taw-budget .taw-seg button.is-on{background:var(--ink);color:#fff;}
+.taw-budget-fields{display:grid;gap:10px;width:100%;}
+.taw-budget-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.taw-budget-field{display:grid;gap:4px;min-width:0;font-size:11.5px;color:var(--taupe);text-align:left;align-content:start;}
+.taw-budget-field>span{font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
+.taw-budget-field input{width:100%;min-width:0;box-sizing:border-box;height:36px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:0 10px;font:inherit;font-size:13.5px;color:var(--ink);background:#fff;}
+.taw-budget-field small{min-height:14px;color:var(--gold-ink);}
+.taw-budget-field .taw-dropdown{width:100%;}
+.taw-budget-dd{width:100%;height:36px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:#fff;padding:0 10px;font:inherit;font-size:13.5px;color:var(--ink);cursor:pointer;text-align:left;}
+.taw-budget-dd .taw-dropdown-chevron{margin-left:auto;flex:none;}
 .taw-budget-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
 .taw-chip--fit{background:var(--success-bg);color:var(--success-ink);}
 .taw-chip--over{background:var(--warn-bg);color:var(--warn-ink);}
