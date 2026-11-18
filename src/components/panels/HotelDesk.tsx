@@ -5,6 +5,7 @@
  * property-detail (PDP) expander, HotelPdpDetail (line ~1199, colocated here
  * — only ever used by HotelDesk in the original module too).
  * ===========================================================================*/
+import { FitChip, useBudgetFit } from "../BudgetFit";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cx } from "../../lib/cx";
 import { detailsProblem, freeUntilOf, liveCheckChanges, plainInstructions, rateBookingCode, rateRequirements } from "../../lib/hotelDetails";
@@ -1444,6 +1445,8 @@ export function HotelDesk(props: any) {
 // Split out of HotelDesk's render purely so the filter/sort math below reads
 // as one block, mirroring the original's inline IIFE at the same spot.
 function HotelResults({ offers, places, view, setV, clearFilters, city, openOffers, toggleDetail, checkIn, advisorId, onAdd, onAddSwap, occ, dist }: any) {
+  const budgetFit = useBudgetFit();
+  const [fitsOnly, setFitsOnly] = useState(false);
   // "+ Swap option": offer this hotel as an alternative to the itinerary's stay
   // on the same check-in day, priced live first (listings are often unpriced).
   const [swapBusy, setSwapBusy] = useState<string | null>(null);
@@ -1541,8 +1544,16 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
     return () => { live = false; };
   }, [shown, visible]);
   const fromPrice = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
+  // What the stay costs per night in total (all rooms), from the net price or the live "from" price; null while unpriced.
+  const nightly = (o: any): number | null => {
+    const d = o.detail || {};
+    const total = offNet(o) > 0 ? offNet(o) : (fromPrice(o) && fromPrice(o)!.price) || 0;
+    return total > 0 ? total / Math.max(1, Number(d.nights) || 1) : null;
+  };
+  const fitOf = (o: any) => { const n = nightly(o); return n ? budgetFit.hotel(n) : null; };
+  const listed = fitsOnly && budgetFit.active ? shown.filter((o: any) => { const f = fitOf(o); return !f || f.fits; }) : shown;
   const sentinel = useRef<HTMLDivElement | null>(null);
-  const more = layout === "list" && visible < shown.length;
+  const more = layout === "list" && visible < listed.length;
   useEffect(() => {
     const el = sentinel.current;
     if (!more || !el || typeof IntersectionObserver === "undefined") return;
@@ -1645,7 +1656,13 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
           </div>
         ) : null}
         <div style={{ fontSize: 11.5, color: "var(--taupe)", margin: "0 2px 6px", flex: "none" }}>
-          {shown.length === offers.length ? offers.length + " hotels" : shown.length + " of " + offers.length + " hotels"}
+          {listed.length === offers.length ? offers.length + " hotels" : listed.length + " of " + offers.length + " hotels"}
+          {budgetFit.active ? (
+            <button type="button" className={"taw-fit-toggle" + (fitsOnly ? " is-on" : "")} aria-pressed={fitsOnly} onClick={() => setFitsOnly((v) => !v)}
+              title="Only hotels whose price per night fits what is left of the customer's stay budget (hotels not priced yet stay in the list)">
+              Fits budget
+            </button>
+          ) : null}
         </div>
         </>
       ) : null}
@@ -1654,8 +1671,8 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
       ) : (
       <SleekScroll className="taw-results-scroll">
       <div className="taw-results">
-        {shown.length ? (
-          shown.slice(0, visible).map((o: any) => {
+        {listed.length ? (
+          listed.slice(0, visible).map((o: any) => {
             const d = o.detail || {};
             const net = offNet(o);
             const stars = d.stars || 0;
@@ -1681,6 +1698,7 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
                       {d.board ? <span>{d.board}</span> : null}
                       {d.nights ? <span>{d.nights + " nights × " + (d.rooms || 1) + " room"}</span> : null}
                       {d.nightlyFrom ? <span className="ta-num">from {inr(d.nightlyFrom)}/night</span> : null}
+                      <FitChip fit={fitOf(o)} what="per night for stays" />
                     </div>
                     {dist && dist.origin ? (
                       <div className="taw-dist">
@@ -1752,12 +1770,12 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
             );
           })
         ) : (
-          <Empty icon={<Icon name="hotel" size={28} />}>{offers.length ? "No stays match these filters — widen them to see more." : "No hotel offers for this stay."}</Empty>
+          <Empty icon={<Icon name="hotel" size={28} />}>{offers.length ? (fitsOnly ? "No priced stay fits the budget — turn off \"Fits budget\" to see them all." : "No stays match these filters — widen them to see more.") : "No hotel offers for this stay."}</Empty>
         )}
         {more ? (
           <div ref={sentinel} style={{ padding: "10px 0 16px", textAlign: "center" }}>
             <button type="button" className="taw-btn taw-btn--sm" onClick={() => setVisible((v) => v + HOTEL_PAGE_SIZE)}>
-              Show more hotels ({shown.length - visible} left)
+              Show more hotels ({listed.length - visible} left)
             </button>
           </div>
         ) : null}

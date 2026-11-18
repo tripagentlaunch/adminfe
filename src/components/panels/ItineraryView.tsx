@@ -43,6 +43,9 @@
  * Still deliberately NOT in scope: editing occupancy/price/meal plan,
  * or a real financial-rollup visualization.
  * ===========================================================================*/
+import { BudgetBar } from "../BudgetBar";
+import { takePendingBudget } from "../../lib/pendingBudget";
+import { normalizeBudget } from "../../lib/tripBudget";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
@@ -297,6 +300,13 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   function setData(updater: (d: any) => any) {
     updateItineraryData(enquiryId, updater);
   }
+  // A budget typed on the "Start this itinerary" screen waits for the itinerary to exist, then lands on it.
+  useEffect(() => {
+    if (data.budget) return;
+    const waiting = takePendingBudget(enquiryId);
+    if (waiting) updateItineraryData(enquiryId, (d: any) => (d && !d.budget ? { ...d, budget: waiting } : d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enquiryId, data]);
   // ask (2026-09-15, hotel-suggestion flow) — the SAME real enquiry `ask`
   // Member360/FlightDesk.tsx already read off travellerProfile (GET
   // /enquiries/{id}/traveller-profile), reused here so HotelRecommendations
@@ -658,6 +668,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             <div className="taw-itin-fin-seg taw-itin-fin-seg--unresolved" style={{ flexBasis: (unresolved / finTotal) * 100 + "%" }} />
           ) : null}
         </div>
+        <BudgetBar data={data} budget={normalizeBudget(data.budget)} pax={summary.pax || 0} spent={totals.grand}
+          onSave={(b) => setData((d: any) => { const { budget: _old, ...rest } = d || {}; return b ? { ...rest, budget: b } : rest; })} />
       </div>
 
       {searchPending ? (

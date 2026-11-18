@@ -57,10 +57,12 @@
  * the two pixel values — align-self itself can't be transitioned
  * directly, CSS has no interpolation for it.
  * ===========================================================================*/
+import { BudgetFitProvider } from "../BudgetFit";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { LIVE_PRICE_EVENT, LIVE_HOTEL_EVENT } from "../../lib/livePriceRequest";
 import { recallDesk, rememberDesk } from "../../lib/deskMemory";
 import { cx } from "../../lib/cx";
+import { useWorkbench } from "../../lib/workbenchContext";
 import { Card, Dropdown, Icon } from "../ui";
 import { FlightDesk } from "./FlightDesk";
 import { HotelDesk } from "./HotelDesk";
@@ -74,6 +76,8 @@ const DESKS = [
 
 export function SearchDesksPanel(props: any) {
   const { member, enquiry, advisorId, onAdd, onAddSwap, tripDates } = props;
+  const { itinerariesByEnquiry } = useWorkbench();
+  const itinerary = enquiry && enquiry.id ? itinerariesByEnquiry[enquiry.id] : null;
   // Which desk was open for this enquiry (Flights / Hotels / Visas), kept like the desks' own searches.
   const deskKey = "panel:" + ((enquiry && enquiry.id) || "none");
   const [desk, setDeskState] = useState<string>(() => (recallDesk(deskKey) || {}).desk || "flights");
@@ -141,6 +145,7 @@ export function SearchDesksPanel(props: any) {
       }
     >
       <div className="taw-search-stack">
+        <BudgetFitProvider itinerary={itinerary}>
         {desk === "flights" ? (
           <FlightDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onAddSwap={onAddSwap} onExpandChange={setExpanded} />
         ) : null}
@@ -148,6 +153,7 @@ export function SearchDesksPanel(props: any) {
           <HotelDesk member={member} enquiry={enquiry} tripDates={tripDates} advisorId={advisorId} onAdd={onAdd} onAddSwap={onAddSwap} onExpandChange={setExpanded} />
         ) : null}
         {desk === "visas" ? <VisaDesk member={member} enquiry={enquiry} advisorId={advisorId} onAdd={onAdd} /> : null}
+        </BudgetFitProvider>
       </div>
     </Card>
   );

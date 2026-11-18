@@ -5,6 +5,7 @@
  * depth expander, FlightFareDetail (line ~872, colocated here — only ever
  * used by FlightDesk in the original module too).
  * ===========================================================================*/
+import { FitChip, useBudgetFit } from "../BudgetFit";
 import { useEffect, useRef, useState } from "react";
 import { startSearch, SEARCH_TIMEOUT_MS } from "../../lib/abortableSearch";
 import { exportTripsureFlightOffers, fastapiFlightSearch, getTripsureFlightOffer, importTripsureFlightOffers, newFlightJourney, searchFlights, inr } from "../../services/api";
@@ -1052,6 +1053,7 @@ export function FlightDesk(props: any) {
 // TripSure's live price for it, then the airline's seats / meals / baggage with their
 // prices. Only a live-checked price goes into the itinerary.
 function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, onAutoPickDone }: any) {
+  const budgetFit = useBudgetFit();
   // The offer being priced, and the drawer section it opened on.
   // swap: priced for "+ Swap option" (an option for the itinerary's flight), not added as a flight.
   const [quote, setQuote] = useState<{ offer: any; tab: "timeline" | "fares"; swap?: boolean } | null>(null);
@@ -1310,6 +1312,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, autoPick, on
                       {net > 0 ? inr(net) : "—"}
                       <small>{added[o.id] ? "search price" : "net cost"}</small>
                     </div>
+                    {net > 0 && !added[o.id] ? <FitChip fit={budgetFit.flight(net)} what="for flights" /> : null}
                     {added[o.id] ? (
                       <div className="taw-res-priced" title="Live TripSure price this flight was added to the itinerary at">
                         <span><Icon name="check" size={12} /> In itinerary</span> <b>{inr(added[o.id].total)}</b>
