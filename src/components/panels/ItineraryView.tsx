@@ -63,6 +63,7 @@ import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
+import { FlightRecommendations } from "./FlightRecommendations";
 import { CityGuidePanel } from "./CityGuidePanel";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
 import { dayCityTexts, hotelForDay, type DiningEntry } from "../../lib/diningPlan";
@@ -1176,6 +1177,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         );
       });
       })() : null}
+      {/* Flights tab: the legs of the trip that have no flight yet are searched live, like the Hotels tab's stays. */}
+      {category === "flights" ? <FlightRecommendations data={data} ask={ask} /> : null}
       </div>
       </div>
       </SleekScroll>
