@@ -115,12 +115,12 @@ export function CodeAccess({ code, name, access, tracking = true, onChanged }: {
 
   function toggle() {
     const next = !on;
-    if (!next && !window.confirm("Stop anyone else entering with this code? " + name + " can still sign in with their email. People already inside stay signed in until their login ends.")) return;
+    if (!next && !window.confirm("Stop anyone else using this code? Everyone who came in with it is signed out within a few seconds, and entering the code again will not work. " + name + " can still sign in with their email.")) return;
     setBusy(true);
     siteSetCodeSharing(code, next)
       .then(() => {
         setBusy(false);
-        toast(next ? "Anyone with this code can enter as " + name + " again." : "Only " + name + " can use this code now.", "success");
+        toast(next ? "Anyone with this code can enter as " + name + " again." : "Done. Others are signed out and only " + name + " can use this code now.", "success");
         onChanged();
       })
       .catch((e: any) => {
