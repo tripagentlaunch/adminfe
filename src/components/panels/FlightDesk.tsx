@@ -207,6 +207,20 @@ function TravellerStepper({ value, onChange }: { value: PaxMix; onChange: (p: Pa
   );
 }
 
+// Why a search came back empty. Airlines only open sales about 11-12 months ahead (live check: BLR-GOI answered up to
+// ~350 days out and returned nothing from ~365), so a far-off date looks like "no flights" when it is really "not on sale yet".
+const SALES_WINDOW_DAYS = 350;
+function noOffersReason(dateIso: string) {
+  const t = new Date(dateIso + "T00:00:00").getTime();
+  if (!isNaN(t)) {
+    const days = Math.round((t - new Date(new Date().toDateString()).getTime()) / 86400000);
+    if (days > SALES_WINDOW_DAYS)
+      return "No fares yet for " + fmtDate(dateIso) + " — airlines usually open sales only about 11 months ahead. Try an earlier date (check the year).";
+    if (days < 0) return fmtDate(dateIso) + " is in the past. Pick a future departure date.";
+  }
+  return "No flight offers for this query.";
+}
+
 export function FlightDesk(props: any) {
   const member = props.member;
   // The travellers filled in on this itinerary: the add-on tabs (seats, meals…) use their names.
@@ -1043,7 +1057,7 @@ export function FlightDesk(props: any) {
       ) : null}
       {!loading && res ? (
         <FlightResults offers={offers} view={view} setV={setV} onAdd={props.onAdd} onAddSwap={props.onAddSwap} pax={searchedPax} travellers={itineraryPassengers} leadName={member && member.name}
-          autoPick={autoPick} onAutoPickDone={() => setAutoPick(null)} />
+          autoPick={autoPick} onAutoPickDone={() => setAutoPick(null)} searchDate={defaultChipDateFor(leg) || form.date} />
       ) : null}
     </div>
   );
@@ -1056,7 +1070,7 @@ export function FlightDesk(props: any) {
 // "Add" opens the pricing drawer (orders/FlightQuoteDrawer.tsx): fare option, then
 // TripSure's live price for it, then the airline's seats / meals / baggage with their
 // prices. Only a live-checked price goes into the itinerary.
-function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, travellers, leadName, autoPick, onAutoPickDone }: any) {
+function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, travellers, leadName, autoPick, onAutoPickDone, searchDate }: any) {
   const budgetFit = useBudgetFit();
   // The offer being priced, and the drawer section it opened on.
   // swap: priced for "+ Swap option" (an option for the itinerary's flight), not added as a flight.
@@ -1350,7 +1364,7 @@ function FlightResults({ offers, view, setV, onAdd, onAddSwap, pax, travellers, 
           })
         ) : (
           <Empty icon={<Icon name="flight" size={28} />}>
-            {offers.length ? "No offers match these filters — widen them to see more." : "No flight offers for this query."}
+            {offers.length ? "No offers match these filters — widen them to see more." : noOffersReason(searchDate)}
           </Empty>
         )}
       </div>
