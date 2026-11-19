@@ -2130,3 +2130,15 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
   background:rgba(60,40,10,.08);color:var(--ink);transition:background .15s;}
 .taw-search-clear:hover{background:rgba(60,40,10,.16);}
 @media (max-width:640px){.taw-search,.taw-search:focus-within{width:100%;}}
+
+/* Three-dots row menu (2026-11-19). */
+.taw-kebab{position:relative;display:inline-flex;}
+.taw-kebab-btn{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;border:0;background:transparent;
+  color:var(--taupe);cursor:pointer;transition:background .15s,color .15s;}
+.taw-kebab-btn:hover,.taw-kebab-btn[aria-expanded="true"]{background:rgba(60,40,10,.09);color:var(--ink);}
+.taw-kebab-btn svg{stroke-width:3;stroke-linecap:round;}
+.taw-kebab-menu{position:absolute;right:0;top:calc(100% + 4px);z-index:30;min-width:150px;padding:5px;background:var(--card);
+  border:1px solid var(--line2);border-radius:10px;box-shadow:0 12px 28px -10px rgba(60,40,10,.35);}
+.taw-kebab-item{display:flex;align-items:center;gap:9px;width:100%;padding:8px 11px;border:0;border-radius:7px;background:transparent;cursor:pointer;
+  font:inherit;font-size:13px;color:var(--ink);text-align:left;white-space:nowrap;}
+.taw-kebab-item:hover{background:rgba(184,144,31,.12);}

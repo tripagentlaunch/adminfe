@@ -156,6 +156,7 @@ export function ShellChrome({
           </div>
           <div className="ta-shell-footer">
             <NotificationBell />
+            <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />
             <button
               type="button"
               className="ta-shell-signout"
@@ -168,7 +169,6 @@ export function ShellChrome({
                 <span className="ta-shell-tab-label">Sign out</span>
               </span>
             </button>
-            <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />
           </div>
         </div>
         <div className="ta-shell-body">

@@ -170,6 +170,7 @@
 .ta-shell-signout {
   display: flex; width: 100%; background: none; border: none; padding: 0;
   font: inherit; color: var(--muted); cursor: pointer;
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line);
 }
 .ta-shell-signout svg { width: 20px; height: 20px; flex: none; color: var(--muted); transition: color var(--dur) var(--ease); }
 .ta-shell-signout:hover .ta-shell-tab-inner { background: var(--champagne); }

@@ -6,7 +6,7 @@
  * through it (seats), take a seat back. Also the "new super key" form.
  * The backend is adminbe's /admin/access-requests/{id}/... and /admin/super-keys.
  * ===========================================================================*/
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   siteAddInvitePerson,
   siteCreateSuperKey,
@@ -106,7 +106,7 @@ function entryWhere(e: any) {
 
 // SignOutButton: the admin signs this person out of every device. Sign-out only, not a ban: they can sign in again with their code
 // or email. (The whole Admin tab is admin-only and the server re-checks the role.)
-export function SignOutButton({ code, name, entryId }: { code?: string; name: string; entryId?: string }) {
+function useSignOut({ code, name, entryId }: { code?: string; name: string; entryId?: string }) {
   const [busy, setBusy] = useState(false);
   function go() {
     if (!window.confirm("Sign " + name + " out of all their devices? They are not blocked and can sign in again.")) return;
@@ -121,10 +121,60 @@ export function SignOutButton({ code, name, entryId }: { code?: string; name: st
         toast(errText(e), "error");
       });
   }
+  return { busy, go };
+}
+
+export function SignOutButton({ code, name, entryId }: { code?: string; name: string; entryId?: string }) {
+  const { busy, go } = useSignOut({ code, name, entryId });
   return (
     <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={go}>
       {busy ? <Spinner /> : <Icon name="logout" size={12} />} Sign out
     </button>
+  );
+}
+
+// SignOutMenu: a three-dots button that opens a small menu with "Sign out", so the row stays clean. Closes on a click
+// outside or Escape.
+export function SignOutMenu({ code, name, entryId }: { code?: string; name: string; entryId?: string }) {
+  const { busy, go } = useSignOut({ code, name, entryId });
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (ev: MouseEvent) => {
+      if (ref.current && !ref.current.contains(ev.target as Node)) setOpen(false);
+    };
+    const esc = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+  return (
+    <span className="taw-kebab" ref={ref}>
+      <button type="button" className="taw-kebab-btn" aria-haspopup="menu" aria-expanded={open} aria-label={"More actions for " + name} title="More" onClick={() => setOpen((v) => !v)}>
+        {busy ? <Spinner /> : <Icon name="dots" size={16} />}
+      </button>
+      {open ? (
+        <div className="taw-kebab-menu" role="menu">
+          <button
+            type="button"
+            role="menuitem"
+            className="taw-kebab-item"
+            onClick={() => {
+              setOpen(false);
+              go();
+            }}
+          >
+            <Icon name="logout" size={14} /> Sign out
+          </button>
+        </div>
+      ) : null}
+    </span>
   );
 }
 

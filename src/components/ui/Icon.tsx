@@ -66,6 +66,7 @@ const PATHS: Record<string, string> = {
   download: "M12 3v12m0 0-4-4m4 4 4-4M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3",
   // A map pin and a bulleted list: the hotel results' Map / List switch (2026-10-27).
   pin: "M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 0 1 16 0zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  dots: "M12 5h0M12 12h0M12 19h0",
   list: "M8 6h13M8 12h13M8 18h13M3 6h0M3 12h0M3 18h0",
 };
 
