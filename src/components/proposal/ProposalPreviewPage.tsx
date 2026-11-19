@@ -123,37 +123,8 @@ function EatCards({ entries }: { entries: any[] }) {
   );
 }
 
-// The restaurant's photo from the city page; a placeholder picture when it has none or it can't be loaded.
-function EatPhoto({ src, name }: { src: string | null; name: string }) {
-  const [bad, setBad] = useState(false);
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img className="pv-eat-photo" src={src && !bad ? src : eatPlaceholder(name, 300, 300)} alt={name} loading="lazy" onError={() => setBad(true)} />;
-}
-
 // "3.2 km from Taj West End · 11 min drive"
 const distanceLine = (d: any) => distanceText(d);
-
-function EatList({ entries }: { entries: any[] }) {
-  return (
-    <div className="pv-eat-list">
-      {entries.map((e: any) => (
-        <div className="pv-eat-row" key={e.id}>
-          <EatPhoto src={e.photo || null} name={e.name} />
-          <div className="pv-eat-text">
-            <div className="pv-eat-name">
-              {e.name}
-              {e.meal ? <span className="pv-eat-meal">{e.meal === "lunch" ? "Lunch" : "Dinner"}</span> : null}
-            </div>
-            {e.area ? <div className="pv-eat-area">{e.area}</div> : null}
-            {e.distance ? <div className="pv-eat-dist">{distanceLine(e.distance)}</div> : null}
-            {e.tag || (e.credentials && e.credentials.length) ? <div className="pv-eat-cred">{e.tag || e.credentials[0]}</div> : null}
-            {e.description ? <div className="pv-eat-desc">{e.description}</div> : null}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // Offline prices: a flight or stay the advisor priced by hand because another vendor quoted it. They are held for 12 hours and are
 // never re-checked with the airline or hotel, so the page says until when. On the customer's link the time comes from the server
@@ -750,12 +721,6 @@ function DaysTab({ data, stays }: { data: any; stays?: any[] }) {
               <div className="pv-dcard-head">{[c.dateLabel, c.title].filter(Boolean).join(" · ")}</div>
               {c.description ? <div className="pv-dcard-text">{c.description}</div> : null}
               {c.facts.length ? <ul className="pv-dcard-facts">{c.facts.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}
-              {c.dining.length ? (
-                <div className="pv-eat">
-                  <div className="pv-eat-title">Where to eat <span>· from our {c.dining[0].city} guide, not booked</span></div>
-                  <EatList entries={c.dining} />
-                </div>
-              ) : null}
             </div>
           </div>
         ))}
