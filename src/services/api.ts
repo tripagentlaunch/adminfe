@@ -2919,6 +2919,7 @@ function proposalFlightPayQuote(token) { return proposalPublicCall(token, "/pay/
 // call made to the travel partner — request summary (no passenger details), status, answer.
 function proposalFlightPayTrace(token) { return fastapiFlightCall("/proposal-share/" + encodeURIComponent(token) + "/pay/flights/trace", { method: "GET" }); }
 function proposalFlightPayChoose(token, flightId, key) { return proposalPublicCall(token, "/pay/flights/choose", { method: "POST", body: { flight_id: flightId, key: key } }); }
+function proposalHotelPayChoose(token, stayId, key) { return proposalPublicCall(token, "/pay/hotels/choose", { method: "POST", body: { stay_id: stayId, key: key } }); }
 function proposalFlightPayRefresh(token) { return proposalPublicCall(token, "/pay/flights/refresh", { method: "POST" }); }
 // The traveller details window opened: the server starts the slow supplier lookups now (returns at once), so Next is faster.
 function proposalFlightPayWarm(token) { return proposalPublicCall(token, "/pay/flights/warm", { method: "POST" }); }
@@ -3173,6 +3174,7 @@ export {
   proposalFlightPayQuote,
   proposalFlightPayRefresh,
   proposalFlightPayChoose,
+  proposalHotelPayChoose,
   proposalFlightPayTrace,
   proposalFlightPayWarm,
   proposalFlightPayPrepare,

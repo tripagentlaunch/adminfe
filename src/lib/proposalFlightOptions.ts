@@ -11,7 +11,7 @@ import { cartFromItinerary, flightKeyOf, swapFlightAlternative } from "./itinera
 export type FlightOption = { key: string; flight: any; costLines: any[]; grandTotal: number };
 export type FlightOptions = Record<string, FlightOption[]>;
 
-function quote(itinerary: any, member: any, advisorId: any, inclusive: boolean) {
+export function quote(itinerary: any, member: any, advisorId: any, inclusive: boolean) {
   const items = cartFromItinerary(itinerary).map((it: any) => Object.fromEntries(Object.entries(it).filter(([k]) => k.charAt(0) !== "_")));
   return price({
     cart: { items, inclusive },

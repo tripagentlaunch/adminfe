@@ -59,6 +59,7 @@ import { toast, errText } from "../../../../lib/advisorHelpers";
 import { enquiryProposalShareCreate, enquiryProposalShareGet, getDestinationPhoto } from "../../../../services/api";
 import { buildProposalTemplateData } from "../../../../lib/proposalTemplateData";
 import { buildFlightOptions } from "../../../../lib/proposalFlightOptions";
+import { buildHotelOptions } from "../../../../lib/proposalHotelOptions";
 import { ProposalDocument, PAGE_COUNT } from "../../../../components/proposal/ProposalDocument";
 import { ProposalPreviewPage } from "../../../../components/proposal/ProposalPreviewPage";
 import { cx } from "../../../../lib/cx";
@@ -429,9 +430,15 @@ export default function ProposalComposerPage() {
   // option fails, the link still goes out — without swapping for that flight.
   async function linkSnapshot(): Promise<any> {
     if (!selected) return proposalData;
-    const options = await buildFlightOptions(selected.data, proposalData, selected.member, advisorId, inclusive, currentAdvisor, hotelEnrichment)
-      .catch(() => ({}));
-    return Object.keys(options).length ? { ...proposalData, _flightOptions: options } : proposalData;
+    const [options, hotelOptions] = await Promise.all([
+      buildFlightOptions(selected.data, proposalData, selected.member, advisorId, inclusive, currentAdvisor, hotelEnrichment).catch(() => ({})),
+      buildHotelOptions(selected.data, proposalData, selected.member, advisorId, inclusive, currentAdvisor, hotelEnrichment).catch(() => ({})),
+    ]);
+    return {
+      ...proposalData,
+      ...(Object.keys(options).length ? { _flightOptions: options } : {}),
+      ...(Object.keys(hotelOptions).length ? { _hotelOptions: hotelOptions } : {}),
+    };
   }
 
   function createWebLink() {

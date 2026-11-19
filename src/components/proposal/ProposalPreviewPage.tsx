@@ -531,6 +531,8 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
   const mobile = useIsMobile();
   const alts: any[] = st.alternatives || [];
   const badge = st.isOriginalChoice === false ? "Selected" : "Our choice";
+  // On the customer's link only the hotels the advisor's publish priced for booking carry Swap (st.swapKeys); in the composer every alternative does.
+  const canSwap = (a: any) => !!onSwap && !!st.id && (!st.swapKeys || st.swapKeys.includes(a.hotelKey));
 
   const chosen = (
     <div className="pv-recstay-stacked">
@@ -618,8 +620,8 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
         {a.detail ? <div className="pv-option-detail">{a.detail}</div> : null}
         <div className="pv-altcard-foot">
           <span className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</span>
-          {onSwap && st.id ? (
-            <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
+          {canSwap(a) ? (
+            <button type="button" className="pv-swap-btn" onClick={() => onSwap!(st.id, a.hotelKey)}>
               Swap
             </button>
           ) : null}
@@ -643,8 +645,8 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
       <div className="pv-option-side">
         <div className="pv-option-price">{inr(a.price)}{a.offline ? <OfflineTag /> : null}</div>
         {a.offline && a.offlineUntil ? <div className="pv-option-detail pv-option-off">Held until {untilText(a.offlineUntil)}</div> : null}
-        {onSwap && st.id ? (
-          <button type="button" className="pv-swap-btn" onClick={() => onSwap(st.id, a.hotelKey)}>
+        {canSwap(a) ? (
+          <button type="button" className="pv-swap-btn" onClick={() => onSwap!(st.id, a.hotelKey)}>
             Swap
           </button>
         ) : null}

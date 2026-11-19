@@ -13,12 +13,14 @@
  * 2026-10-19; it used to be the PDF pages drawn on a canvas) — real reuse,
  * just fed from the sanitized `snapshot` the backend returns instead of a
  * live buildProposalTemplateData() call. Its Download PDF button renders
- * ProposalDocument, the same design laid out for paper. No Swap here: a
- * customer can't change the advisor's pick.
+ * ProposalDocument, the same design laid out for paper. Swap works here for the
+ * flights and hotels the advisor's publish priced options for (saved on the link;
+ * Pay now books what was chosen). Anything without options can't be swapped.
  * ===========================================================================*/
 import { useEffect, useState } from "react";
-import { proposalFlightPayChoose, proposalShareGet } from "../services/api";
+import { proposalFlightPayChoose, proposalHotelPayChoose, proposalShareGet } from "../services/api";
 import { applyFlightChoices } from "../lib/proposalFlightOptions";
+import { applyHotelChoices, hotelKeysOf } from "../lib/proposalHotelOptions";
 import { errText } from "../lib/advisorHelpers";
 import { Icon, Spinner } from "./ui";
 import { ProposalPreviewPage } from "./proposal/ProposalPreviewPage";
@@ -31,6 +33,7 @@ export function PublicProposalView({ token }: { token: string }) {
   // The customer's flight choices (flight id -> the option's flight numbers), saved on the link.
   const [choices, setChoices] = useState<Record<string, string>>({});
   // Bumped once a swap is saved: the page checks and holds the trip as now chosen, live.
+  const [hotelChoices, setHotelChoices] = useState<Record<string, string>>({});
   const [choiceVersion, setChoiceVersion] = useState(0);
   const [swapErr, setSwapErr] = useState<string | null>(null);
 
@@ -39,6 +42,7 @@ export function PublicProposalView({ token }: { token: string }) {
       .then((res: any) => {
         setView({ status: "active", snapshot: res.snapshot });
         setChoices((res.snapshot && res.snapshot._choices) || {});
+        setHotelChoices((res.snapshot && res.snapshot._hotelChoices) || {});
       })
       .catch((e: any) => {
         const detail = e && e.body && e.body.detail;
@@ -95,9 +99,14 @@ export function PublicProposalView({ token }: { token: string }) {
   }
 
   const opts = view.snapshot._flightOptions || {};
-  const chosen = applyFlightChoices(view.snapshot, choices);
-  // A flight without options built for the link has nothing the customer can swap to.
-  const data = { ...chosen, flights: (chosen.flights || []).map((f: any) => (opts[f.id] ? f : { ...f, noSwap: true })) };
+  const hotelOpts = view.snapshot._hotelOptions || {};
+  const chosen = applyHotelChoices(applyFlightChoices(view.snapshot, choices), hotelChoices);
+  // A flight without options built for the link has nothing the customer can swap to; a stay only swaps to its offered hotels.
+  const data = {
+    ...chosen,
+    flights: (chosen.flights || []).map((f: any) => (opts[f.id] ? f : { ...f, noSwap: true })),
+    stays: (chosen.stays || []).map((st: any) => ({ ...st, swapKeys: hotelKeysOf(view.snapshot, st.id) })),
+  };
   // Swap on the link: only for flights the advisor priced options for, and not once paid.
   function swapFlight(flightId: string, altIndex: number) {
     const shown = (data.flights || []).find((f: any) => f.id === flightId);
@@ -111,11 +120,21 @@ export function PublicProposalView({ token }: { token: string }) {
       .catch((e: any) => { setChoices(before); setSwapErr(errText(e)); });
   }
   const canSwap = !view.snapshot._locked && Object.keys(opts).length > 0;
+  // Swap a hotel: shown at once, saved on the link (the server holds that hotel from now on); put back if it can't be saved.
+  function swapHotel(stayId: string, hotelKey: string) {
+    const before = hotelChoices;
+    setSwapErr(null);
+    setHotelChoices({ ...hotelChoices, [stayId]: hotelKey });
+    proposalHotelPayChoose(token, stayId, hotelKey)
+      .then(() => setChoiceVersion((v) => v + 1))
+      .catch((e: any) => { setHotelChoices(before); setSwapErr(errText(e)); });
+  }
+  const canSwapHotel = !view.snapshot._locked && Object.keys(hotelOpts).length > 0;
   return (
     <>
       {swapErr ? <div className="pv-swap-err" role="alert">{swapErr}</div> : null}
       <ProposalPreviewPage data={data} payToken={token} choiceVersion={choiceVersion}
-        onSwapFlight={canSwap ? swapFlight : undefined} onDownload={() => downloadPdf(data)} />
+        onSwapFlight={canSwap ? swapFlight : undefined} onSwapHotel={canSwapHotel ? swapHotel : undefined} onDownload={() => downloadPdf(data)} />
     </>
   );
 }
