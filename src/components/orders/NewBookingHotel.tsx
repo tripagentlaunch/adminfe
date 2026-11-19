@@ -25,7 +25,7 @@ import { FROM_FAILED, useHotelFromPrices } from "../../lib/useHotelFromPrices";
 import { BED_OPTIONS, NO_HOTEL_REQUESTS, type HotelRequests } from "../../lib/hotelOccupancy";
 import { todayISO } from "../../lib/advisorHelpers";
 import {
-  DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keptSearch, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView,
+  DEFAULT_HOTEL_VIEW, HOTEL_PAGE_SIZE, activeFilterCount, filterHotels, hotelFacets, keepSearch, keepWithinBudget, keptSearch, mapTripSureHotel, offerNet, sortHotels, viewKey, type HotelView,
 } from "../../lib/hotelListing";
 import { loadRestOfCity, type MoreHandle } from "../../lib/hotelMore";
 import { rankHotels, type HotelRankCtx, type Rating } from "../../lib/hotelRank";
@@ -298,6 +298,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const budgetFit = useBudgetFit();
   const budgetOn = itinerary && budgetFit.active;
   const [fitsOnly, setFitsOnly] = useState(false);
+  // A budget typed in the picker for the whole stay ("my customer said 50,000"): all rooms, all nights. Hotels are priced as they are
+  // listed (the "from" price), those over it drop out, and the next ones come up to be priced in their place.
+  const [stayBudget, setStayBudget] = useState("");
+  const [budgetOpen, setBudgetOpen] = useState(false);
+  const budgetNum = Math.round(Number(String(stayBudget).replace(/[^\d.]/g, ""))) || 0;
   const fromOf = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
   const nightlyOf = (o: any): number | null => {
     const fp = fromOf(o);
@@ -306,18 +311,24 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   };
   const fitOf = (o: any) => { const n = nightlyOf(o); return budgetOn && n ? budgetFit.hotel(n) : null; };
   const [pricedTick, setPricedTick] = useState(0);
-  const hotelsShown = useMemo(
-    () => (fitsOnly && budgetOn
+  const totalOf = (o: any): number | null => {
+    const fp = fromOf(o);
+    const t = offerNet(o) > 0 ? offerNet(o) : (fp && fp.price) || 0;
+    return t > 0 ? t : null;
+  };
+  const noRoomsFor = (o: any) => offerNet(o) <= 0 && fromOf(o) === null;
+  const hotelsShown = useMemo(() => {
+    const fit = fitsOnly && budgetOn
       ? shown.filter((o: any) => {
           const n = nightlyOf(o);
-          if (n == null) return !(offerNet(o) <= 0 && fromOf(o) === null); // still pricing / price failed: stay; no rooms at all: out
+          if (n == null) return !noRoomsFor(o); // still pricing / price failed: stay; no rooms at all: out
           const f = budgetFit.hotel(n);
           return !f || f.fits;
         })
-      : shown),
+      : shown;
+    return itinerary ? keepWithinBudget(fit, budgetNum, totalOf, noRoomsFor) : fit;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [shown, fitsOnly, budgetOn, budgetFit, nights, pricedTick]
-  );
+  }, [shown, fitsOnly, budgetOn, budgetFit, nights, pricedTick, budgetNum]);
   const priceTick = useHotelFromPrices(useMemo(() => hotelsShown.slice(0, visible), [hotelsShown, visible]), !!itinerary && !findName && sub === "results");
   useEffect(() => setPricedTick(priceTick), [priceTick]);
 
@@ -358,7 +369,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
   // Reset clears every filter, including "5-star, top-rated" (which the itinerary builder starts with): putting it back on would
   // keep hiding hotels and make "Reset filters" on an empty list do nothing. The advisor can switch it on again from its chip.
-  const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
+  const hReset = () => { setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort })); setStayBudget(""); };
 
   function runSearch() {
     onError(null);
@@ -789,11 +800,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             {chip(view.sort === "priceDesc", "Price ↓", () => setV("sort", view.sort === "priceDesc" ? "best" : "priceDesc"))}
             {chip(view.sort === "toprated", "Star rating", () => setV("sort", view.sort === "toprated" ? "best" : "toprated"), "star")}
             {budgetOn ? chip(fitsOnly, "Within budget", () => setFitsOnly((v) => !v), "check") : null}
+            {itinerary ? chip(budgetNum > 0 || budgetOpen, budgetNum > 0 ? `Budget ${inr(budgetNum)}` : "Budget", () => setBudgetOpen((v) => !v)) : null}
             {chip(view.refundable, "Free cancellation", () => setV("refundable", !view.refundable))}
             {chip(view.breakfast, "Breakfast included", () => setV("breakfast", !view.breakfast))}
             {chip(view.amenities.indexOf("freeWiFi") >= 0, "WiFi", () => toggleAmenity("freeWiFi"), "wifi")}
             {chip(filtersOpen || nFilters > 0, `Filters${nFilters ? ` (${nFilters})` : ""}`, () => setFiltersOpen(!filtersOpen), "sliders")}
-            {nFilters > 0 ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
+            {nFilters > 0 || budgetNum > 0 ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
           </div>
         ) : null}
 
@@ -804,6 +816,42 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             {fitsOnly ? " · showing hotels that fit" : ""}
           </div>
         ) : null}
+
+        {itinerary && budgetOpen && offers.length > 0 ? (() => {
+          const quick = [25000, 50000, 75000, 100000, 150000];
+          const priced = shown.filter((o: any) => totalOf(o) != null);
+          const within = budgetNum > 0 ? priced.filter((o: any) => (totalOf(o) as number) <= budgetNum).length : priced.length;
+          const pending = shown.filter((o: any) => totalOf(o) == null && !noRoomsFor(o)).length;
+          const perNight = budgetNum > 0 ? Math.round(budgetNum / Math.max(1, nights)) : 0;
+          return (
+            <div className="ow-gpanel" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
+              <div className="ow-fchips">
+                <span className="ow-sub">Stay budget</span>
+                <input
+                  className="taw-input"
+                  style={{ width: 150 }}
+                  inputMode="numeric"
+                  placeholder="e.g. 50000"
+                  aria-label="Budget for the whole stay in rupees"
+                  value={stayBudget}
+                  onChange={(e) => setStayBudget(e.target.value.replace(/[^\d]/g, ""))}
+                />
+                {quick.map((v) => chip(budgetNum === v, inr(v), () => setStayBudget(String(v))))}
+                {budgetNum > 0 ? <button type="button" className="ow-link" onClick={() => setStayBudget("")}>Clear budget</button> : null}
+              </div>
+              <div className="ow-sub">
+                {budgetNum > 0 ? (
+                  <>
+                    Hotels whose whole stay costs up to <b>{inr(budgetNum)}</b> — {nightsTxt}, {guestsTxt}: about <b>{inr(perNight)}</b> a night for all {nRooms} room{nRooms === 1 ? "" : "s"}.
+                    {" "}{within} of {priced.length} priced hotel{priced.length === 1 ? "" : "s"} fit{pending ? ` · ${pending} still being priced` : ""}.
+                  </>
+                ) : (
+                  <>Type what the customer can spend on the whole stay (all rooms, all {nights >= 1 ? nights : 1} night{nights === 1 ? "" : "s"}). Hotels are priced as they load; those over the budget drop out.</>
+                )}
+              </div>
+            </div>
+          );
+        })() : null}
 
         {filtersOpen && offers.length > 0 ? (
           <div className="ow-gpanel" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
@@ -844,8 +892,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         {offers.length === 0 ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
         {offers.length > 0 && hotelsShown.length === 0 ? (
           <div className="ow-empty">
-            <b>{fitsOnly && shown.length ? "No hotel fits the budget" : "No hotels match these filters"}</b>
-            {fitsOnly && shown.length ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => setFitsOnly(false)}>Show all hotels</button> : null}
+            <b>{(fitsOnly || budgetNum > 0) && shown.length ? "No hotel fits the budget" : "No hotels match these filters"}</b>
+            {(fitsOnly || budgetNum > 0) && shown.length ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setFitsOnly(false); setStayBudget(""); }}>Show all hotels</button> : null}
             <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setFitsOnly(false); hReset(); }}>Reset filters</button>
           </div>
         ) : null}

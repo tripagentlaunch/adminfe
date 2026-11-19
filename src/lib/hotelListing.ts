@@ -212,6 +212,17 @@ export function activeFilterCount(view: HotelView): number {
   );
 }
 
+/** Keeps the hotels whose whole stay (all rooms, all nights) costs at most `budget`. A hotel whose price hasn't arrived yet stays in
+ *  the list (it is being priced); one TripSure has no rooms for (`unavailable`) goes. A budget of 0 keeps everything. */
+export function keepWithinBudget(offers: any[], budget: number, priceOf: (o: any) => number | null, unavailable: (o: any) => boolean): any[] {
+  if (!(budget > 0)) return offers;
+  return offers.filter((o) => {
+    const total = priceOf(o);
+    if (total == null) return !unavailable(o);
+    return total <= budget;
+  });
+}
+
 export const HOTEL_PAGE_SIZE = 40;
 
 // ---- One TripSure hotel -> the offer shape the filters, sort and map work on --------------------
