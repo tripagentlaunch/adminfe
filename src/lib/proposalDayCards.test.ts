@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDayCards, fmtDayLabel } from "./proposalDayCards";
+import { buildDayCards, fmtDayLabel, stayPhotoFor } from "./proposalDayCards";
 
 const data: any = {
   destination: "Goa",
@@ -38,5 +38,29 @@ describe("proposal day cards", () => {
   });
   it("formats a date like the rest of the page", () => {
     expect(fmtDayLabel("2026-12-24")).toBe("Thu, 24 Dec");
+  });
+});
+
+describe("hotel photos on the day cards", () => {
+  const stays = [
+    { name: "Felix Homes 2BHK, Arpora", checkIn: "2026-12-24", checkOut: "2026-12-26", image: "proxy.jpg", facts: { images: ["t1.jpg", "t2.jpg", "t3.jpg"] } },
+    { name: "Taj Goa", checkIn: "2026-12-26", checkOut: "2026-12-27", image: "taj.jpg" },
+  ];
+  it("uses TripSure's gallery for the hotel, a different picture each night", () => {
+    expect(stayPhotoFor(stays, "2026-12-24")).toEqual({ url: "t1.jpg", hotel: "Felix Homes 2BHK" });
+    expect(stayPhotoFor(stays, "2026-12-25")?.url).toBe("t2.jpg");
+  });
+  it("falls back to the stay's own image, and to the hotel left that morning on a departure day", () => {
+    expect(stayPhotoFor(stays, "2026-12-26")?.url).toBe("taj.jpg");
+    expect(stayPhotoFor(stays, "2026-12-27")?.url).toBe("taj.jpg");
+  });
+  it("no hotel that day, no hotel photo", () => {
+    expect(stayPhotoFor(stays, "2026-12-23")).toBeNull();
+    expect(stayPhotoFor([], "2026-12-24")).toBeNull();
+  });
+  it("the cards carry it", () => {
+    const cards = buildDayCards(data, stays);
+    expect(cards[1].stayPhoto?.url).toBe("t1.jpg");
+    expect(cards[0].stayPhoto).toBeNull();
   });
 });

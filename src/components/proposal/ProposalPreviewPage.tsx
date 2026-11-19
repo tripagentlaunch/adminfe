@@ -695,10 +695,27 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
 }
 
 // onDownload — the hero's Download PDF button; hidden when there is nothing to call.
+// A day's photo: the hotel the traveller stays at that night (TripSure's gallery for it); a place photo only for a day with no hotel
+// photo, or when the hotel's picture can't be loaded.
+function DayCardPhoto({ card }: { card: { stayPhoto: { url: string; hotel: string } | null; photoQuery: string | null } }) {
+  const [bad, setBad] = useState<string | null>(null);
+  const sp = card.stayPhoto && card.stayPhoto.url !== bad ? card.stayPhoto : null;
+  if (sp) {
+    return (
+      <div className="pv-day-photo pv-day-photo--hero">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={sp.url} alt={sp.hotel} loading="lazy" onError={() => setBad(sp.url)} />
+        <span className="pv-day-photo-stay">{sp.hotel}</span>
+      </div>
+    );
+  }
+  return card.photoQuery ? <DayPhoto query={card.photoQuery} hero /> : null;
+}
+
 // The Days tab: "All days" or one day at a time (pills, with arrows when they overflow), each day a card with its photo, date and
 // title, what is planned, what is booked and where to eat.
-function DaysTab({ data }: { data: any }) {
-  const cards = buildDayCards(data);
+function DaysTab({ data, stays }: { data: any; stays?: any[] }) {
+  const cards = buildDayCards(data, stays);
   const [pick, setPick] = useState(0); // 0 = all days, k = day k
   const rowRef = useRef<HTMLDivElement | null>(null);
   const shown = pick > 0 && pick <= cards.length ? [cards[pick - 1]] : cards;
@@ -727,7 +744,7 @@ function DaysTab({ data }: { data: any }) {
       <div className="pv-dcards" key={pick}>
         {shown.map((c) => (
           <div className="pv-dcard" key={c.n}>
-            {c.photoQuery ? <DayPhoto query={c.photoQuery} hero /> : null}
+            <DayCardPhoto card={c} />
             <div className="pv-dcard-body">
               <div className="pv-dcard-eyebrow">Day {c.n}</div>
               <div className="pv-dcard-head">{[c.dateLabel, c.title].filter(Boolean).join(" · ")}</div>
@@ -1297,7 +1314,7 @@ export function ProposalPreviewPage({
                 </>
               ) : null}
 
-              {activeTab === "Days" ? <DaysTab data={data} /> : null}
+              {activeTab === "Days" ? <DaysTab data={data} stays={enrichedStays} /> : null}
 
               {activeTab === "Where to eat" && data.whereToEat?.length ? (
                 <>

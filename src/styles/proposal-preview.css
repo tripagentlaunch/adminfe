@@ -1042,3 +1042,4 @@
 .pv-dcard-text { font-size: 13.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
 .pv-dcard-facts { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink); line-height: 1.6; }
 @media (max-width: 640px) { .pv-day-photo--hero img, .pv-day-photo--hero .pv-day-photo-skeleton { height: 170px; } }
+.pv-day-photo-stay { position: absolute; left: 10px; bottom: 8px; padding: 3px 9px; border-radius: 999px; background: rgba(20,16,10,.55); color: #fff; font-size: 11.5px; letter-spacing: .02em; backdrop-filter: blur(2px); }
