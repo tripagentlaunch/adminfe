@@ -159,7 +159,8 @@ export function filterHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx)
     }
     return true;
   });
-  return view.luxury ? luxuryPool(kept, (ctx && ctx.ratings) || {}) : kept;
+  // Looking for one hotel by name: show every match, not only the ones that pass the 5-star / top-rated pool.
+  return view.luxury && !words.length ? luxuryPool(kept, (ctx && ctx.ratings) || {}) : kept;
 }
 
 export function sortHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx): any[] {
@@ -200,6 +201,7 @@ export function viewKey(view: HotelView): string {
 export function activeFilterCount(view: HotelView): number {
   return (
     (view.luxury ? 1 : 0) +
+    (fold(view.name || "").trim() ? 1 : 0) +
     (view.stars !== "any" ? 1 : 0) +
     (view.refundable ? 1 : 0) +
     (view.breakfast ? 1 : 0) +

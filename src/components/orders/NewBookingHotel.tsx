@@ -724,6 +724,23 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </div>
         ) : null}
         {offers.length > 0 ? (
+          <div className="ow-hsearch" style={{ position: "relative", margin: "0 0 10px" }}>
+            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", display: "inline-flex" }}>
+              <Icon name="search" size={15} />
+            </span>
+            <input
+              className="taw-input"
+              type="search"
+              style={{ width: "100%", paddingLeft: 36 }}
+              placeholder="Search for a specific hotel by name"
+              aria-label="Search for a specific hotel by name"
+              value={view.name || ""}
+              onChange={(e) => setV("name", e.target.value)}
+              autoComplete="off"
+            />
+          </div>
+        ) : null}
+        {offers.length > 0 ? (
           <div className="ow-fchips">
             {chip(layout === "list", "List", () => setLayout("list"), "list")}
             {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
