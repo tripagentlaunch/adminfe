@@ -416,6 +416,8 @@ export function addCartItemToItinerary(data: any, cartItem: any) {
       stars: d.stars ?? null,
       board: d.board || null,
       city: city || null,
+      // The city the advisor searched stays for ("Goa"), when the hotel's own city is a smaller place ("Arpora"): Where to eat reads it.
+      searchCity: cartItem.searchCity || null,
       // The stay's specifics from POST /hotels/facts (photos, inclusions, check-in
       // window, must-read rules, cancellation) — shown in the builder and proposal.
       facts: cartItem.facts || null,

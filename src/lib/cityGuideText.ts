@@ -10,7 +10,7 @@ export function itineraryCityTexts(data: any): string[] {
   ((data && data.days) || []).forEach((d: any) => {
     add(d.city);
     add(d.route);
-    (d.items || []).forEach((it: any) => { if (it.type === "hotel") { add(it.city); add(it.sub); } });
+    (d.items || []).forEach((it: any) => { if (it.type === "hotel") { add(it.city); add(it.sub); add(it.searchCity); add(it.address); } });
   });
   return Array.from(new Set(out));
 }

@@ -1744,7 +1744,7 @@ function HotelResults({ offers, places, view, setV, clearFilters, city, openOffe
                           toggleDetail(o.id); // opens the room list, or closes it again
                           return;
                         }
-                        onAdd({ ...hotelCartItem(o, hotelAlternatives(shown, o).map(({ _handles, ...a }: any) => a)), checkIn, occupancy: occ, distance: distanceOf(dist, o) });
+                        onAdd({ ...hotelCartItem(o, hotelAlternatives(shown, o).map(({ _handles, ...a }: any) => a)), checkIn, searchCity: String(city || "").trim() || null, occupancy: occ, distance: distanceOf(dist, o) });
                       }}
                     >
                       <Icon name={real ? "chevron" : "plus"} size={13} style={real && isOpen ? { transform: "rotate(180deg)" } : undefined} />

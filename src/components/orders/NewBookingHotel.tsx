@@ -581,6 +581,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         onAddToItinerary({
           ...hotelCartItem(verified, alts),
           checkIn: (searched || form).checkIn,
+          searchCity: String(form.city || "").trim() || null,
           facts,
           occupancy: roomsCfg,
           requests: { ...req, note: req.note.trim() },
