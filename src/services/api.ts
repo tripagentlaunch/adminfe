@@ -1534,6 +1534,10 @@ function adminbeInviteCodeCall(code, action, body?) {
 function siteResendInvitePerson(code) {
   return adminbeInviteCodeCall(code, "resend");
 }
+// Admin only: signs this person out of every device. Sign-out only, not a ban: they can sign in again. -> { ok, sessions_ended }
+function siteSignOutMember(code) {
+  return adminbeInviteCodeCall(code, "sign-out");
+}
 function siteRevokeInviteSeat(code) {
   return adminbeInviteCodeCall(code, "revoke");
 }
@@ -3326,6 +3330,7 @@ export {
   siteReissueInvite,
   siteSetInviteSeats,
   siteRevokeInviteSeat,
+  siteSignOutMember,
   siteSetCodeSharing,
   siteAddInvitePerson,
   siteResendInvitePerson,

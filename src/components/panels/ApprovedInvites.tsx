@@ -15,6 +15,7 @@ import {
   siteResendInvite,
   siteResendInvitePerson,
   siteRevokeInviteSeat,
+  siteSignOutMember,
   siteSetCodeSharing,
   siteSetInviteSeats,
 } from "../../services/api";
@@ -102,6 +103,30 @@ function entryWhere(e: any) {
   return net || "Location not answered";
 }
 
+// SignOutButton: the admin signs this person out of every device. Sign-out only, not a ban: they can sign in again with their code
+// or email. (The whole Admin tab is admin-only and the server re-checks the role.)
+function SignOutButton({ code, name }: { code: string; name: string }) {
+  const [busy, setBusy] = useState(false);
+  function go() {
+    if (!window.confirm("Sign " + name + " out of all their devices? They are not blocked and can sign in again.")) return;
+    setBusy(true);
+    siteSignOutMember(code)
+      .then((r: any) => {
+        setBusy(false);
+        toast(name + (r && r.sessions_ended === 0 ? " had no active login." : " is signed out of all devices."), "success");
+      })
+      .catch((e: any) => {
+        setBusy(false);
+        toast(errText(e), "error");
+      });
+  }
+  return (
+    <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={go}>
+      {busy ? <Spinner /> : <Icon name="logout" size={12} />} Sign out
+    </button>
+  );
+}
+
 // CodeAccess: a claimed code can be handed on by its owner (a daughter, a PA). Whoever enters it signs in as the owner and sees their
 // profile and Tara chats. This shows how many times the code was used, from how many devices and where, the latest entries, and the
 // switch that stops anyone else entering with it.
@@ -109,7 +134,14 @@ export function CodeAccess({ code, name, access, tracking = true, onChanged }: {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   if (!access) {
-    return tracking ? null : <Note tone="wait" text="Code use is not tracked yet: apply db/169_shared_code_access.sql to the database." />;
+    return (
+      <>
+        {tracking ? null : <Note tone="wait" text="Code use is not tracked yet: apply db/169_shared_code_access.sql to the database." />}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+          <SignOutButton code={code} name={name} />
+        </div>
+      </>
+    );
   }
   const on = access.shared_access !== false;
 
@@ -152,6 +184,7 @@ export function CodeAccess({ code, name, access, tracking = true, onChanged }: {
         <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={toggle}>
           {busy ? <Spinner /> : <Icon name={on ? "x" : "check"} size={12} />} {on ? "Stop others entering" : "Let others enter again"}
         </button>
+        <SignOutButton code={code} name={name} />
         {access.entries.length ? (
           <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => setOpen(!open)}>
             {open ? "Hide entries" : "Show entries"}
