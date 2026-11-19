@@ -675,7 +675,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     dayPlan: days
       .filter((d: any) => d.title || d.description || (d.dining && d.dining.length))
       .map((d: any) => ({
-        label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null,
+        iso: isIsoDate(d._iso) ? d._iso : null, label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null,
         // "Where to eat" for the day: restaurants the advisor took from our city guide (lib/diningPlan.ts)
         dining: Array.isArray(d.dining) ? d.dining : [],
       })),

@@ -1021,3 +1021,24 @@
 .pv-was{margin-right:8px;opacity:.55;font-weight:400;}
 .pv-final-tag{font-weight:400;font-size:12px;opacity:.65;}
 .pv-option-off{color:#7a5712;font-size:12px;margin-top:4px;}
+
+/* Days tab: pills + one card per day (photo on top), after the reference itinerary page */
+.pv-subtabs-row { display: flex; align-items: center; gap: 6px; margin: 4px 0 20px; }
+.pv-subtabs-chevron { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 50%; background: #f8f9fa; color: var(--muted); cursor: pointer; }
+.pv-subtabs-chevron:hover { background: #e9edf1; }
+.pv-dtabs { display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.pv-dtabs::-webkit-scrollbar { display: none; }
+.pv-dtab { flex: none; height: 28px; padding: 0 16px; border: 0; border-radius: 999px; background: none; font-family: "Proposal Sans", sans-serif; font-size: 12px; color: var(--muted); cursor: pointer; transition: background-color .2s ease, color .2s ease; }
+.pv-dtab:hover { color: var(--ink); }
+.pv-dtab.is-active { background: #e9edf1; color: var(--ink); font-weight: 600; }
+.pv-dcards { display: flex; flex-direction: column; animation: pv-tabcontent-in .25s ease backwards; }
+.pv-dcard { background: #f8f9fa; border-radius: 10px; overflow: hidden; margin-bottom: 20px; }
+.pv-day-photo--hero { width: 100%; }
+.pv-day-photo--hero img, .pv-day-photo--hero .pv-day-photo-skeleton { height: 220px; border-radius: 0; }
+.pv-day-photo--hero .pv-day-photo-credit { position: absolute; right: 8px; bottom: 6px; margin: 0; color: #fff; opacity: .85; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.pv-dcard-body { padding: 16px; }
+.pv-dcard-eyebrow { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.pv-dcard-head { font-weight: 600; font-size: 15px; }
+.pv-dcard-text { font-size: 13.5px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+.pv-dcard-facts { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink); line-height: 1.6; }
+@media (max-width: 640px) { .pv-day-photo--hero img, .pv-day-photo--hero .pv-day-photo-skeleton { height: 170px; } }

@@ -53,6 +53,7 @@ import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
 import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
+import { buildDayCards } from "../../lib/proposalDayCards";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 import { leftText, untilText } from "../../lib/offlineBanner";
 import { payCheckWords } from "../../lib/payCheckWords";
@@ -235,7 +236,7 @@ function loadDayPhoto(query: string): Promise<DayPhotoResult> {
   return hit;
 }
 
-function DayPhoto({ query }: { query: string }) {
+function DayPhoto({ query, hero }: { query: string; hero?: boolean }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [near, setNear] = useState(false);
   const [photo, setPhoto] = useState<DayPhotoResult | undefined>(undefined); // undefined = loading, null = none
@@ -267,7 +268,7 @@ function DayPhoto({ query }: { query: string }) {
 
   if (photo === null || failed) return null; // nothing found / failed to load: the day reads fine without it
   return (
-    <div className="pv-day-photo" ref={ref}>
+    <div className={"pv-day-photo" + (hero ? " pv-day-photo--hero" : "")} ref={ref}>
       {photo ? (
         <>
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -694,6 +695,58 @@ function StayGroup({ st, onSwap }: { st: any; onSwap?: (stayId: string, hotelKey
 }
 
 // onDownload — the hero's Download PDF button; hidden when there is nothing to call.
+// The Days tab: "All days" or one day at a time (pills, with arrows when they overflow), each day a card with its photo, date and
+// title, what is planned, what is booked and where to eat.
+function DaysTab({ data }: { data: any }) {
+  const cards = buildDayCards(data);
+  const [pick, setPick] = useState(0); // 0 = all days, k = day k
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const shown = pick > 0 && pick <= cards.length ? [cards[pick - 1]] : cards;
+  const scroll = (dir: number) => { if (rowRef.current) rowRef.current.scrollBy({ left: dir * 220, behavior: "smooth" }); };
+  const aiDrafted = (data.dayPlan || []).some((d: any) => d.description);
+  if (!cards.length) return <h2 className="pv-section-title">Your days</h2>;
+  return (
+    <>
+      <h2 className="pv-section-title">{cards.length} days, at a glance</h2>
+      {aiDrafted ? <div className="pv-costrange-note" style={{ marginBottom: 12 }}>AI-drafted day plan — suggestions only, not checked against availability or booked.</div> : null}
+      {cards.length > 1 ? (
+        <div className="pv-subtabs-row">
+          <button type="button" className="pv-subtabs-chevron" aria-label="Scroll days left" onClick={() => scroll(-1)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M10 3L5 8L10 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+          <div className="pv-dtabs" ref={rowRef} role="tablist" aria-label="Days">
+            {["All days"].concat(cards.map((c) => "Day " + c.n)).map((t, i) => (
+              <button key={t} type="button" role="tab" aria-selected={pick === i} className={"pv-dtab" + (pick === i ? " is-active" : "")} onClick={() => setPick(i)}>{t}</button>
+            ))}
+          </div>
+          <button type="button" className="pv-subtabs-chevron" aria-label="Scroll days right" onClick={() => scroll(1)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 3L11 8L6 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          </button>
+        </div>
+      ) : null}
+      <div className="pv-dcards" key={pick}>
+        {shown.map((c) => (
+          <div className="pv-dcard" key={c.n}>
+            {c.photoQuery ? <DayPhoto query={c.photoQuery} hero /> : null}
+            <div className="pv-dcard-body">
+              <div className="pv-dcard-eyebrow">Day {c.n}</div>
+              <div className="pv-dcard-head">{[c.dateLabel, c.title].filter(Boolean).join(" · ")}</div>
+              {c.description ? <div className="pv-dcard-text">{c.description}</div> : null}
+              {c.facts.length ? <ul className="pv-dcard-facts">{c.facts.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}
+              {c.dining.length ? (
+                <div className="pv-eat">
+                  <div className="pv-eat-title">Where to eat <span>· from our {c.dining[0].city} guide, not booked</span></div>
+                  <EatList entries={c.dining} />
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function ProposalPreviewPage({
   data,
   onSwapHotel,
@@ -1244,61 +1297,7 @@ export function ProposalPreviewPage({
                 </>
               ) : null}
 
-              {activeTab === "Days" ? (
-                <>
-                  <h2 className="pv-section-title">
-                    {data.calendarDays?.length ? `${data.calendarDays.length} days, at a glance` : "Your days"}
-                  </h2>
-                  {data.dayPlan?.length ? (
-                    <>
-                      {data.dayPlan.some((d: any) => d.description) ? (
-                        <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
-                          AI-drafted day plan — suggestions only, not checked against availability or booked.
-                        </div>
-                      ) : null}
-                      <div className="pv-days">
-                        {data.dayPlan.map((d: any, i: number) => (
-                          <div className="pv-day" key={i}>
-                            <div className="pv-day-num">{i + 1}</div>
-                            <div className="pv-day-main">
-                              <div className="pv-day-text">
-                                <div className="pv-day-head">
-                                  {d.title || d.label}
-                                  {d.date ? ` · ${d.date}` : ""}
-                                </div>
-                                {d.description ? <div className="pv-day-body">{d.description}</div> : null}
-                                {d.dining && d.dining.length ? (
-                                  <div className="pv-eat">
-                                    <div className="pv-eat-title">Where to eat <span>· from our {d.dining[0].city} guide, not booked</span></div>
-                                    <EatList entries={d.dining} />
-                                  </div>
-                                ) : null}
-                              </div>
-                              {d.photoQuery ? <DayPhoto query={d.photoQuery} /> : null}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  ) : null}
-                  <div className="pv-days">
-                    {(data.calendarBlocks || []).map((b: any, i: number) => (
-                      <div className="pv-day" key={i}>
-                        {/* Calendar day numbers: "1", "2–4" (a stay's nights), "5". */}
-                        <div className="pv-day-num">{b.span > 1 ? `${b.startIdx + 1}–${b.startIdx + b.span}` : b.startIdx + 1}</div>
-                        <div>
-                          <div className="pv-day-head">
-                            {(b.span > 1 ? `Days ${b.startIdx + 1}–${b.startIdx + b.span}` : `Day ${b.startIdx + 1}`) + " · "}
-                            {b.label}
-                          </div>
-                          {b.sub ? <div className="pv-day-body">{b.sub}</div> : null}
-                          {data.calendarCaptions?.[b.startIdx] ? <div className="pv-day-body">{data.calendarCaptions[b.startIdx]}</div> : null}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : null}
+              {activeTab === "Days" ? <DaysTab data={data} /> : null}
 
               {activeTab === "Where to eat" && data.whereToEat?.length ? (
                 <>
