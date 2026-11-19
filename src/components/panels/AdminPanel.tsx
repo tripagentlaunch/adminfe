@@ -28,7 +28,7 @@ import {
   siteSetSuperKeyActive,
   inr,
 } from "../../services/api";
-import { ApprovedRequestsList, NewSuperKeyForm, ShareBar, SignOutButton, copyText } from "./ApprovedInvites";
+import { ApprovedRequestsList, NewSuperKeyForm, ShareBar, copyText } from "./ApprovedInvites";
 import { SEAT_CHOICES, prettyCode, seatChoiceLabel } from "../../lib/inviteShare";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelpers";
@@ -379,9 +379,8 @@ function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loa
                       <Icon name="compass" size={13} />
                       {where(e)}
                     </span>
-                    <span style={{ fontSize: 12, color: "var(--taupe)", display: "inline-flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 12, color: "var(--taupe)" }}>
                       {fmtDate(e.entered_at)} {fmtTime(e.entered_at)}
-                      <SignOutButton entryId={e.id} name="This guest" />
                     </span>
                   </div>
                 </div>
@@ -564,34 +563,17 @@ function AccessRequestsSection() {
   const approvedShown = approved.filter(matches);
   const superKeysShown = superKeys.filter(matches);
 
-  return (
-    <Card
-      title="Access requests"
-      icon={<Icon name="inbox" size={18} />}
-      sub={pending.length ? pending.length + " pending" : ""}
-      actions={
-        <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} disabled={loading} aria-label="Refresh access requests">
-          {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
-        </button>
-      }
-    >
-      <div style={{ padding: 16 }}>
-        {err ? (
-          <div className="taw-banner taw-banner--err">
-            <Icon name="alert" size={16} />
-            {err}
-          </div>
-        ) : null}
+  const searchBar = (
         <div className={cx("taw-search", needle && "has-value")}>
           <span className="taw-search-ico">
-            <Icon name="search" size={17} />
+            <Icon name="search" size={15} />
           </span>
           <input
             className="taw-search-input"
             type="text"
             autoComplete="off"
             spellCheck={false}
-            placeholder="Search people by name, email, phone or code…"
+            placeholder="Search name, email, phone, code"
             aria-label="Search access requests"
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -604,15 +586,36 @@ function AccessRequestsSection() {
               {tab === "pending" ? pending.length + noCodeShown.length : tab === "approved" ? approvedShown.length : superKeysShown.length}{" "}
               found
             </span>
-          ) : (
-            <kbd className="taw-search-hint">Esc clears</kbd>
-          )}
+          ) : null}
           {q ? (
             <button className="taw-search-clear" onClick={() => setQ("")} aria-label="Clear search" type="button">
               <Icon name="x" size={12} />
             </button>
           ) : null}
         </div>
+  );
+
+  return (
+    <Card
+      title="Access requests"
+      icon={<Icon name="inbox" size={18} />}
+      sub={pending.length ? pending.length + " pending" : ""}
+      actions={
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {searchBar}
+          <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} disabled={loading} aria-label="Refresh access requests">
+            {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ padding: 16 }}>
+        {err ? (
+          <div className="taw-banner taw-banner--err">
+            <Icon name="alert" size={16} />
+            {err}
+          </div>
+        ) : null}
         <div className="taw-tabs" role="tablist" style={{ marginBottom: 12, padding: 0 }}>
           <button className={cx("taw-tab", tab === "pending" && "is-active")} role="tab" aria-selected={tab === "pending"} onClick={() => setTab("pending")}>
             Pending <span className="pill">{pending.length}</span>
