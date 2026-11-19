@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cardTags, diningEntry, distanceText, hotelForDay, tiersOf, whereToEatByCity, type EatItem } from "./diningPlan";
+import { cardTags, diningEntry, distanceText, eatGuideUrl, hotelForDay, tiersOf, whereToEatByCity, type EatItem } from "./diningPlan";
 
 const FARM: EatItem = {
   id: "bengaluru:farmlore", name: "Farmlore", tier: "Fine", area: "Raju Layout", tag: "Condé Nast Traveller India",
@@ -75,5 +75,14 @@ describe("tiersOf", () => {
   it("lists the tiers present in the page's order, unknown ones last", () => {
     expect(tiersOf([{ tier: "Smart" }, { tier: "Fine" }, { tier: "Fine" }, { tier: null }, { tier: "Odd" }])).toEqual(["Fine", "Smart", "Picks", "Odd"]);
     expect(tiersOf([])).toEqual([]);
+  });
+});
+
+describe("eatGuideUrl", () => {
+  it("opens the city page on its Where to eat tab", () => {
+    expect(eatGuideUrl("https://www.tripagent.vip/city-goa")).toBe("https://www.tripagent.vip/city-goa?guide=eat");
+    expect(eatGuideUrl("https://x.vip/city-goa?ref=a#top")).toBe("https://x.vip/city-goa?ref=a&guide=eat#top");
+    expect(eatGuideUrl("https://x.vip/city-goa?guide=stay")).toBe("https://x.vip/city-goa?guide=stay");
+    expect(eatGuideUrl(null)).toBe("");
   });
 });

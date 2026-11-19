@@ -47,6 +47,14 @@ export function diningEntry(item: EatItem, guide: Pick<EatGuide, "city" | "url">
   };
 }
 
+/** The website's city page opened on its "Where to eat" tab and scrolled to it (the page reads ?guide=eat), instead of its top. */
+export function eatGuideUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  if (/[?&]guide=/.test(url)) return url;
+  const [base, hash] = url.split("#");
+  return base + (base.includes("?") ? "&" : "?") + "guide=eat" + (hash ? "#" + hash : "");
+}
+
 /** "3.2 km from Taj West End · 11 min drive", or "about 7.1 km (straight line) from ..." when there is no road answer. */
 export function distanceText(d: DiningEntry["distance"] | (EatDistance & { hotel?: string }) | null | undefined, hotelName?: string): string {
   if (!d) return "";

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { whereToEat, whereToEatDistances } from "../../services/api";
 import { Icon } from "../ui";
-import { diningEntry, distanceText, type DayHotel, type DiningEntry, type EatDistance, type EatGuide, type EatItem } from "../../lib/diningPlan";
+import { diningEntry, distanceText, eatGuideUrl, type DayHotel, type DiningEntry, type EatDistance, type EatGuide, type EatItem } from "../../lib/diningPlan";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 export { itineraryCityTexts };
@@ -146,7 +146,7 @@ export function CityGuidePanel({ texts, days, dayTexts, hotelForDay, dining, onA
             <div className="taw-itin-guide-head">
               <b>{g.city}</b>
               <span className="taw-muted">{g.items.length} on our page</span>
-              <a href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a>
+              <a href={eatGuideUrl(g.url)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a>
             </div>
             {g.items.map((item) => (
               <EatCard key={item.id} item={item} guide={g} added={onDay.has(item.id)} dayLabel={dayLabel}

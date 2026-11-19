@@ -52,7 +52,7 @@ const readDebug = () => new URLSearchParams(window.location.search).get("debug")
 import "../../styles/proposal-preview.css";
 import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
-import { cardTags, distanceText, tiersOf } from "../../lib/diningPlan";
+import { cardTags, distanceText, eatGuideUrl, tiersOf } from "../../lib/diningPlan";
 import { buildDayCards } from "../../lib/proposalDayCards";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 import { leftText, untilText } from "../../lib/offlineBanner";
@@ -100,7 +100,7 @@ function EatCards({ entries }: { entries: any[] }) {
           const { headline, rest } = cardTags(e);
           // A card opens the city page it comes from on our website (the Goa page for a Goa restaurant), in a new tab.
           const Card: any = e.url ? "a" : "article";
-          const cardProps = e.url ? { href: e.url, target: "_blank", rel: "noopener noreferrer", title: "Open the " + (e.city || "city") + " guide on our website" } : {};
+          const cardProps = e.url ? { href: eatGuideUrl(e.url), target: "_blank", rel: "noopener noreferrer", title: "Open the " + (e.city || "city") + " guide on our website" } : {};
           return (
             <Card className={"pv-eatc" + (e.url ? " pv-eatc--link" : "")} key={e.id} {...cardProps}>
               <EatCardPhoto src={e.photo || null} name={e.name} />
@@ -1326,7 +1326,7 @@ export function ProposalPreviewPage({
                     <div className="pv-recgroup" key={g.city}>
                       <div className="pv-recgroup-head">
                         <span className="pv-recgroup-title">{g.city}</span>
-                        {g.url ? <a className="pv-recgroup-sub" href={g.url} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                        {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
                       </div>
                       <EatCards entries={g.picks} />
                     </div>
