@@ -47,9 +47,27 @@ export function diningEntry(item: EatItem, guide: Pick<EatGuide, "city" | "url">
   };
 }
 
-/** The website's city page opened on its "Where to eat" tab and scrolled to it (the page reads ?guide=eat), instead of its top. */
+// Where the customer site lives in THIS environment. The guide's own URLs say www.tripagent.vip (the live site); on the
+// dev / preprod deployment they must open the preprod site instead. NEXT_PUBLIC_CUSTOMER_SITE_URL (else NEXT_PUBLIC_SITE_BASE_URL)
+// sets it per deployment; without either, the dev admin (adminfe-delta) falls back to customerfe-dev, and everything else keeps the guide's URL.
+const DEV_ADMIN_HOSTS = ["adminfe-delta.vercel.app"];
+const DEV_CUSTOMER_SITE = "https://customerfe-dev.vercel.app";
+function customerSiteBase(): string | null {
+  const set = (process.env.NEXT_PUBLIC_CUSTOMER_SITE_URL || process.env.NEXT_PUBLIC_SITE_BASE_URL || "").trim().replace(/\/+$/, "");
+  if (set) return set;
+  if (typeof window !== "undefined" && DEV_ADMIN_HOSTS.includes(window.location.hostname)) return DEV_CUSTOMER_SITE;
+  return null;
+}
+
+/** The website's city page opened on its "Where to eat" tab and scrolled to it (the page reads ?guide=eat), instead of its top.
+ *  A tripagent.vip address is pointed at this environment's customer site (see customerSiteBase). */
 export function eatGuideUrl(url: string | null | undefined): string {
   if (!url) return "";
+  const site = customerSiteBase();
+  if (site) {
+    const m = url.match(/^https?:\/\/(?:[\w-]+\.)*tripagent\.vip(?=[/?#]|$)/i);
+    if (m) url = site + url.slice(m[0].length);
+  }
   if (/[?&]guide=/.test(url)) return url;
   const [base, hash] = url.split("#");
   return base + (base.includes("?") ? "&" : "?") + "guide=eat" + (hash ? "#" + hash : "");

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { cardTags, diningEntry, distanceText, eatGuideUrl, hotelForDay, tiersOf, whereToEatByCity, type EatItem } from "./diningPlan";
 
 const FARM: EatItem = {
@@ -84,5 +84,17 @@ describe("eatGuideUrl", () => {
     expect(eatGuideUrl("https://x.vip/city-goa?ref=a#top")).toBe("https://x.vip/city-goa?ref=a&guide=eat#top");
     expect(eatGuideUrl("https://x.vip/city-goa?guide=stay")).toBe("https://x.vip/city-goa?guide=stay");
     expect(eatGuideUrl(null)).toBe("");
+  });
+
+  it("points a tripagent.vip guide at this environment's customer site when one is set", () => {
+    vi.stubEnv("NEXT_PUBLIC_CUSTOMER_SITE_URL", "https://customerfe-dev.vercel.app/");
+    try {
+      expect(eatGuideUrl("https://www.tripagent.vip/city-goa")).toBe("https://customerfe-dev.vercel.app/city-goa?guide=eat");
+      expect(eatGuideUrl("https://tripagent.vip/city-goa?ref=a#top")).toBe("https://customerfe-dev.vercel.app/city-goa?ref=a&guide=eat#top");
+      expect(eatGuideUrl("https://other.example/city-goa")).toBe("https://other.example/city-goa?guide=eat"); // only our own site is moved
+      expect(eatGuideUrl("https://www.tripagent.vip.evil.com/x")).toBe("https://www.tripagent.vip.evil.com/x?guide=eat");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
