@@ -156,6 +156,18 @@ export function ShellChrome({
           </div>
           <div className="ta-shell-footer">
             <NotificationBell />
+            <button
+              type="button"
+              className="ta-shell-signout"
+              onClick={onSignOut}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <span className="ta-shell-tab-inner">
+                <Icon name="logout" size={20} />
+                <span className="ta-shell-tab-label">Sign out</span>
+              </span>
+            </button>
             <AccountMenu advisorId={advisorId} role={role} onSignOut={onSignOut} />
           </div>
         </div>

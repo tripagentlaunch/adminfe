@@ -28,6 +28,7 @@ const PATHS: Record<string, string> = {
   refresh: "M21 12a9 9 0 1 1-2.6-6.3M21 4v4h-4",
   search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM21 21l-4.3-4.3",
   chevron: "M6 9l6 6 6-6",
+  logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9",
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
   zoomIn: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.35-4.35M11 8v6M8 11h6",

@@ -165,6 +165,16 @@
 .ta-shell-tab.is-disabled:hover { color: var(--muted); }
 .ta-shell-tab.is-disabled:hover .ta-shell-tab-inner { background: none; }
 .ta-shell-footer { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--line); }
+/* Always-visible Sign out button in the sidebar footer (reuses the tab inner
+   so the icon rail / expanded label behave exactly like the nav items). */
+.ta-shell-signout {
+  display: flex; width: 100%; background: none; border: none; padding: 0;
+  font: inherit; color: var(--muted); cursor: pointer;
+}
+.ta-shell-signout svg { width: 20px; height: 20px; flex: none; color: var(--muted); transition: color var(--dur) var(--ease); }
+.ta-shell-signout:hover .ta-shell-tab-inner { background: var(--champagne); }
+.ta-shell-signout:hover, .ta-shell-signout:hover svg { color: var(--ink); }
+.ta-shell-nav.is-expanded .ta-shell-signout .ta-shell-tab-label { opacity: 1; max-width: 200px; margin-left: 8px; }
 .ta-shell-body { flex: 1; min-width: 0; }
 
 /* Account menu — sits at the bottom of the global sidebar (.ta-shell-footer),
