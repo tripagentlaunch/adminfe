@@ -535,17 +535,28 @@ function AccessRequestsSection() {
       });
   }
 
-  // One search box for all three tabs: matches name, email, phone, city, code or label (ignores case, spaces and dashes).
+  // One search box for all three tabs. "Starts with" matching on the person's own details only: any word of the
+  // name (so "b" finds Bhanumathi and "gu" finds Supreet Gupta), the start of the email, the start of the phone
+  // number and the start of the code or super-key label. Fields like "approved by" are deliberately not searched.
   const [q, setQ] = useState("");
-  const norm = (v: string) => v.toLowerCase().replace(/[\s\-()]/g, "");
-  const needle = norm(q.trim());
+  const needle = q.trim().toLowerCase();
+  const words = (v: any) => String(v == null ? "" : v).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const startsWord = (v: any) => {
+    const txt = String(v == null ? "" : v).toLowerCase().trim();
+    return !!txt && (txt.startsWith(needle) || words(txt).some((w) => w.startsWith(needle)));
+  };
   const matches = (r: any) => {
     if (!needle) return true;
-    const hay = Object.values(r || {})
-      .filter((v) => typeof v === "string" || typeof v === "number")
-      .map((v) => norm(String(v)))
-      .join("|");
-    return hay.includes(needle);
+    if (!r) return false;
+    if ([r.name, r.full_name, r.first_name, r.last_name, r.label].some(startsWord)) return true;
+    if (String(r.email || "").toLowerCase().startsWith(needle)) return true;
+    const digits = needle.replace(/\D/g, "");
+    if (digits) {
+      const ph = String(r.phone || "").replace(/\D/g, "");
+      if (ph && (ph.startsWith(digits) || ph.slice(-10).startsWith(digits))) return true;
+    }
+    const compact = needle.replace(/[\s-]/g, "");
+    return [r.code, r.pretty_code].some((c) => !!c && String(c).toLowerCase().replace(/-/g, "").startsWith(compact));
   };
   const pending = (rows || []).filter(matches);
   const noCodeShown = noCode.filter(matches);
@@ -570,26 +581,33 @@ function AccessRequestsSection() {
             {err}
           </div>
         ) : null}
-        <div style={{ position: "relative", marginBottom: 12 }}>
-          <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--taupe)", display: "flex", pointerEvents: "none" }}>
-            <Icon name="search" size={14} />
+        <div className={cx("taw-search", needle && "has-value")}>
+          <span className="taw-search-ico">
+            <Icon name="search" size={17} />
           </span>
           <input
-            className="taw-input"
-            style={{ width: "100%", paddingLeft: 32, paddingRight: q ? 34 : undefined }}
-            type="search"
-            placeholder="Search people by name, email, phone or code"
+            className="taw-search-input"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="Search people by name, email, phone or code…"
             aria-label="Search access requests"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setQ("");
+            }}
           />
+          {needle ? (
+            <span className="taw-search-count" aria-live="polite">
+              {tab === "pending" ? pending.length + noCodeShown.length : tab === "approved" ? approvedShown.length : superKeysShown.length}{" "}
+              found
+            </span>
+          ) : (
+            <kbd className="taw-search-hint">Esc clears</kbd>
+          )}
           {q ? (
-            <button
-              className="taw-btn taw-btn--ghost taw-btn--sm"
-              style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
-              onClick={() => setQ("")}
-              aria-label="Clear search"
-            >
+            <button className="taw-search-clear" onClick={() => setQ("")} aria-label="Clear search" type="button">
               <Icon name="x" size={12} />
             </button>
           ) : null}

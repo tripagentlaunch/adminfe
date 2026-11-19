@@ -2113,3 +2113,20 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-chip--over{background:var(--warn-bg);color:var(--warn-ink);}
 .taw-fit-toggle{margin-left:10px;border:1px solid var(--line);background:#fff;border-radius:999px;padding:2px 10px;font:inherit;font-size:11.5px;color:var(--taupe);cursor:pointer;}
 .taw-fit-toggle.is-on{background:var(--success-bg);color:var(--success-ink);border-color:var(--success);}
+
+/* Access-requests search (2026-11-19): pill search bar with icon, live count and clear button. */
+.taw-search{position:relative;display:flex;align-items:center;gap:10px;margin:2px 0 16px;padding:0 10px 0 16px;height:48px;
+  background:linear-gradient(180deg,var(--card),var(--card));border:1px solid var(--line2);border-radius:999px;
+  box-shadow:0 1px 2px rgba(60,40,10,.05),0 6px 18px -10px rgba(60,40,10,.25);transition:border-color .15s,box-shadow .15s,transform .15s;}
+.taw-search:hover{border-color:var(--gold);}
+.taw-search:focus-within{border-color:var(--gold);box-shadow:0 0 0 4px rgba(184,144,31,.16),0 10px 24px -12px rgba(60,40,10,.35);}
+.taw-search-ico{display:flex;color:var(--gold);flex:none;}
+.taw-search-input{flex:1;min-width:0;height:100%;border:0;outline:0;background:transparent;color:var(--ink);font:inherit;font-size:15px;letter-spacing:.01em;}
+.taw-search-input::placeholder{color:var(--muted);}
+.taw-search-count{flex:none;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);
+  background:rgba(184,144,31,.12);padding:4px 11px;border-radius:999px;}
+.taw-search-hint{flex:none;font:inherit;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);opacity:0;transition:opacity .15s;}
+.taw-search:focus-within .taw-search-hint{opacity:1;}
+.taw-search-clear{flex:none;display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:0;cursor:pointer;
+  background:rgba(60,40,10,.08);color:var(--ink);transition:background .15s;}
+.taw-search-clear:hover{background:rgba(60,40,10,.16);}
