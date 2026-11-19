@@ -1538,6 +1538,23 @@ function siteResendInvitePerson(code) {
 function siteSignOutMember(code) {
   return adminbeInviteCodeCall(code, "sign-out");
 }
+// Admin only: signs the guest behind one super-key entry out of every device. Not a ban: they can enter the key again.
+function siteSignOutSuperKeyEntry(entryId) {
+  var jwt = authBearer();
+  if (!jwt) return Promise.reject(new ApiError("Not signed in.", { status: 401 }));
+  return fetch(FASTAPI_BASE + "/admin/super-key-entries/" + encodeURIComponent(entryId) + "/sign-out", {
+    method: "POST",
+    headers: { Authorization: "Bearer " + jwt, "Content-Type": "application/json" },
+    body: "{}",
+  }).then(function (res) {
+    return res.json().catch(function () { return {}; }).then(function (data) {
+      if (!res.ok) {
+        throw new ApiError(typeof data.detail === "string" ? data.detail : "Request failed.", { status: res.status, body: data });
+      }
+      return data;
+    });
+  });
+}
 function siteRevokeInviteSeat(code) {
   return adminbeInviteCodeCall(code, "revoke");
 }
@@ -3331,6 +3348,7 @@ export {
   siteSetInviteSeats,
   siteRevokeInviteSeat,
   siteSignOutMember,
+  siteSignOutSuperKeyEntry,
   siteSetCodeSharing,
   siteAddInvitePerson,
   siteResendInvitePerson,

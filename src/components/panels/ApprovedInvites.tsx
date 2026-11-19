@@ -16,6 +16,7 @@ import {
   siteResendInvitePerson,
   siteRevokeInviteSeat,
   siteSignOutMember,
+  siteSignOutSuperKeyEntry,
   siteSetCodeSharing,
   siteSetInviteSeats,
 } from "../../services/api";
@@ -105,12 +106,12 @@ function entryWhere(e: any) {
 
 // SignOutButton: the admin signs this person out of every device. Sign-out only, not a ban: they can sign in again with their code
 // or email. (The whole Admin tab is admin-only and the server re-checks the role.)
-function SignOutButton({ code, name }: { code: string; name: string }) {
+export function SignOutButton({ code, name, entryId }: { code?: string; name: string; entryId?: string }) {
   const [busy, setBusy] = useState(false);
   function go() {
     if (!window.confirm("Sign " + name + " out of all their devices? They are not blocked and can sign in again.")) return;
     setBusy(true);
-    siteSignOutMember(code)
+    (entryId ? siteSignOutSuperKeyEntry(entryId) : siteSignOutMember(code))
       .then((r: any) => {
         setBusy(false);
         toast(name + (r && r.sessions_ended === 0 ? " had no active login." : " is signed out of all devices."), "success");

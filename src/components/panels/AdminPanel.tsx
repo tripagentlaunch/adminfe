@@ -28,7 +28,7 @@ import {
   siteSetSuperKeyActive,
   inr,
 } from "../../services/api";
-import { ApprovedRequestsList, NewSuperKeyForm, ShareBar, copyText } from "./ApprovedInvites";
+import { ApprovedRequestsList, NewSuperKeyForm, ShareBar, SignOutButton, copyText } from "./ApprovedInvites";
 import { SEAT_CHOICES, prettyCode, seatChoiceLabel } from "../../lib/inviteShare";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelpers";
@@ -379,8 +379,9 @@ function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loa
                       <Icon name="compass" size={13} />
                       {where(e)}
                     </span>
-                    <span style={{ fontSize: 12, color: "var(--taupe)" }}>
+                    <span style={{ fontSize: 12, color: "var(--taupe)", display: "inline-flex", alignItems: "center", gap: 10 }}>
                       {fmtDate(e.entered_at)} {fmtTime(e.entered_at)}
+                      <SignOutButton entryId={e.id} name="This guest" />
                     </span>
                   </div>
                 </div>
