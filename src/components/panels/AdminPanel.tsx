@@ -535,7 +535,22 @@ function AccessRequestsSection() {
       });
   }
 
-  const pending = rows || [];
+  // One search box for all three tabs: matches name, email, phone, city, code or label (ignores case, spaces and dashes).
+  const [q, setQ] = useState("");
+  const norm = (v: string) => v.toLowerCase().replace(/[\s\-()]/g, "");
+  const needle = norm(q.trim());
+  const matches = (r: any) => {
+    if (!needle) return true;
+    const hay = Object.values(r || {})
+      .filter((v) => typeof v === "string" || typeof v === "number")
+      .map((v) => norm(String(v)))
+      .join("|");
+    return hay.includes(needle);
+  };
+  const pending = (rows || []).filter(matches);
+  const noCodeShown = noCode.filter(matches);
+  const approvedShown = approved.filter(matches);
+  const superKeysShown = superKeys.filter(matches);
 
   return (
     <Card
@@ -555,15 +570,39 @@ function AccessRequestsSection() {
             {err}
           </div>
         ) : null}
+        <div style={{ position: "relative", marginBottom: 12 }}>
+          <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--taupe)", display: "flex", pointerEvents: "none" }}>
+            <Icon name="search" size={14} />
+          </span>
+          <input
+            className="taw-input"
+            style={{ width: "100%", paddingLeft: 32, paddingRight: q ? 34 : undefined }}
+            type="search"
+            placeholder="Search people by name, email, phone or code"
+            aria-label="Search access requests"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          {q ? (
+            <button
+              className="taw-btn taw-btn--ghost taw-btn--sm"
+              style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)" }}
+              onClick={() => setQ("")}
+              aria-label="Clear search"
+            >
+              <Icon name="x" size={12} />
+            </button>
+          ) : null}
+        </div>
         <div className="taw-tabs" role="tablist" style={{ marginBottom: 12, padding: 0 }}>
           <button className={cx("taw-tab", tab === "pending" && "is-active")} role="tab" aria-selected={tab === "pending"} onClick={() => setTab("pending")}>
             Pending <span className="pill">{pending.length}</span>
           </button>
           <button className={cx("taw-tab", tab === "approved" && "is-active")} role="tab" aria-selected={tab === "approved"} onClick={() => setTab("approved")}>
-            Approved requests <span className="pill">{approved.length}</span>
+            Approved requests <span className="pill">{approvedShown.length}</span>
           </button>
           <button className={cx("taw-tab", tab === "superkey" && "is-active")} role="tab" aria-selected={tab === "superkey"} onClick={() => setTab("superkey")}>
-            Super key <span className="pill">{superKeys.reduce((n: number, k: any) => n + (k.total_entries || 0), 0)}</span>
+            Super key <span className="pill">{needle ? superKeysShown.length : superKeys.reduce((n: number, k: any) => n + (k.total_entries || 0), 0)}</span>
           </button>
         </div>
         {/* FIXED (2026-09-17, direct request): rendered here, independent
@@ -687,9 +726,9 @@ function AccessRequestsSection() {
             })}
           </div>
         ) : (
-          <Empty icon={<Icon name="inbox" size={28} />}>No pending access requests.</Empty>
+          <Empty icon={<Icon name="inbox" size={28} />}>{needle ? "No pending requests match \"" + q.trim() + "\"." : "No pending access requests."}</Empty>
         )}
-        {noCode.length ? (
+        {noCodeShown.length ? (
           <div style={{ marginTop: 20 }}>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>Approved without a code</div>
             <div style={{ fontSize: 12.5, color: "var(--taupe)", marginBottom: 10 }}>
@@ -697,7 +736,7 @@ function AccessRequestsSection() {
               code emails it to them.
             </div>
             <div className="taw-qlist">
-              {noCode.map((r: any) => (
+              {noCodeShown.map((r: any) => (
                 <div key={r.id} className="taw-qrow" style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 14 }}>
                   <div className="taw-qrow-main">
                     <span className="taw-qtype taw-icrow">
@@ -725,11 +764,11 @@ function AccessRequestsSection() {
         ) : null}
           </>
         ) : tab === "approved" ? (
-          <ApprovedRequestsList rows={approved} loading={loading} onChanged={load} />
+          <ApprovedRequestsList rows={approvedShown} loading={loading} onChanged={load} />
         ) : (
           <>
             <NewSuperKeyForm onCreated={load} />
-            <SuperKeysList keys={superKeys} loading={loading} onToggle={toggleSuperKey} busyCode={busyKey} />
+            <SuperKeysList keys={superKeysShown} loading={loading} onToggle={toggleSuperKey} busyCode={busyKey} />
           </>
         )}
       </div>
