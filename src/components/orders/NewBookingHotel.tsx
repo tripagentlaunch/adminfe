@@ -194,6 +194,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [roomsCfg, setRoomsCfg] = useState<RoomGuests[]>(() => (initial ? initial.rooms.map((r) => ({ adults: r.adults, childAges: r.childAges.slice() })) : defaultRooms()));
   const tot = totals(roomsCfg);
   const nRooms = roomsCfg.length;
+  // Opened from the Hotels desk for an itinerary: the place, dates and guests are the desk's search, not editable here.
+  const searchLocked = !!itinerary && !!initial;
 
   // Dates of the search that minted `session` (docKey/token). The form can be edited
   // after "Change search" without re-searching, so recording a stay must use these.
@@ -723,6 +725,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           checkIn={form.checkIn} checkOut={form.checkOut} onDates={(i, o) => setForm((f) => ({ ...f, checkIn: i, checkOut: o }))}
           rooms={roomsCfg} onRooms={setRoomsCfg}
           busy={busy} onSearch={runSearch} onProblem={onError}
+          locked={searchLocked}
         />
         <div className="ow-modal-foot">
           <button type="button" className="taw-btn" onClick={onBack}>Back</button>
@@ -751,7 +754,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             {form.city} · {nightsTxt} · {guestsTxt} · {hotelsShown.length === offers.length ? offers.length : `${hotelsShown.length} of ${offers.length}`} hotels
             {moreInfo ? (moreInfo.failed ? ` · couldn't load the rest, showing ${moreInfo.loaded}` : ` · loading more… ${moreInfo.loaded} so far`) : ""}
           </span>
-          <button type="button" className="taw-btn taw-btn--sm" onClick={() => { stopMore(); setSub("search"); }}>Change search</button>
+          {searchLocked ? null : <button type="button" className="taw-btn taw-btn--sm" onClick={() => { stopMore(); setSub("search"); }}>Change search</button>}
         </div>
         {findName && notFound ? (
           <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal", margin: "8px 0" }}>

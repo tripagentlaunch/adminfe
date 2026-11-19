@@ -744,9 +744,12 @@ export function FlightDesk(props: any) {
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form]);
-  function backToSearch() {
+  // Results are locked to the search that produced them: the route, dates, travellers and cabin can't be edited above
+  // them (the fields would stop matching the offers shown). "New search" throws the results away and opens the form.
+  function newSearch() {
     setErr(null);
-    setModifyOpen((v) => !v);
+    setModifyOpen(false);
+    setRes(null);
   }
 
   // activeLegOffers / offers (2026-09-02) — `leg` picks which of the two
@@ -905,9 +908,9 @@ export function FlightDesk(props: any) {
             a wipe — the actual bug behind "hard to adjust filters and
             re-search without fully backing out."  */}
         {!loading ? (
-          <button className="taw-btn taw-btn--sm" onClick={backToSearch} aria-expanded={modifyOpen} title="Change route, dates, travellers or cabin">
-            <Icon name={modifyOpen ? "x" : "edit"} size={13} />
-            {modifyOpen ? "Close" : "Edit search"}
+          <button className="taw-btn taw-btn--sm" onClick={newSearch} title="Clear these results and search a different route, date, travellers or cabin">
+            <Icon name="search" size={13} />
+            New search
           </button>
         ) : null}
         {/* Departure/Return leg switcher (2026-09-02) — for a round trip
@@ -955,7 +958,6 @@ export function FlightDesk(props: any) {
           the already-selected one clears the filter back to "all dates".
           Paged with </> buttons instead of scrolling (2026-09-02, direct
           request) — CHIP_WINDOW_SIZE chips visible at a time. */}
-      {modifyOpen && !loading ? <div className="taw-modify">{formView}</div> : null}
       {res ? (
         <div className="taw-paxline">
           <span>

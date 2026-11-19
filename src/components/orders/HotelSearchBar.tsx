@@ -22,7 +22,7 @@ const defaultSuggestions = (q: string) => (q ? citySuggest(q, rankLocationSugges
 
 export function HotelSearchBar({
   city, onCity, location, onLocation, checkIn, checkOut, onDates, rooms, onRooms, busy, onSearch, onProblem,
-  fetchSuggestions = defaultSuggestions, showDefaultsOnFocus = false,
+  fetchSuggestions = defaultSuggestions, showDefaultsOnFocus = false, locked = false,
 }: {
   city: string;
   onCity: (v: string) => void;
@@ -40,6 +40,8 @@ export function HotelSearchBar({
   onProblem?: (msg: string | null) => void;
   fetchSuggestions?: (q: string) => Promise<any[]>;
   showDefaultsOnFocus?: boolean;
+  /** Read-only: shows the search as it was made (place, dates, guests) with nothing to edit; the button only repeats it. */
+  locked?: boolean;
 }) {
   const [panel, setPanel] = useState<null | "dates" | "guests">(null); // inline calendar / guests panel
   const nights = Math.round((Date.parse(checkOut) - Date.parse(checkIn)) / 86_400_000);
@@ -80,6 +82,42 @@ export function HotelSearchBar({
       </div>
     </div>
   );
+
+  if (locked) {
+    return (
+      <div className="hsb" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="ow-sbar ow-sbar--hotel" aria-label="The search this list is for (set in the Hotels desk)">
+          <div className="ow-pill ow-sbar-where nb-dest set">
+            <span className="ow-pill-l"><Icon name="pin" size={12} /> Where to?</span>
+            <span className="ow-pill-input" style={{ display: "block", fontWeight: 600 }}>{city}</span>
+            {location ? (
+              <span className="ow-pill-s nb-place">
+                <b>{location.fullName || [location.name, location.state, location.country].filter(Boolean).join(", ")}</b>
+                {location.type ? ` · ${location.type}` : ""}
+              </span>
+            ) : null}
+          </div>
+          <div className="ow-pill ow-sbar-date">
+            <span className="ow-pill-l nb-start"><i className="nb-dot" /> Check-in</span>
+            <span className="ow-pillbtn" style={{ cursor: "default" }}><Icon name="calendar" size={14} /><span>{fmtPill(checkIn)}</span></span>
+          </div>
+          <div className="ow-pill ow-sbar-date">
+            <span className="ow-pill-l nb-end"><i className="nb-dot" /> Check-out{nights >= 1 ? ` · ${nights} night${nights === 1 ? "" : "s"}` : ""}</span>
+            <span className="ow-pillbtn" style={{ cursor: "default" }}><Icon name="calendar" size={14} /><span>{fmtPill(checkOut)}</span></span>
+          </div>
+          <div className="ow-pill ow-sbar-guests">
+            <span className="ow-pill-l">Guests &amp; rooms</span>
+            <span className="ow-pillbtn" style={{ cursor: "default" }}><Icon name="people" size={14} /><span>{guestsPill(rooms)}</span></span>
+          </div>
+          <button type="button" className="ow-searchbtn" onClick={onSearch} disabled={busy}>
+            <Icon name="search" size={15} />
+            {busy ? "Searching…" : "Search again"}
+          </button>
+        </div>
+        <div className="ow-sub">The place, dates and guests are fixed to the search made in the Hotels desk. To change them, close this and search again there.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="hsb" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
