@@ -989,6 +989,8 @@
 @media (max-width:900px){.pv-eatg{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:560px){.pv-eatg{grid-template-columns:1fr;}}
 .pv-eatc{display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:0;}
+.pv-eatc--link{color:inherit;text-decoration:none;cursor:pointer;}
+.pv-eatc--link:hover .pv-eatc-name{text-decoration:underline;text-underline-offset:4px;}
 .pv-eatc-photo{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#e9e2d6;margin-bottom:6px;}
 .pv-eatc-name{font-family:inherit;font-weight:400;font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:0;}
 .pv-eatc-tag{display:inline-block;padding:4px 11px;border:1px solid #8a2c3a;color:#7a1f2e;font-size:12px;letter-spacing:.09em;text-transform:uppercase;}

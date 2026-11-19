@@ -97,8 +97,11 @@ function EatCards({ entries }: { entries: any[] }) {
       <div className="pv-eatg">
         {shown.map((e: any) => {
           const { headline, rest } = cardTags(e);
+          // A card opens the city page it comes from on our website (the Goa page for a Goa restaurant), in a new tab.
+          const Card: any = e.url ? "a" : "article";
+          const cardProps = e.url ? { href: e.url, target: "_blank", rel: "noopener noreferrer", title: "Open the " + (e.city || "city") + " guide on our website" } : {};
           return (
-            <article className="pv-eatc" key={e.id}>
+            <Card className={"pv-eatc" + (e.url ? " pv-eatc--link" : "")} key={e.id} {...cardProps}>
               <EatCardPhoto src={e.photo || null} name={e.name} />
               <h3 className="pv-eatc-name">{e.name}</h3>
               {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
@@ -111,7 +114,7 @@ function EatCards({ entries }: { entries: any[] }) {
                 </div>
               ) : null}
               {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
-            </article>
+            </Card>
           );
         })}
       </div>
