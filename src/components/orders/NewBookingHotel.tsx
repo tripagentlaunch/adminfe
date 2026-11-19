@@ -324,7 +324,9 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
   const sessOf = (h: any) => (h && h._session) || session;
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
-  const hReset = () => setView((f) => ({ ...initialView, sort: f.sort }));
+  // Reset clears every filter, including "5-star, top-rated" (which the itinerary builder starts with): putting it back on would
+  // keep hiding hotels and make "Reset filters" on an empty list do nothing. The advisor can switch it on again from its chip.
+  const hReset = () => setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort }));
 
   function runSearch() {
     onError(null);
@@ -725,7 +727,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           <div className="ow-fchips">
             {chip(layout === "list", "List", () => setLayout("list"), "list")}
             {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
-            {itinerary ? chip(view.sort === "recommended", "Recommended", () => setV("sort", "recommended"), "star") : null}
+            {itinerary ? chip(view.sort === "recommended", "Recommended", () => setV("sort", view.sort === "recommended" ? "best" : "recommended"), "star") : null}
             {itinerary ? chip(view.luxury, "5-star, top-rated", () => setV("luxury", !view.luxury)) : null}
             {chip(view.sort === "best", "Best value", () => setV("sort", "best"))}
             {chip(view.sort === "cheapest", "Price ↑", () => setV("sort", view.sort === "cheapest" ? "best" : "cheapest"))}
