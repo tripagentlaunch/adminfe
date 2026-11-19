@@ -985,20 +985,30 @@
 .pv-eatt{display:flex;gap:10px;margin:0 0 30px;flex-wrap:wrap;}
 .pv-eatt-btn{display:inline-flex;align-items:center;gap:9px;padding:13px 20px;border:1px solid var(--pv-line,rgba(0,0,0,.18));background:#fff;font:inherit;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#5a544c;cursor:pointer;}
 .pv-eatt-btn.is-active{border-color:#171310;box-shadow:inset 0 0 0 1px #171310;color:#171310;}
-.pv-eatg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:48px 36px;margin-top:8px;}
+.pv-eatg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin-top:8px;align-items:stretch;}
 @media (max-width:900px){.pv-eatg{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media (max-width:560px){.pv-eatg{grid-template-columns:1fr;}}
-.pv-eatc{display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-width:0;}
+.pv-eatc{display:flex;flex-direction:column;min-width:0;background:#fff;border:1px solid rgba(60,40,10,.12);border-radius:16px;overflow:hidden;
+  box-shadow:0 1px 2px rgba(60,40,10,.05),0 10px 24px -16px rgba(60,40,10,.3);transition:transform .2s,box-shadow .2s;}
+.pv-eatc:hover{transform:translateY(-3px);box-shadow:0 2px 4px rgba(60,40,10,.06),0 18px 34px -16px rgba(60,40,10,.4);}
 .pv-eatc--link{color:inherit;text-decoration:none;cursor:pointer;}
-.pv-eatc--link:hover .pv-eatc-name{text-decoration:underline;text-underline-offset:4px;}
-.pv-eatc-photo{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#e9e2d6;margin-bottom:6px;}
-.pv-eatc-name{font-family:inherit;font-weight:400;font-size:24px;line-height:1.2;letter-spacing:-.01em;margin:0;}
-.pv-eatc-tag{display:inline-block;padding:4px 11px;border:1px solid #8a2c3a;color:#7a1f2e;font-size:12px;letter-spacing:.09em;text-transform:uppercase;}
-.pv-eatc-cred{display:block;width:100%;box-sizing:border-box;padding:6px 12px;border:1px solid var(--pv-line,rgba(0,0,0,.2));color:#5a544c;font-size:11.5px;line-height:1.45;letter-spacing:.08em;text-transform:uppercase;}
-.pv-eatc-desc{margin:0;font-size:17px;line-height:1.55;}
-.pv-eatc-loc{display:flex;gap:8px;align-items:center;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#6b655c;}
-.pv-eatc-loc svg{flex:0 0 auto;}
-.pv-eatc-dist{font-size:13px;font-weight:600;}
+.pv-eatc--link:hover .pv-eatc-name{color:#7a5712;}
+.pv-eatc-photo{width:100%;aspect-ratio:3/2;object-fit:cover;display:block;background:#e9e2d6;}
+.pv-eatc-body{display:flex;flex-direction:column;align-items:flex-start;gap:10px;padding:18px 20px 14px;flex:1;}
+.pv-eatc-name{font-family:inherit;font-weight:600;font-size:20px;line-height:1.25;letter-spacing:-.005em;margin:0;color:#171310;transition:color .15s;}
+.pv-eatc-tag{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;background:#fbf3e2;border:1px solid rgba(176,132,40,.5);color:#7a5712;
+  font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;line-height:1.3;}
+.pv-eatc-tag::before{content:"★";font-size:10px;color:#b08428;}
+.pv-eatc-creds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;width:100%;}
+.pv-eatc-creds li{position:relative;padding-left:14px;font-size:12.5px;line-height:1.4;color:#6b655c;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.pv-eatc-creds li::before{content:"";position:absolute;left:1px;top:.55em;width:5px;height:5px;border-radius:50%;background:#b08428;}
+.pv-eatc-desc{margin:2px 0 0;font-size:14.5px;line-height:1.6;color:#2a2520;
+  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;}
+.pv-eatc-foot{display:flex;flex-direction:column;gap:6px;padding:12px 20px 16px;margin-top:auto;border-top:1px solid rgba(60,40,10,.09);background:#fdfaf4;}
+.pv-eatc-loc{display:flex;gap:7px;align-items:center;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:#6b655c;}
+.pv-eatc-loc svg{flex:0 0 auto;color:#b08428;}
+.pv-eatc-dist{font-size:13px;font-weight:600;color:#171310;}
 
 /* Offline prices (quoted by another vendor, held for 12 hours). */
 .pv-offline{display:flex;flex-direction:column;gap:4px;margin:0 0 18px;padding:14px 18px;border:1px solid rgba(176,132,40,.4);background:#fbf3e2;border-radius:12px;font-size:13.5px;line-height:1.5;color:#5f4510;}

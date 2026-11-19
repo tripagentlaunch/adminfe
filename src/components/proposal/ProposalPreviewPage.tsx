@@ -104,17 +104,27 @@ function EatCards({ entries }: { entries: any[] }) {
           return (
             <Card className={"pv-eatc" + (e.url ? " pv-eatc--link" : "")} key={e.id} {...cardProps}>
               <EatCardPhoto src={e.photo || null} name={e.name} />
-              <h3 className="pv-eatc-name">{e.name}</h3>
-              {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
-              {rest.map((c: string, i: number) => <span className="pv-eatc-cred" key={i}>{c}</span>)}
-              {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
-              {e.area ? (
-                <div className="pv-eatc-loc">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21z" /><circle cx="12" cy="10" r="2.5" /></svg>
-                  <span>{e.area}</span>
+              <div className="pv-eatc-body">
+                <h3 className="pv-eatc-name">{e.name}</h3>
+                {headline ? <span className="pv-eatc-tag">{headline}</span> : null}
+                {rest.length ? (
+                  <ul className="pv-eatc-creds">
+                    {rest.map((c: string, i: number) => <li key={i}>{c}</li>)}
+                  </ul>
+                ) : null}
+                {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
+              </div>
+              {e.area || e.distance ? (
+                <div className="pv-eatc-foot">
+                  {e.area ? (
+                    <div className="pv-eatc-loc">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.2A7 7 0 0 1 19 9.8C19 14.8 12 21 12 21z" /><circle cx="12" cy="10" r="2.5" /></svg>
+                      <span>{e.area}</span>
+                    </div>
+                  ) : null}
+                  {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
                 </div>
               ) : null}
-              {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
             </Card>
           );
         })}
