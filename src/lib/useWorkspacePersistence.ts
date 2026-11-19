@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { enquiryWorkspaceList, enquiryWorkspaceSave } from "../services/api";
 import { errText, toast } from "./advisorHelpers";
+import { mergeRefreshedItinerary } from "./itineraryFromCart";
 import type { ProposalQueueEntry } from "./workbenchContext";
 
 const SAVE_DELAY_MS = 1200;
@@ -69,6 +70,32 @@ export function useWorkspacePersistence({
     });
   }
 
+  // Someone (another window, another advisor) saved this enquiry before our save landed. Throwing our edits away is what made a hotel
+  // that was just added "vanish": instead the server's copy is taken as the new base and what we changed since our last save (added,
+  // edited, removed items) is laid back on top of it, then saved on the next tick. Falls back to the server's copy alone when there is
+  // nothing of ours to keep or the two can't be merged. Returns true when our edits were kept.
+  function adoptKeepingLocalEdits(row: any): boolean {
+    const id = row.enquiry_id;
+    const mine = latest.current.itinerariesByEnquiry[id];
+    const lastSaved = saved.current[id] ? saved.current[id].itinerary : "null";
+    let merged: any = null;
+    try {
+      const base = JSON.parse(lastSaved);
+      if (mine && base && row.itinerary && JSON.stringify(mine) !== lastSaved) merged = mergeRefreshedItinerary(base, mine, row.itinerary);
+    } catch {
+      merged = null;
+    }
+    if (!merged) { adopt(row); return false; }
+    versions.current[id] = Number(row.version) || 0;
+    saved.current[id] = { itinerary: JSON.stringify(row.itinerary ?? null), proposal: JSON.stringify(row.proposal ?? null) };
+    setItinerariesByEnquiry((m) => ({ ...m, [id]: merged }));
+    setProposalQueue((q) => {
+      const rest = q.filter((e) => e.enquiryId !== id);
+      return row.proposal ? rest.concat([{ enquiryId: id, ...row.proposal }]) : rest;
+    });
+    return true;
+  }
+
   // Restore once.
   useEffect(() => {
     let live = true;
@@ -122,8 +149,10 @@ export function useWorkspacePersistence({
       .catch((e: any) => {
         const current = e && e.body && e.body.detail && e.body.detail.current;
         if (e && e.status === 409 && current) {
-          adopt(current);
-          toast("This enquiry was just saved by someone else — showing their latest version.", "warn");
+          const kept = adoptKeepingLocalEdits(current);
+          toast(kept
+            ? "This enquiry was saved from another window at the same time — your changes were kept and merged with theirs."
+            : "This enquiry was just saved by someone else — showing their latest version.", "warn");
         } else if (e && e.status === 423 && current) {
           // A paid trip the server won't let change (locked, or its history couldn't be kept):
           // back to the saved copy, with the reason.
