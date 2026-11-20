@@ -72,7 +72,7 @@ const GROUPS: Group[] = [
       { key: "earnings", label: "Earnings", hint: "" },
       { key: "recon", label: "Reconciliation", hint: "" },
     ] },
-  { key: "admin", label: "Admin", icon: "people", hint: "Access requests, advisors, super keys", adminOnly: true,
+  { key: "admin", label: "Admin", icon: "people", hint: "Access requests, orders, enquiry assignment, API costs, super keys",
     pages: [{ key: "admin", label: "Admin", hint: "" }] },
 ];
 

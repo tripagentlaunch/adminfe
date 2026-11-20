@@ -27,7 +27,7 @@ import { relTime } from "../../lib/relTime";
 import { addConversationBudget, getChatbotConversation, getRealWhatsAppMessages, sendChatbotReply, siteMembers, getConversationHandoff, getCustomerPresence, setConversationHandoff, getMemberCode } from "../../services/api";
 import { Card, Icon, Spinner } from "../ui";
 import MeshBackdrop from "../chat/MeshBackdrop";
-import { isAdmin, toast } from "../../lib/advisorHelpers";
+import { toast } from "../../lib/advisorHelpers";
 import "../../styles/convo-dark.css"; // the chatbot's dark surface for this card
 import { pullTripLinks } from "../../lib/taraTripLinks";
 import { TaraTripCard } from "./TaraTripCard";
@@ -309,7 +309,7 @@ export function ChatbotConversationPanel({ member }: any) {
   const messages = cur ? cur.messages : NO_MESSAGES;
   const usage = cur ? cur.usage : null;
   const error = cur ? cur.error : null;
-  const canAddBudget = isAdmin();
+  const canAddBudget = true; // any advisor (the server allows it)
   // A refresh that missed (the backend waking or restarting) must not flash a notice over the thread: it is shown only once the
   // connection trouble has lasted a few seconds, and it goes the moment a refresh gets through.
   const connIssue = !!error && messages.length > 0 && isConnectionError(error);

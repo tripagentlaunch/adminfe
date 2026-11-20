@@ -58,8 +58,8 @@ const NAV_SECTIONS: { label: string; adminOnly?: boolean; items: { key: string; 
   { label: "Insights", items: [
     { key: "analytics", href: "/analytics", label: "Analytics", icon: "radar", hint: "Platform and your own performance" },
   ] },
-  { label: "Admin", adminOnly: true, items: [
-    { key: "admin", href: "/admin", label: "Admin", icon: "people", hint: "Approve access requests, manage advisors" },
+  { label: "Admin", items: [
+    { key: "admin", href: "/admin", label: "Admin", icon: "people", hint: "Access requests, orders, enquiry assignment, API costs" },
   ] },
 ];
 

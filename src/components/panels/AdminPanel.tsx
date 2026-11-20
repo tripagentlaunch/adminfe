@@ -12,7 +12,7 @@
  * deactivate), Orders (unfiltered — every order, every advisor/member), and
  * Enquiry assignment (unassigned enquiries -> pick an advisor -> Assign).
  * ===========================================================================*/
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   adminListAdvisors,
   adminUpdateAdvisor,
@@ -1066,10 +1066,21 @@ export function AdminPanel(props: any) {
     advisorsById[a.id] = a;
   });
 
-  const [sub, setSub] = useState("agents"); // agents | orders | enquiries
+  const [sub, setSub] = useState("orders"); // agents | advisor-work (admins) | orders | enquiries | access-requests | api-costs
+  const [isTeamAdmin, setIsTeamAdmin] = useState(false);
+  const picked = useRef(false);
+  useEffect(() => {
+    adminMe()
+      .then((m: any) => {
+        const a = !!(m && m.is_admin);
+        setIsTeamAdmin(a);
+        if (a && !picked.current) setSub("agents");
+      })
+      .catch(() => setIsTeamAdmin(false));
+  }, []);
   function SubBtn(key: string, icon: string, label: string) {
     return (
-      <button key={key} className={cx("taw-desk-tab", sub === key && "is-active")} role="tab" aria-selected={sub === key ? "true" : "false"} onClick={() => setSub(key)}>
+      <button key={key} className={cx("taw-desk-tab", sub === key && "is-active")} role="tab" aria-selected={sub === key ? "true" : "false"} onClick={() => { picked.current = true; setSub(key); }}>
         <Icon name={icon} size={15} />
         <span>{label}</span>
       </button>
@@ -1078,18 +1089,18 @@ export function AdminPanel(props: any) {
 
   return (
     <div className="taw-fade-in">
-      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment · access requests · API costs — admin only">
+      <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Orders · enquiry assignment · access requests · API costs (agents and advisor work: admins)">
         <div className="taw-desk-tabs" role="tablist" aria-label="Admin view" style={{ marginBottom: 16 }}>
-          {SubBtn("agents", "user", "Agents")}
-          {SubBtn("advisor-work", "trend", "Advisor work")}
+          {isTeamAdmin ? SubBtn("agents", "user", "Agents") : null}
+          {isTeamAdmin ? SubBtn("advisor-work", "trend", "Advisor work") : null}
           {SubBtn("orders", "luggage", "Orders")}
           {SubBtn("enquiries", "inbox", "Enquiry assignment")}
           {SubBtn("access-requests", "mail", "Access requests")}
           {SubBtn("api-costs", "trend", "API costs")}
         </div>
-        {sub === "agents" ? (
+        {sub === "agents" && isTeamAdmin ? (
           <AgentsSection />
-        ) : sub === "advisor-work" ? (
+        ) : sub === "advisor-work" && isTeamAdmin ? (
           <AdvisorWorkSection />
         ) : sub === "orders" ? (
           <AdminOrdersSection membersById={membersById} advisorsById={advisorsById} />

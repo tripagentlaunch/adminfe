@@ -9,10 +9,10 @@
  * ===========================================================================*/
 import { AdminPanel } from "../../../../components/panels/AdminPanel";
 import { useWorkbench } from "../../../../lib/workbenchContext";
-import { isAdmin } from "../../../../lib/advisorHelpers";
 
 export default function AdminPage() {
   const { advisors, membersById } = useWorkbench();
 
-  return isAdmin() ? <AdminPanel advisors={advisors} membersById={membersById} /> : null;
+  // Every signed-in advisor gets the Admin tools; Agents and Advisor work inside are for admins (the server enforces both).
+  return <AdminPanel advisors={advisors} membersById={membersById} />;
 }
