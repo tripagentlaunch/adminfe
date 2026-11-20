@@ -799,7 +799,7 @@ function SuggestionsTab({ data }: { data: any }) {
               <span className="pv-recgroup-title">{g.city}</span>
               {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, cur.key)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
             </div>
-            <EatCards entries={g.picks} guideTab={cur.key} compact />
+            <EatCards entries={g.picks} guideTab={cur.key} />
           </div>
         ))}
       </div>

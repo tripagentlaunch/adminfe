@@ -1065,19 +1065,5 @@
 .pv-sugg-cost { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 12px 16px; margin: 0 0 14px; border-radius: 10px; background: #f8f9fa; font-size: 13px; }
 .pv-sugg-cost b { font-size: 16px; font-weight: 600; }
 .pv-sugg-cost small { color: var(--muted); font-size: 12px; }
-.pv-eatg--compact { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-@media (max-width: 1100px) { .pv-eatg--compact { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@media (max-width: 860px) { .pv-eatg--compact { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 520px) { .pv-eatg--compact { grid-template-columns: 1fr; } }
-.pv-eatg--compact .pv-eatc-photo { aspect-ratio: 16 / 10; }
-.pv-eatg--compact .pv-eatc-body { padding: 12px 14px 8px; gap: 7px; }
-.pv-eatg--compact .pv-eatc-name { font-size: 16px; }
-.pv-eatg--compact .pv-eatc-tag { font-size: 10px; padding: 3px 9px; }
-.pv-eatg--compact .pv-eatc-creds li { font-size: 11.5px; -webkit-line-clamp: 1; }
-.pv-eatg--compact .pv-eatc-desc { font-size: 13px; line-height: 1.5; -webkit-line-clamp: 2; }
-.pv-eatg--compact .pv-eatc-desc.is-open { -webkit-line-clamp: unset; display: block; }
-.pv-eatg--compact .pv-eatc-foot { padding: 9px 14px 12px; gap: 4px; }
-.pv-eatg--compact .pv-eatc-loc { font-size: 10.5px; }
-.pv-eatg--compact .pv-eatc-dist { font-size: 12px; }
 .pv-eatc-more { align-self: flex-start; background: none; border: 0; padding: 0; color: #7a5712; font: inherit; font-size: 12px; cursor: pointer; }
 .pv-eatc-more:hover { text-decoration: underline; }
