@@ -1984,7 +1984,15 @@ var _tripsureFlightOfferCache = new Map();
 // session may also have expired server-side by then regardless of what
 // this cache says.
 export function getTripsureFlightOffer(id) {
-  return _tripsureFlightOfferCache.get(id) || null;
+  var hit = _tripsureFlightOfferCache.get(id);
+  if (hit) return hit;
+  // A miss (a later search pruned it, or the page reloaded) must not send an empty request: the id itself is
+  // {searchKey}::{providerId}::{fareSourceCode}, which is all fare options and the price check need to name the fare.
+  var parts = String(id || "").split("::");
+  if (parts.length === 3 && parts[0] && parts[1] && parts[2]) {
+    return { searchKey: parts[0], providerId: parts[1], fareSourceCode: parts[2], supplierTraceIds: {}, raw: null, mintedAt: 0, rebuilt: true };
+  }
+  return null;
 }
 
 // exportTripsureFlightOffers(ids) / importTripsureFlightOffers(map) — the
@@ -2119,7 +2127,12 @@ function mapTripSureFlightOffer(rawOffer, ctx) {
 // FlightDesk.jsx's run() already reads off searchFlights()'s old result.
 function mapTripSureSearchResponse(searchResponse, ctx) {
   // A multi-city trip searched leg by leg keeps the offers of the legs already answered (ctx.keepCache).
-  if (!ctx.keepCache) _tripsureFlightOfferCache.clear();
+  // A new search forgets only offers older than TripSure's itinerary window, not the ones still on screen from the
+  // search before (e.g. a swap-option search while the main results are open).
+  if (!ctx.keepCache) {
+    var cutoff = Date.now() - 20 * 60 * 1000;
+    _tripsureFlightOfferCache.forEach(function (v, k) { if (!v || (v.mintedAt || 0) < cutoff) _tripsureFlightOfferCache.delete(k); });
+  }
   var searchResult = searchResponse.search_result || searchResponse.searchResult || {};
   var offers = [];
   Object.keys(searchResult).forEach(function (leg) {
