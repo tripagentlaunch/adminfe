@@ -178,7 +178,9 @@ function monthIndex(name: string): number {
 // the destination city (an airport code becomes its city) and the travellers (from the flight's
 // fare mix — children default to age 8, infants to 1, for the advisor to correct), so the Hotels
 // desk opens on Goa for 2 adults + 1 child instead of Dubai for 1 adult. null when nothing is known.
-export type TripContext = { startIso: string; endIso: string | null; city?: string; persons?: { age: number }[] };
+// planSig: identifies the "Plan this trip" answers (place, dates, travellers) the desks were opened for. The desks remember a search per
+// enquiry; a new plan for the same enquiry must not bring back the old plan's search (another place, other nights), so it is part of the key.
+export type TripContext = { startIso: string; endIso: string | null; city?: string; persons?: { age: number }[]; planSig?: string };
 export function tripDatesFor(itinerary: any, ask: any): TripContext | null {
   const out: TripContext = { startIso: "", endIso: null };
   // A trip started with "Plan this trip" carries its own answers (place, dates, travellers): the desks open on those, not on their defaults.
@@ -209,6 +211,7 @@ export function tripDatesFor(itinerary: any, ask: any): TripContext | null {
       ...Array.from({ length: m.infants || 0 }, () => ({ age: 1 })),
     ];
   }
+  if (plan) out.planSig = [plan.startIso, plan.endIso, plan.city, plan.adults, plan.rooms].join("|");
   if (!out.persons && plan && Number(plan.adults) > 0) out.persons = Array.from({ length: Math.min(40, Number(plan.adults)) }, () => ({ age: 30 }));
   return out.startIso || out.city || out.persons ? out : null;
 }

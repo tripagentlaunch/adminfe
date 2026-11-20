@@ -17,4 +17,11 @@ describe("the search desks follow the trip plan", () => {
   it("no plan, nothing known: unchanged", () => {
     expect(tripDatesFor({ days: [] }, {})).toBeNull();
   });
+  it("a new plan for the same enquiry gets a new signature, so the old plan's saved search is not brought back", () => {
+    const a = tripDatesFor({ scratchPlan: plan, days: [] }, {});
+    const b = tripDatesFor({ scratchPlan: { ...plan, endIso: "2026-12-28", nights: 4 }, days: [] }, {});
+    expect(a!.planSig).toBeTruthy();
+    expect(a!.planSig).not.toBe(b!.planSig);
+    expect(tripDatesFor({ days: [] , startIso: "2026-12-24", endIso: "2026-12-27" }, {})!.planSig).toBeUndefined();
+  });
 });

@@ -881,12 +881,13 @@ export function HotelDesk(props: any) {
   const endDefault = (trip && trip.endIso) || (trip && trip.startIso ? addDaysIso(trip.startIso, 4) : todayISO(25));
   // This enquiry's last hotel search (lib/deskMemory.ts): restored on mount so
   // leaving the Console and coming back keeps the search, results and filters.
-  const memKey = "hotel:" + ((props.enquiry && props.enquiry.id) || "none");
+  const memKey = "hotel:" + ((props.enquiry && props.enquiry.id) || "none") + ((props.tripDates && props.tripDates.planSig) ? ":" + props.tripDates.planSig : "");
   const [saved] = useState(() => recallDesk(memKey));
   const savedJob = saved && saved.searchKey ? MORE_JOBS.get(saved.searchKey) : undefined;
   const savedFull = saved && saved.searchKey ? HOTEL_RESULTS_CACHE.get(saved.searchKey) : undefined;
   const [form, setForm] = useState<{ city: string; checkIn: string; checkOut: string }>(() => saved?.form || {
-    city: (ask && ask.destinations && ask.destinations[0]) || (props.tripDates && props.tripDates.city) || "Dubai",
+    // A "Plan this trip" plan names the place the trip is about; it wins over what the enquiry's chat mentioned ("South Goa").
+    city: (props.tripDates && props.tripDates.planSig && props.tripDates.city) || (ask && ask.destinations && ask.destinations[0]) || (props.tripDates && props.tripDates.city) || "Dubai",
     // Trip dates (2026-10-21): the itinerary's own dates (props.tripDates, see tripDatesFor) first, then
     // the enquiry's date text, else today+21 / +25. A known start with no end gets a 4-night stay.
     checkIn: startDefault,

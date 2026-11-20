@@ -229,7 +229,7 @@ export function FlightDesk(props: any) {
   const ask = props.enquiry && props.enquiry.ask;
   // This enquiry's last flight search (lib/deskMemory.ts): restored on mount so
   // leaving the Console and coming back keeps the search, results and filters.
-  const memKey = "flight:" + ((props.enquiry && props.enquiry.id) || "none");
+  const memKey = "flight:" + ((props.enquiry && props.enquiry.id) || "none") + ((props.tripDates && props.tripDates.planSig) ? ":" + props.tripDates.planSig : "");
   const [saved] = useState(() => recallDesk(memKey));
   const initialForm = {
     // originCode (2026-09-06) — Aanya's concierge chat never asks where
