@@ -61,7 +61,7 @@ function customerSiteBase(): string | null {
 
 /** The website's city page opened on its "Where to eat" tab and scrolled to it (the page reads ?guide=eat), instead of its top.
  *  A tripagent.vip address is pointed at this environment's customer site (see customerSiteBase). */
-export function eatGuideUrl(url: string | null | undefined): string {
+export function eatGuideUrl(url: string | null | undefined, tab: "eat" | "do" | "party" = "eat"): string {
   if (!url) return "";
   const site = customerSiteBase();
   if (site) {
@@ -70,7 +70,7 @@ export function eatGuideUrl(url: string | null | undefined): string {
   }
   if (/[?&]guide=/.test(url)) return url;
   const [base, hash] = url.split("#");
-  return base + (base.includes("?") ? "&" : "?") + "guide=eat" + (hash ? "#" + hash : "");
+  return base + (base.includes("?") ? "&" : "?") + "guide=" + tab + (hash ? "#" + hash : "");
 }
 
 /** "3.2 km from Taj West End · 11 min drive", or "about 7.1 km (straight line) from ..." when there is no road answer. */

@@ -119,7 +119,13 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
       entry.est = p.est;
       onAddDining(iso, entry);
     } else {
-      onAddActivity(iso, { id: p.id, kind, name: p.name, area: p.area || null, tag: p.tag || null, description: p.description || null, photo: p.photo || null, km: p.km ?? null, est: p.est, far: !!p.far });
+      const g = guide.value || {};
+      onAddActivity(iso, {
+        id: p.id, kind, name: p.name, area: p.area || null, tag: p.tag || null, tier: p.tier || null, description: p.description || null, photo: p.photo || null,
+        km: p.km ?? null, est: p.est, far: !!p.far,
+        // the city page it comes from, so the proposal can open it on the right tab
+        city: g.city || plan.city, url: g.url || "",
+      });
     }
     toast("Added to the day: " + p.name, "success");
   }

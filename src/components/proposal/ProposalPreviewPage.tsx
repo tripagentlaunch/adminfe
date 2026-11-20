@@ -79,7 +79,7 @@ function EatCardPhoto({ src, name }: { src: string | null; name: string }) {
 
 // "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
 // the restaurant's name, one headline tag, every award in its own box, the description, and the area; ours adds how far it is from the hotel.
-function EatCards({ entries }: { entries: any[] }) {
+function EatCards({ entries, guideTab = "eat" }: { entries: any[]; guideTab?: "eat" | "do" | "party" }) {
   const tiers = tiersOf(entries);
   const [picked, setPicked] = useState<string>("");
   const tier = tiers.includes(picked) ? picked : tiers[0];
@@ -100,7 +100,7 @@ function EatCards({ entries }: { entries: any[] }) {
           const { headline, rest } = cardTags(e);
           // A card opens the city page it comes from on our website (the Goa page for a Goa restaurant), in a new tab.
           const Card: any = e.url ? "a" : "article";
-          const cardProps = e.url ? { href: eatGuideUrl(e.url), target: "_blank", rel: "noopener noreferrer", title: "Open the " + (e.city || "city") + " guide on our website" } : {};
+          const cardProps = e.url ? { href: eatGuideUrl(e.url, guideTab), target: "_blank", rel: "noopener noreferrer", title: "Open the " + (e.city || "city") + " guide on our website" } : {};
           return (
             <Card className={"pv-eatc" + (e.url ? " pv-eatc--link" : "")} key={e.id} {...cardProps}>
               <EatCardPhoto src={e.photo || null} name={e.name} />
@@ -114,7 +114,7 @@ function EatCards({ entries }: { entries: any[] }) {
                 ) : null}
                 {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
               </div>
-              {e.area || e.distance ? (
+              {e.area || e.distance || e.est ? (
                 <div className="pv-eatc-foot">
                   {e.area ? (
                     <div className="pv-eatc-loc">
@@ -123,6 +123,11 @@ function EatCards({ entries }: { entries: any[] }) {
                     </div>
                   ) : null}
                   {e.distance ? <div className="pv-eatc-dist">{distanceLine(e.distance)}</div> : null}
+                  {e.est ? (
+                    <div className="pv-eatc-dist">
+                      {e.est.high === 0 ? "Free" : `About ₹${Math.round(e.est.low).toLocaleString("en-IN")}–${Math.round(e.est.high).toLocaleString("en-IN")} each`} · estimate
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </Card>
@@ -168,7 +173,7 @@ function OfflineBanner({ notice }: { notice: OfflineNotice }) {
 
 const OfflineTag = () => <span className="pv-offtag" title="Quoted by your advisor from another vendor: held for 12 hours, not a live price">Quoted offline</span>;
 
-const TABS = ["Plan", "Days", "Where to eat", "Decisions"] as const;
+const TABS = ["Plan", "Days", "Suggestions", "Decisions"] as const;
 type Tab = (typeof TABS)[number];
 
 function Chip({ label }: { label: string }) {
@@ -733,16 +738,6 @@ function DaysTab({ data, stays }: { data: any; stays?: any[] }) {
               <div className="pv-dcard-head">{[c.dateLabel, c.title].filter(Boolean).join(" · ")}</div>
               {c.description ? <div className="pv-dcard-text">{c.description}</div> : null}
               {c.facts.length ? <ul className="pv-dcard-facts">{c.facts.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}
-              {c.activities && c.activities.length ? (
-                <ul className="pv-dcard-facts pv-dcard-todo">
-                  {c.activities.map((a: any) => (
-                    <li key={a.id}>
-                      <b>{a.name}</b>{a.area ? ` · ${a.area}` : ""}
-                      {a.est ? <span className="pv-dcard-est">{a.est.high === 0 ? " · free" : ` · about ₹${Math.round(a.est.low).toLocaleString("en-IN")}–${Math.round(a.est.high).toLocaleString("en-IN")} each (estimate)`}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
             </div>
           </div>
         ))}
@@ -907,9 +902,9 @@ export function ProposalPreviewPage({
   }, [tab]);
 
   const hasVisa = !!data.visa;
-  // Where to eat has a tab of its own once restaurants from the city guide were added; Decisions only with a visa.
-  const hasEat = !!(data.whereToEat && data.whereToEat.length);
-  const visibleTabs: Tab[] = TABS.filter((t) => (t === "Decisions" ? hasVisa : t === "Where to eat" ? hasEat : true));
+  // Suggestions (restaurants, things to do, a night out from the city guide) has a tab of its own once the advisor added any; Decisions only with a visa.
+  const hasEat = !!((data.whereToEat && data.whereToEat.length) || (data.placesToGo && data.placesToGo.length));
+  const visibleTabs: Tab[] = TABS.filter((t) => (t === "Decisions" ? hasVisa : t === "Suggestions" ? hasEat : true));
   const activeTab = visibleTabs.includes(tab) ? tab : "Plan";
 
   // A Google Places photo for each stay without one — through our own adminbe
@@ -1303,21 +1298,39 @@ export function ProposalPreviewPage({
 
               {activeTab === "Days" ? <DaysTab data={data} stays={enrichedStays} /> : null}
 
-              {activeTab === "Where to eat" && data.whereToEat?.length ? (
+              {activeTab === "Suggestions" && hasEat ? (
                 <>
-                  <h2 className="pv-section-title">Where to eat</h2>
+                  <h2 className="pv-section-title">Suggestions</h2>
                   <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
-                    Our picks from the {data.whereToEat.map((g: any) => g.city).join(" and ")} city guide: suggestions only, not booked.
+                    Our picks from the {Array.from(new Set([...(data.whereToEat || []).map((g: any) => g.city), ...(data.placesToGo || []).map((g: any) => g.city)].filter(Boolean))).join(" and ")} city guide: suggestions only, not booked.
                   </div>
-                  {data.whereToEat.map((g: any) => (
-                    <div className="pv-recgroup" key={g.city}>
+                  {data.whereToEat?.length ? <h3 className="pv-sugg-title">Where to eat</h3> : null}
+                  {(data.whereToEat || []).map((g: any) => (
+                    <div className="pv-recgroup" key={"eat-" + g.city}>
                       <div className="pv-recgroup-head">
                         <span className="pv-recgroup-title">{g.city}</span>
-                        {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                        {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, "eat")} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
                       </div>
-                      <EatCards entries={g.picks} />
+                      <EatCards entries={g.picks} guideTab="eat" />
                     </div>
                   ))}
+                  {["do", "party"].map((kind) => {
+                    const groups = (data.placesToGo || []).filter((g: any) => g.kind === kind);
+                    return groups.length ? (
+                      <Fragment key={kind}>
+                        <h3 className="pv-sugg-title">{groups[0].label}</h3>
+                        {groups.map((g: any) => (
+                          <div className="pv-recgroup" key={kind + "-" + g.city}>
+                            <div className="pv-recgroup-head">
+                              <span className="pv-recgroup-title">{g.city}</span>
+                              {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, kind as "do" | "party")} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+                            </div>
+                            <EatCards entries={g.picks} guideTab={kind as "do" | "party"} />
+                          </div>
+                        ))}
+                      </Fragment>
+                    ) : null;
+                  })}
                 </>
               ) : null}
               {activeTab === "Decisions" && hasVisa ? (

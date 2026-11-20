@@ -1,0 +1,30 @@
+import { describe, expect, it } from "vitest";
+import { placesToGoOf } from "./proposalTemplateData";
+import { eatGuideUrl } from "./diningPlan";
+
+const days = [
+  { activities: [
+    { id: "a1", kind: "do", name: "Cubbon Park walk", area: "Central", city: "Bengaluru", url: "https://www.tripagent.vip/city-bengaluru", est: { low: 0, high: 0 }, photo: "p.jpg" },
+    { id: "b1", kind: "party", name: "Soka", area: "Indiranagar", tier: "Landmark bars", city: "Bengaluru", url: "https://www.tripagent.vip/city-bengaluru" },
+  ] },
+  { activities: [{ id: "a1", kind: "do", name: "Cubbon Park walk", city: "Bengaluru" }, { id: "a2", kind: "do", name: "Lalbagh", city: "Bengaluru" }] },
+];
+
+describe("things to do and a night out in the proposal", () => {
+  const g = placesToGoOf(days, "Bengaluru");
+  it("groups by kind and city, once each", () => {
+    expect(g.map((x) => [x.kind, x.city, x.picks.map((p) => p.id)])).toEqual([["do", "Bengaluru", ["a1", "a2"]], ["party", "Bengaluru", ["b1"]]]);
+  });
+  it("carries what the cards draw: photo, area, estimate, and the kind of place as the headline", () => {
+    expect(g[0].picks[0]).toMatchObject({ name: "Cubbon Park walk", photo: "p.jpg", area: "Central", est: { high: 0 } });
+    expect(g[1].picks[0].tag).toBe("Landmark bars");
+  });
+  it("nothing added, nothing shown", () => {
+    expect(placesToGoOf([{ activities: [] }, {}], "X")).toEqual([]);
+  });
+  it("links open the matching tab of the city page", () => {
+    expect(eatGuideUrl("https://x.vip/city-goa", "do")).toBe("https://x.vip/city-goa?guide=do");
+    expect(eatGuideUrl("https://x.vip/city-goa", "party")).toBe("https://x.vip/city-goa?guide=party");
+    expect(eatGuideUrl("https://x.vip/city-goa")).toBe("https://x.vip/city-goa?guide=eat");
+  });
+});

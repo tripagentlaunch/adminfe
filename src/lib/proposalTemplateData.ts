@@ -45,6 +45,31 @@ function fmtDayHeader(iso: string) {
   }
 }
 
+const PLACE_KINDS: { kind: string; label: string }[] = [{ kind: "do", label: "Things to do" }, { kind: "party", label: "A night out" }];
+
+/** The activities the advisor added, as card entries (the same shape the restaurant cards draw), grouped by kind and city. */
+export function placesToGoOf(days: any[], destination?: string): { kind: string; label: string; city: string; url: string | null; picks: any[] }[] {
+  const out: { kind: string; label: string; city: string; url: string | null; picks: any[] }[] = [];
+  for (const { kind, label } of PLACE_KINDS) {
+    const byCity = new Map<string, { kind: string; label: string; city: string; url: string | null; picks: any[] }>();
+    for (const day of days || []) {
+      for (const a of (day.activities || [])) {
+        if (a.kind !== kind) continue;
+        const city = a.city || destination || "";
+        let g = byCity.get(city);
+        if (!g) byCity.set(city, (g = { kind, label, city, url: a.url || null, picks: [] }));
+        if (g.picks.some((p) => p.id === a.id)) continue;
+        g.picks.push({
+          id: a.id, name: a.name, area: a.area || null, tier: null, tag: a.tag || a.tier || null, credentials: [], description: a.description || null,
+          photo: a.photo || null, city, url: a.url || null, distance: null, est: a.est || null,
+        });
+      }
+    }
+    out.push(...Array.from(byCity.values()));
+  }
+  return out;
+}
+
 export function buildProposalTemplateData(itinerary: any, pricing: any, member: any, advisor: any, hotelEnrichment?: Record<string, HotelEnrichment>) {
   // Trips built from Search carry no dates / nights / destination of their own:
   // derive whichever are missing from the items (withTripSummary).
@@ -679,10 +704,13 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // "Where to eat" for the day: restaurants the advisor took from our city guide (lib/diningPlan.ts)
         dining: Array.isArray(d.dining) ? d.dining : [],
         // What to do / a night out, from the plan's city guide; each carries a per-person cost estimate (labelled as one).
-        activities: Array.isArray(d.activities) ? d.activities.map((a: any) => ({ id: a.id, kind: a.kind, name: a.name, area: a.area || null, description: a.description || null, est: a.est ? { low: a.est.low, high: a.est.high, totalLow: a.est.totalLow, totalHigh: a.est.totalHigh, pax: a.est.pax } : null })) : [],
+        activities: Array.isArray(d.activities) ? d.activities.map((a: any) => ({ id: a.id, kind: a.kind, name: a.name, area: a.area || null, description: a.description || null, photo: a.photo || null, tag: a.tag || a.tier || null, city: a.city || null, url: a.url || null, est: a.est ? { low: a.est.low, high: a.est.high, totalLow: a.est.totalLow, totalHigh: a.est.totalHigh, pax: a.est.pax } : null })) : [],
       })),
     // The trip's restaurants grouped by city, for the Plan tab and the PDF (derived from the days' dining, nothing else)
     whereToEat: whereToEatByCity(days),
+    // Things to do and a night out that the advisor added from the plan, grouped by kind then city: the proposal's "Suggestions" tab
+    // shows them beside the restaurants (nothing is added that the advisor did not pick).
+    placesToGo: placesToGoOf(days, data.destination),
     stays,
     flights,
     visa: visa
