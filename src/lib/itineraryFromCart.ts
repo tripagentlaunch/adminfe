@@ -181,14 +181,21 @@ function monthIndex(name: string): number {
 export type TripContext = { startIso: string; endIso: string | null; city?: string; persons?: { age: number }[] };
 export function tripDatesFor(itinerary: any, ask: any): TripContext | null {
   const out: TripContext = { startIso: "", endIso: null };
+  // A trip started with "Plan this trip" carries its own answers (place, dates, travellers): the desks open on those, not on their defaults.
+  const plan = itinerary && itinerary.scratchPlan;
   if (itinerary && itinerary.startIso) {
     out.startIso = itinerary.startIso;
     out.endIso = itinerary.endIso || null;
+  } else if (plan && plan.startIso) {
+    out.startIso = plan.startIso;
+    out.endIso = plan.endIso || null;
   } else {
     const b = boundFromDateRange(ask && ask.dateRange, new Date().getFullYear());
     if (b && b.startIso) { out.startIso = b.startIso; out.endIso = b.endIso || null; }
   }
-  const dest = itinerary && itinerary.destination && itinerary.destination !== "New itinerary" ? String(itinerary.destination) : "";
+  const dest = plan && plan.city
+    ? String(plan.city)
+    : itinerary && itinerary.destination && itinerary.destination !== "New itinerary" ? String(itinerary.destination) : "";
   if (dest) {
     const airport = /^[A-Z]{3}$/.test(dest) ? AIRPORTS.find((a) => a.airport_code === dest) : null;
     out.city = airport ? airport.city : dest;
@@ -202,6 +209,7 @@ export function tripDatesFor(itinerary: any, ask: any): TripContext | null {
       ...Array.from({ length: m.infants || 0 }, () => ({ age: 1 })),
     ];
   }
+  if (!out.persons && plan && Number(plan.adults) > 0) out.persons = Array.from({ length: Math.min(40, Number(plan.adults)) }, () => ({ age: 30 }));
   return out.startIso || out.city || out.persons ? out : null;
 }
 
