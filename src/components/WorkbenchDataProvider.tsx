@@ -21,6 +21,7 @@ import {
   members as fetchMembers,
   siteMembers as fetchSiteMembers,
   siteInvitationCodes as fetchSiteInvitationCodes,
+  onBackendWait,
   enquiries as fetchEnquiries,
   createOrder as apiCreateOrder,
   enquiryCreate,
@@ -63,6 +64,8 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   const [travellersLoading, setTravellersLoading] = useState(true);
   const [travellersError, setTravellersError] = useState<string | null>(null);
   const [inboxSlow, setInboxSlow] = useState(false);
+  const [inboxWaitMs, setInboxWaitMs] = useState(0);
+  useEffect(() => onBackendWait((w) => setInboxWaitMs(w ? w.elapsedMs : 0)), []);
   const [creating, setCreating] = useState(false);
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [focusOrderId, setFocusOrderId] = useState<string | null>(null);
@@ -159,16 +162,10 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
     setTravellersError(null);
     setInboxSlow(false);
     const slowTimer = setTimeout(() => setInboxSlow(true), 6000);
-    // One request, at most REQUEST_LIMIT_MS: a stalled one counts as failed instead of holding the screen for good.
+    // Each read waits out a restarting / sleeping backend by itself (db() retries up to 150 s); only when that runs out does it count as failed.
     let travellersFailed = false;
-    const REQUEST_LIMIT_MS = 20000;
-    const limited = <T,>(p: Promise<T>): Promise<T> =>
-      new Promise<T>((resolve, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), REQUEST_LIMIT_MS);
-        p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-      });
     const soft = <T,>(p: Promise<T>, fallback: T, counts?: boolean): Promise<T> =>
-      limited(p).catch(() => { if (counts) travellersFailed = true; return fallback; });
+      p.catch(() => { if (counts) travellersFailed = true; return fallback; });
 
     const advP = soft<any>(fetchAdvisors("select=*&order=name.asc"), []);
     const memP = soft<any>(fetchMembers("select=*&order=name.asc&limit=500"), [], true);
@@ -732,6 +729,7 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         travellersLoading,
         travellersError,
         inboxSlow,
+        inboxWaitMs,
         reloadInbox,
         creating,
         justCreated,

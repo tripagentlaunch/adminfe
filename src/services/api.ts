@@ -15,6 +15,7 @@ import { noSupplierAnswered } from "../lib/searchOutage";
 import { AIRPORTS } from "../lib/airports";
 import { SUPABASE_URL, SUPABASE_KEY } from "./supabaseConfig";
 import { detailToText } from "../lib/errText";
+import { fetchWithRetry, type WakeInfo } from "../lib/serverWake";
 
 // --- Live backend config (publishable anon key — safe for the browser) -----
 const URL = SUPABASE_URL;
@@ -264,6 +265,18 @@ function callAuthed(fn, body) {
 // Optional opts: { headers } for things like Prefer/Range/count.
 // Returns parsed JSON (array for table reads).
 // ---------------------------------------------------------------------------
+// The admin backend restarts after every update and sleeps when quiet: for up to a minute a request to it hangs or answers 502/503/504.
+// db() therefore waits and tries again (see lib/serverWake.ts) instead of failing or hanging, and tells whoever is listening how long it
+// has been waiting so the screen can say "the server is waking up".
+var _waitListeners: Array<(w: WakeInfo | null) => void> = [];
+function onBackendWait(cb: (w: WakeInfo | null) => void) {
+  _waitListeners.push(cb);
+  return function () { _waitListeners = _waitListeners.filter(function (x) { return x !== cb; }); };
+}
+function _notifyWait(w: WakeInfo | null) {
+  _waitListeners.slice().forEach(function (cb) { try { cb(w); } catch (e) { /* a listener must not break a read */ } });
+}
+
 function db(path, opts?) {
   if (!path || typeof path !== "string") {
     return Promise.reject(new ApiError("db() requires a PostgREST path."));
@@ -297,12 +310,13 @@ function db(path, opts?) {
     req.filters[k] = v;
   });
   var url = FUNCTIONS_BASE + "data-read";
-  return fetch(url, {
-    method: "POST",
-    headers: fnHeaders(),
-    body: JSON.stringify(req),
-  })
+  return fetchWithRetry(
+    url,
+    { method: "POST", headers: fnHeaders(), body: JSON.stringify(req) },
+    { perTryMs: 15000, deadlineMs: 150000, onWait: _notifyWait },
+  )
     .then(function (res) {
+      _notifyWait(null);
       return parseResponse(res).then(function (data) {
         if (!res.ok) {
           throw new ApiError(extractErrorMessage(data, res.status), {
@@ -315,6 +329,7 @@ function db(path, opts?) {
       });
     })
     .catch(function (err) {
+      _notifyWait(null);
       if (err instanceof ApiError) throw err;
       throw new ApiError(
         "Network error reading " +
@@ -3263,6 +3278,7 @@ export {
   members,
   siteMembers,
   siteInvitationCodes,
+  onBackendWait,
   advisors,
   enquiries,
   suppliers,

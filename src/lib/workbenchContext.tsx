@@ -40,6 +40,8 @@ export interface WorkbenchContextValue {
   travellersError: string | null;
   /** The inbox is taking long (a sleeping server): say so. */
   inboxSlow: boolean;
+  /** How long the backend has kept the inbox waiting (ms), 0 when it is not waiting. */
+  inboxWaitMs: number;
   reloadInbox: () => Promise<void>;
   creating: boolean;
   justCreated: string | null;

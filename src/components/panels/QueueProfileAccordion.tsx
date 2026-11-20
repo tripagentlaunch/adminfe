@@ -68,6 +68,7 @@ import { fmtDate } from "../../lib/advisorHelpers";
 import { Empty, Icon } from "../ui";
 import { EnquiryInbox } from "./EnquiryInbox";
 import { Member360 } from "./Member360";
+import { wakeMessage } from "../../lib/serverWake";
 
 export function QueueProfileAccordion(props: any) {
   const {
@@ -76,7 +77,7 @@ export function QueueProfileAccordion(props: any) {
     onConvoTarget,
   } = props;
   const setConvo = (t: any) => { if (onConvoTarget) onConvoTarget(t); };
-  const { travellers, travellersLoading, travellersError, inboxSlow, reloadInbox } = useWorkbench();
+  const { travellers, travellersLoading, travellersError, inboxSlow, inboxWaitMs, reloadInbox } = useWorkbench();
 
   // showList — true after "All travellers", until the next pick. With
   // nothing selected the list shows regardless.
@@ -163,6 +164,7 @@ export function QueueProfileAccordion(props: any) {
               loading={travellersLoading}
               error={travellersError}
               slow={inboxSlow}
+              waitMs={inboxWaitMs}
               onRetry={() => { reloadInbox(); }}
               enquiries={enquiries}
               selectedKey={picked ? picked.key : null}
@@ -348,10 +350,11 @@ function TravellerHoverPreview({ t, x, y, rows }: { t: any; x: number; y: number
   );
 }
 
-function TravellerList({ travellers, loading, error, slow, onRetry, enquiries, selectedKey, selectedMemberId, onSelect }: {
+function TravellerList({ travellers, loading, error, slow, waitMs, onRetry, enquiries, selectedKey, selectedMemberId, onSelect }: {
   travellers: any[];
   error?: string | null;
   slow?: boolean;
+  waitMs?: number;
   onRetry?: () => void;
   enquiries: any[];
   loading: boolean;
@@ -408,7 +411,7 @@ function TravellerList({ travellers, loading, error, slow, onRetry, enquiries, s
       {loading && !travellers.length ? (
         <Empty icon={<Icon name="user" size={26} />}>
           Loading travellers…
-          {slow ? <div className="taw-muted" style={{ marginTop: 6 }}>The server is waking up — this can take up to a minute.</div> : null}
+          {wakeMessage(waitMs || 0) || (slow ? "Still loading…" : null) ? <div className="taw-muted" style={{ marginTop: 6 }}>{wakeMessage(waitMs || 0) || "Still loading…"}</div> : null}
         </Empty>
       ) : !filtered.length ? (
         <Empty icon={<Icon name="user" size={26} />}>{q ? "No travellers match that search." : "No travellers yet."}</Empty>
