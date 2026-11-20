@@ -5,6 +5,7 @@
    looked for south of the Zuari river only. Goa's airports follow the half (Dabolim in the south, Mopa in the north). */
 import { budgetRange, normalizeBudget, parseMoney, spendable, type Budget } from "./tripBudget";
 import { addDaysIso } from "./itineraryFromCart";
+import { AIRPORTS } from "./airports";
 
 export type ScratchPlan = {
   /** As typed and shown to the customer: "South Goa". */
@@ -26,6 +27,19 @@ export type ScratchPlan = {
 
 const cap = (s: string) => s.replace(/\b([a-z])/g, (m) => m.toUpperCase());
 
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+let CITY_BY_SQUASH: Map<string, string> | null = null;
+
+/** A place typed without its spaces or in any case ("newyork", "NEW DELHI") -> its proper name ("New York"), when the airport
+ *  directory knows it; null otherwise. Without this "newyork" is a hotel in Thane to the hotel search. */
+export function knownCity(text: string): string | null {
+  if (!CITY_BY_SQUASH) {
+    CITY_BY_SQUASH = new Map();
+    for (const a of AIRPORTS) if (a.city && !CITY_BY_SQUASH.has(squash(a.city))) CITY_BY_SQUASH.set(squash(a.city), a.city);
+  }
+  return CITY_BY_SQUASH.get(squash(text)) || null;
+}
+
 /** "South Goa" -> {city: "Goa", region: "south", label: "South Goa"}. A half is only read for Goa. */
 export function parseDestination(text: string): { city: string; region: "south" | "north" | null; label: string } {
   const raw = String(text || "").trim().replace(/\s+/g, " ");
@@ -35,7 +49,8 @@ export function parseDestination(text: string): { city: string; region: "south" 
     const region = half[1].toLowerCase() as "south" | "north";
     return { city: "Goa", region, label: `${cap(region)} Goa` };
   }
-  return { city: raw, region: null, label: raw };
+  const city = knownCity(raw) || raw;
+  return { city, region: null, label: city };
 }
 
 /** "2.5 lakh", "50k per person", "₹3,00,000 total" -> a Budget (a single figure is both ends of the range). */

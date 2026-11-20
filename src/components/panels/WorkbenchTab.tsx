@@ -76,7 +76,7 @@ import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
 import { tripDatesFor, addDaysIso } from "../../lib/itineraryFromCart";
 import { ScratchWizard, type ScratchAnswers } from "./ScratchWizard";
-import { arrivalCodeFor, parseDestination, roomsFor, type ScratchPlan } from "../../lib/scratchPlan";
+import { arrivalCodeFor, knownCity, parseDestination, roomsFor, type ScratchPlan } from "../../lib/scratchPlan";
 import { budgetRange } from "../../lib/tripBudget";
 import { searchAirports } from "../../lib/airports";
 
@@ -476,7 +476,7 @@ export function WorkbenchTab(props: any) {
     const codeOf = (name: string) => {
       const t = name.trim();
       if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
-      const hit = searchAirports(t, 3)[0];
+      const hit = searchAirports(knownCity(t) || t, 3)[0];
       return hit ? hit.airport_code : null;
     };
     const plan: ScratchPlan = {

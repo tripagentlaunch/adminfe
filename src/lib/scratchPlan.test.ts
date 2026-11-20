@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { blankItinerary, withTripSummary } from "./itineraryFromCart";
-import { arrivalCodeFor, budgetShares, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
+import { arrivalCodeFor, budgetShares, knownCity, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
 
 describe("parseDestination", () => {
   it("keeps the half of Goa and searches Goa", () => {
     expect(parseDestination("south goa")).toEqual({ city: "Goa", region: "south", label: "South Goa" });
     expect(parseDestination("Goa South")).toEqual({ city: "Goa", region: "south", label: "South Goa" });
     expect(parseDestination("North Goa").region).toBe("north");
+  });
+  it("finds a place typed without its spaces", () => {
+    expect(parseDestination("newyork")).toEqual({ city: "New York", region: null, label: "New York" });
+    expect(parseDestination("NEW DELHI").city).toBe("New Delhi");
+    expect(knownCity("Bengaluru")).toBe("Bengaluru");
+    expect(knownCity("zzzz nowhere")).toBeNull();
   });
   it("leaves any other place as typed", () => {
     expect(parseDestination("Goa")).toEqual({ city: "Goa", region: null, label: "Goa" });
