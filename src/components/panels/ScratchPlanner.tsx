@@ -11,7 +11,7 @@ import { fastapiFlightSearch, inr, scratchGuide, scratchHotels } from "../../ser
 import { autoPriceOffer } from "../orders/FlightQuoteDrawer";
 import { flightCartItem, errText, toast } from "../../lib/advisorHelpers";
 import { Icon, Spinner } from "../ui";
-import { budgetShares, estimateTotals, normalizePlan, stayBases, type ScratchPlan, type StayBase } from "../../lib/scratchPlan";
+import { adjustedShares, estimateTotals, normalizePlan, stayBases, type ScratchPlan, type StayBase } from "../../lib/scratchPlan";
 import { normalizeBudget, budgetRange, shortMoney } from "../../lib/tripBudget";
 import { addDaysIso, fmtDayDate } from "../../lib/itineraryFromCart";
 import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
@@ -63,7 +63,7 @@ function PlaceCard({ place: p, city, added, dayLabel, hotelName, onAdd }: { plac
   );
 }
 
-type Load<T> = { state: "idle" | "loading" | "done" | "error"; value?: T; error?: string };
+type Load<T> = { state: "idle" | "loading" | "waiting" | "done" | "error"; value?: T; error?: string };
 
 export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, addedHotelKeys, onAddFlight, onAddHotel, onAddDining, onAddActivity, onHide }: {
   plan: ScratchPlan;
@@ -81,7 +81,6 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
   // The budget the advisor sets on the itinerary wins over the one typed at the start.
   const total = (budgetRange(normalizeBudget(data && data.budget)) || { max: plan.budgetTotal }).max || plan.budgetTotal;
   const roundTrip = !!plan.endIso && plan.endIso !== plan.startIso;
-  const shares = useMemo(() => budgetShares(total, plan.nights, roundTrip), [total, plan.nights, roundTrip]);
   const bases = useMemo(() => stayBases(plan), [plan]);
   const dates = useMemo(() => Array.from({ length: plan.nights + 1 }, (_, i) => addDaysIso(plan.startIso, i)), [plan.startIso, plan.nights]);
   const items: any[] = ((data && data.days) || []).flatMap((d: any) => d.items || []);
@@ -91,6 +90,16 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
   // ---- flights ---------------------------------------------------------------------------------------------------------------
   const [flights, setFlights] = useState<Record<"out" | "back", Load<any[]>>>({ out: { state: "idle" }, back: { state: "idle" } });
   const [pricing, setPricing] = useState<string | null>(null);
+  // The split follows the fares once they are known: a flat 15% cannot buy a long-haul flight, so the flights share is raised to the
+  // cheapest fares (or the plan says the budget is too low), and stays and the ground share what is left.
+  const cheapest = (["out", ...(roundTrip ? ["back"] : [])] as ("out" | "back")[]).map((leg) => {
+    const prices = (((flights[leg].state === "done" && flights[leg].value) || []) as any[]).map(offNet).filter((n) => n > 0);
+    return prices.length ? Math.min(...prices) : 0;
+  });
+  const cheapestSig = cheapest.join(",");
+  const shares = useMemo(() => adjustedShares(total, plan.nights, roundTrip, cheapest), [total, plan.nights, roundTrip, cheapestSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Hotels are searched once the flights have said what is left for them.
+  const flightsSettled = !plan.fromCode || !plan.toCode || (["out", ...(roundTrip ? ["back"] : [])] as ("out" | "back")[]).every((leg) => flights[leg].state === "done" || flights[leg].state === "error");
   const flightsFor = useRef("");
   function loadFlights(force = false) {
     if (!plan.fromCode || !plan.toCode) return;
@@ -127,6 +136,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
   const [hotels, setHotels] = useState<Record<string, Load<any>>>({});
   const hotelsFor = useRef("");
   function loadHotels(force = false) {
+    if (!flightsSettled) return;
     const sig = [plan.city, plan.region, plan.startIso, plan.nights, plan.adults, plan.rooms, shares.perStay.join(",")].join("|");
     if (!force && hotelsFor.current === sig) return;
     hotelsFor.current = sig;
@@ -138,7 +148,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
         .catch((e: any) => setHotels((h) => ({ ...h, [key]: { state: "error", error: errText(e) } })));
     });
   }
-  useEffect(() => { loadHotels(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [plan.city, plan.region, plan.startIso, plan.nights, plan.adults, plan.rooms, shares.perStay.join(",")]);
+  useEffect(() => { loadHotels(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [flightsSettled, plan.city, plan.region, plan.startIso, plan.nights, plan.adults, plan.rooms, shares.perStay.join(",")]);
 
   // ---- places near the first hotel -------------------------------------------------------------------------------------------
   const base = hotelsIn.find((h) => typeof h.lat === "number" && typeof h.lng === "number") || null;
@@ -194,6 +204,17 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
         <button type="button" className="taw-btn taw-btn--sm" onClick={onHide}>Hide plan</button>
       </header>
 
+      {shares.tooLow ? (
+        <div className="taw-banner taw-banner--err" role="alert">
+          <Icon name="alert" size={14} />
+          <span>The cheapest {plan.fromCode} → {plan.toCode} flights for {plan.adults} come to {inr(shares.need)}{roundTrip ? " there and back" : ""}: more than {Math.round((shares.need / total) * 100)}% of the {inr(total)} budget, so almost nothing is left for stays and the trip itself. Raise the budget (set it above) or choose a place nearer home.</span>
+        </div>
+      ) : shares.raised ? (
+        <div className="taw-banner taw-banner--info">
+          <Icon name="alert" size={14} />
+          <span>Flights to {plan.city} cost far more than the usual {inr(shares.usual)} share of the budget (the cheapest are {inr(shares.need)}{roundTrip ? " there and back" : ""} for {plan.adults}), so the flights share is {inr(shares.flights)}. Stays and the rest are planned from what is left.</span>
+        </div>
+      ) : null}
       <div className="taw-sp-split" aria-label="Budget split">
         <div><span>Flights</span><b>{inr(shares.flights)}</b>{roundTrip ? <small>{inr(shares.perLeg)} each way</small> : null}</div>
         <div><span>Stays</span><b>{inr(shares.stays)}</b><small>{shares.perStay.map((v, i) => `${bases[i].nights}N ${shortMoney(v)}`).join(" · ")}</small></div>
@@ -249,11 +270,12 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
       <div className="taw-sp-sec">
         <div className="taw-sp-sec-h">Hotels <span className="taw-muted">{bases.length} stay{bases.length === 1 ? "" : "s"} · {plan.region ? plan.destination + " only" : plan.city} · {plan.rooms} room{plan.rooms === 1 ? "" : "s"}</span></div>
         {bases.map((b, i) => {
-          const l = hotels[`${b.checkIn}|${b.checkOut}`] || { state: "loading" };
+          const l: Load<any> = !flightsSettled ? { state: "waiting" } : hotels[`${b.checkIn}|${b.checkOut}`] || { state: "loading" };
           const r = l.value || {};
           return (
             <div key={b.checkIn} className="taw-sp-leg">
               <div className="taw-sp-leg-h">Stay {i + 1}: {fmtDayDate(b.checkIn)} → {fmtDayDate(b.checkOut)} · {b.nights} night{b.nights === 1 ? "" : "s"} <span className="taw-muted">· up to {inr(shares.perStay[i])}</span></div>
+              {l.state === "waiting" ? <div className="taw-sp-load"><Spinner /> Waiting for the flights, so the hotels are searched with what is left of the budget…</div> : null}
               {l.state === "loading" ? <div className="taw-sp-load"><Spinner /> Searching real hotels (this can take up to a minute)…</div> : null}
               {l.state === "error" ? <div className="taw-banner taw-banner--err"><Icon name="alert" size={14} /> {l.error} <button className="taw-btn taw-btn--sm" onClick={() => loadHotels(true)}>Retry</button></div> : null}
               {l.state === "done" && r.status !== "ok" ? (

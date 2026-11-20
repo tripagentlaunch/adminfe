@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blankItinerary, withTripSummary } from "./itineraryFromCart";
-import { airportCodeFor, arrivalCodeFor, budgetShares, knownCity, normalizePlan, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
+import { adjustedShares, airportCodeFor, arrivalCodeFor, budgetShares, knownCity, normalizePlan, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
 
 describe("parseDestination", () => {
   it("keeps the half of Goa and searches Goa", () => {
@@ -93,5 +93,31 @@ describe("a plan saved before the place was understood", () => {
   it("reads an airport from a name or a code", () => {
     expect(airportCodeFor("del")).toBe("DEL");
     expect(airportCodeFor("")).toBeNull();
+  });
+});
+
+describe("the budget split follows the real fares", () => {
+  it("keeps the usual split when the fares fit it", () => {
+    const a = adjustedShares(200000, 4, true, [9000, 9000]);
+    expect(a).toMatchObject({ raised: false, tooLow: false, flights: 30000, need: 18000 });
+  });
+  it("raises the flights share to the fares, and the rest keeps its 60:25", () => {
+    const a = adjustedShares(300000, 4, true, [40000, 45000]);
+    expect(a.need).toBe(85000);
+    expect(a).toMatchObject({ raised: true, tooLow: false, flights: Math.round(85000 * 1.25), usual: 45000 });
+    expect(a.flights + a.stays + a.ground).toBe(300000);
+    expect(a.perStay.reduce((x, y) => x + y, 0)).toBeGreaterThan(0);
+    expect(a.perLeg).toBe(Math.round(a.flights / 2));
+  });
+  it("says the budget is too low when the cheapest fares pass 60% of it", () => {
+    const a = adjustedShares(50000, 3, true, [127197, 129584]);
+    expect(a.tooLow).toBe(true);
+    expect(a.flights).toBe(30000);   // capped at 60%: it never takes the whole budget
+    expect(a.flights + a.stays + a.ground).toBe(50000);
+  });
+  it("estimates the way back from the way out until it is known", () => {
+    expect(adjustedShares(100000, 3, true, [20000]).need).toBe(40000);
+    expect(adjustedShares(100000, 3, false, [20000]).need).toBe(20000);
+    expect(adjustedShares(100000, 3, true, []).need).toBe(0);
   });
 });

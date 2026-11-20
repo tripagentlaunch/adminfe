@@ -3,7 +3,7 @@
 
    "South Goa" is a place with a half: the search city is Goa and the half is kept, so hotels, restaurants and activities are
    looked for south of the Zuari river only. Goa's airports follow the half (Dabolim in the south, Mopa in the north). */
-import { budgetRange, normalizeBudget, parseMoney, spendable, type Budget } from "./tripBudget";
+import { BUDGET_SHARES, budgetRange, normalizeBudget, parseMoney, spendable, type Budget } from "./tripBudget";
 import { addDaysIso } from "./itineraryFromCart";
 import { AIRPORTS, searchAirports } from "./airports";
 
@@ -97,6 +97,39 @@ export function budgetShares(total: number, nights: number, roundTrip: boolean):
     perLeg: Math.round(s.flights / (roundTrip ? 2 : 1)),
     perStay: parts.map((n) => Math.round((s.stays * n) / all)),
   };
+}
+
+/** The most of the budget flights may take before the rest of the trip cannot be paid for. */
+export const FLIGHTS_CEILING = 0.6;
+
+export type AdjustedShares = Shares & {
+  /** What the cheapest flights cost (every leg, for the whole party); 0 until they are known. */
+  need: number;
+  /** The flights share was raised above the usual 15% to fit what the fares really are. */
+  raised: boolean;
+  /** Even the cheapest flights take more than FLIGHTS_CEILING of the budget. */
+  tooLow: boolean;
+  /** The flights share before it followed the fares. */
+  usual: number;
+};
+
+/** budgetShares, then bent to the fares. A flat 15% cannot buy Delhi-New York for two (the cheapest is ~1.3 lakh), so once the
+ *  cheapest fare of each leg is known the flights share is raised to those fares with a quarter of room to choose, at most 60% of the
+ *  budget; stays and the ground then share what is left 60:25, as before. When even the cheapest fares pass 60%, `tooLow` says so. */
+export function adjustedShares(total: number, nights: number, roundTrip: boolean, cheapestLegs: number[]): AdjustedShares {
+  const base = budgetShares(total, nights, roundTrip);
+  const legs = roundTrip ? 2 : 1;
+  const known = cheapestLegs.filter((n) => n > 0);
+  // Only the outbound is known yet on a return trip: the way back costs about the same.
+  const need = known.length ? (known.length >= legs ? known.reduce((a, b) => a + b, 0) : Math.max(...known) * legs) : 0;
+  const out = { ...base, need, raised: false, tooLow: need > total * FLIGHTS_CEILING, usual: base.flights };
+  if (!need || need * 1.25 <= base.flights) return out;
+  const flights = Math.round(Math.min(need * 1.25, total * FLIGHTS_CEILING));
+  const rest = Math.max(0, total - flights);
+  const stays = Math.round((rest * BUDGET_SHARES.stays) / (BUDGET_SHARES.stays + BUDGET_SHARES.ground));
+  const parts = splitNights(nights);
+  const all = parts.reduce((a, b) => a + b, 0) || 1;
+  return { ...out, raised: true, flights, stays, ground: rest - stays, perLeg: Math.round(flights / legs), perStay: parts.map((n) => Math.round((stays * n) / all)) };
 }
 
 /** Rooms for a party: two to a room unless told otherwise. */
