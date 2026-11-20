@@ -2144,7 +2144,10 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-kebab-item:hover{background:rgba(184,144,31,.12);}
 
 /* "Plan this trip": the questions that start a trip from scratch, and the plan (budget split, flights, hotels, places) that follows. */
-.taw-sw{display:flex;flex-direction:column;gap:12px;max-width:560px;margin:0 auto;padding:22px 20px;}
+.taw-sw{display:flex;flex-direction:column;gap:12px;width:100%;max-width:560px;box-sizing:border-box;align-self:stretch;margin:0 auto;padding:22px 20px;text-align:left;}
+.taw-sw .taw-input{width:100%;min-width:0;box-sizing:border-box;}
+.taw-sw-head>svg{flex:none;color:var(--gold-ink);margin-top:2px;}
+.taw-sw-head>div{min-width:0;}
 .taw-sw-head{display:flex;gap:12px;align-items:flex-start;}
 .taw-sw-head .title{font-size:17px;font-weight:600;}
 .taw-sw-done{display:flex;flex-wrap:wrap;gap:6px;}
