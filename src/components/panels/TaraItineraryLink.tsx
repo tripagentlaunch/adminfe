@@ -158,8 +158,9 @@ export function TaraItineraryLink({ member, selEnqId, onEnsureEnquiry, hidden, v
       </div>
     );
   }
-  if (!checked) return null;
-  if (!plans.length && !parked) {
+  // The start screen ("cards") always offers Start from scratch, even for a traveller Tara has built nothing for (or while it looks).
+  if (!checked && variant !== "cards") return null;
+  if (variant !== "cards" && !plans.length && !parked) {
     return <div style={{ marginBottom: 10, fontSize: 12.5, color: "#9098A8" }}>Tara hasn&apos;t built an itinerary for this traveller yet.</div>;
   }
   const chosen = plans.find((p) => p.planId === pick) || plans[0];
