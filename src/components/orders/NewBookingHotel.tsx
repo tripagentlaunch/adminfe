@@ -298,6 +298,16 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const budgetFit = useBudgetFit();
   const budgetOn = itinerary && budgetFit.active;
   const [fitsOnly, setFitsOnly] = useState(false);
+  // With a budget set, the list opens on what the customer can pay: hotels over it are hidden (the "Within budget" chip) and the
+  // luxury-only filter is off, otherwise the first screen is five-star hotels at several times the nightly budget. Done once per
+  // picker, so switching either back on is not undone.
+  const budgetDefaulted = useRef(false);
+  useEffect(() => {
+    if (!budgetOn || budgetDefaulted.current) return;
+    budgetDefaulted.current = true;
+    setFitsOnly(true);
+    setView((f) => (f.luxury ? { ...f, luxury: false } : f));
+  }, [budgetOn]);
   // A budget typed in the picker for the whole stay ("my customer said 50,000"): all rooms, all nights. Hotels are priced as they are
   // listed (the "from" price), those over it drop out, and the next ones come up to be priced in their place.
   const [stayBudget, setStayBudget] = useState("");
