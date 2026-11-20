@@ -93,6 +93,8 @@ function splitPrice(rb: any, total: number) {
 
 // What one room costs for one night, from the stay total (which already covers every room and night and
 // includes taxes). With several rooms it is the average: rooms with different guests can be priced apart.
+/** The star level a nightly budget per room usually buys (what to price first): 0 when there is no budget. */
+const starsFor = (perRoomNight: number) => (!(perRoomNight > 0) ? 0 : perRoomNight < 9000 ? 3 : perRoomNight < 20000 ? 3.5 : perRoomNight < 35000 ? 4 : 5);
 const perRoomNight = (total: number, nights: number, rooms: number) => Math.round(total / Math.max(1, nights) / Math.max(1, rooms));
 
 function PriceBreakdown({ price, nights, rooms }: { price: { base: number; tax: number; total: number } | null; nights: number; rooms: number }) {
@@ -302,6 +304,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // luxury-only filter is off, otherwise the first screen is five-star hotels at several times the nightly budget. Done once per
   // picker, so switching either back on is not undone.
   const budgetDefaulted = useRef(false);
+  const typedDefaulted = useRef(false);
   useEffect(() => {
     if (!budgetOn || budgetDefaulted.current) return;
     budgetDefaulted.current = true;
@@ -313,6 +316,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [stayBudget, setStayBudget] = useState("");
   const [budgetOpen, setBudgetOpen] = useState(false);
   const budgetNum = Math.round(Number(String(stayBudget).replace(/[^\d.]/g, ""))) || 0;
+  // A budget typed in the picker is not for five-star hotels either: the luxury-only filter goes off the first time one is typed.
+  useEffect(() => {
+    if (!(budgetNum > 0) || typedDefaulted.current) return;
+    typedDefaulted.current = true;
+    setView((f) => (f.luxury ? { ...f, luxury: false } : f));
+  }, [budgetNum]);
   const fromOf = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
   const nightlyOf = (o: any): number | null => {
     const fp = fromOf(o);
@@ -336,7 +345,17 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           return !f || f.fits;
         })
       : shown;
-    return itinerary ? keepWithinBudget(fit, budgetNum, totalOf, noRoomsFor) : fit;
+    const kept = itinerary ? keepWithinBudget(fit, budgetNum, totalOf, noRoomsFor) : fit;
+    // With a budget, the hotels known to fit come first and the ones still waiting for a price come after them, nearest the star level
+    // that budget buys first (so those are priced first). Otherwise the top of the list is hotels nobody has priced yet, at any price.
+    if (!itinerary || !(budgetNum > 0 || (fitsOnly && budgetOn))) return kept;
+    const cap = budgetNum > 0 ? budgetNum / Math.max(1, nights) : ((budgetFit.hotel(1) || { cap: 0 }).cap || 0);
+    const target = starsFor(cap / Math.max(1, nRooms));
+    const known = kept.filter((o: any) => totalOf(o) != null);
+    const pending = kept.filter((o: any) => totalOf(o) == null)
+      .map((o: any, i: number) => ({ o, i, d: target ? Math.abs((o.detail.stars || 0) - target) : 0 }))
+      .sort((a, b) => a.d - b.d || a.i - b.i).map((x) => x.o);
+    return known.concat(pending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, fitsOnly, budgetOn, budgetFit, nights, pricedTick, budgetNum]);
   const [priceRetry, setPriceRetry] = useState(0); // "Try again" on prices that did not load
@@ -842,7 +861,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </div>
         ) : null}
 
-        {budgetOn && offers.length > 0 ? (
+        {budgetOn && offers.length > 0 && !(budgetNum > 0) ? (
           <div className="ow-sub" style={{ margin: "2px 0 4px" }}>
             Stay budget left: about <b>{inr(nightlyCap)}</b> a night for all {nRooms} room{nRooms === 1 ? "" : "s"}
             {nRooms > 1 ? <> (≈ {inr(Math.round(nightlyCap / nRooms))} per room)</> : null} · {guestsTxt}
