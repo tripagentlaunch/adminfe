@@ -1757,6 +1757,13 @@ function hotelListingStart(payload, signal?: AbortSignal, refresh?: boolean) {
   return fastapiHotelCall("/hotels/listing/start" + (refresh ? "?refresh=true" : ""), { method: "POST", body: payload, signal: signal });
 }
 
+// hotelBudgetPicks(payload, signal?) — POST /hotels/budget-picks: the same body as the search plus `stayBudget` (whole stay, all rooms and
+// nights). The server reads the whole city's list, prices the hotels in the star band that budget buys, in parallel, and returns
+// {hotels (each with its own `_session`), prices: {hotelId: {price, board, refundable} | null}, fits, checked, read, note}.
+function hotelBudgetPicks(payload, signal?: AbortSignal) {
+  return fastapiHotelCall("/hotels/budget-picks", { method: "POST", body: payload, signal: signal });
+}
+
 function hotelListingMore(payload, signal?: AbortSignal) {
   return fastapiHotelCall("/hotels/listing/more", { method: "POST", body: payload, signal: signal });
 }
@@ -3311,6 +3318,7 @@ export {
   hotelListingV2,
   hotelListingStart,
   hotelListingMore,
+  hotelBudgetPicks,
   hotelDetailsV2,
   hotelPriceCheckV2,
   hotelPlaces,
