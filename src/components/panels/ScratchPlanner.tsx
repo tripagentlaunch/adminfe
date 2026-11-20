@@ -8,8 +8,8 @@ import { useEffect, useMemo, useState } from "react";
 import { inr, scratchGuide } from "../../services/api";
 import { errText, toast } from "../../lib/advisorHelpers";
 import { Icon, Spinner } from "../ui";
-import { estimateTotals, normalizePlan, type ScratchPlan } from "../../lib/scratchPlan";
-import { normalizeBudget, budgetRange, shortMoney, BUDGET_SHARES } from "../../lib/tripBudget";
+import { budgetShares, estimateTotals, normalizePlan, type ScratchPlan } from "../../lib/scratchPlan";
+import { normalizeBudget, budgetRange, shortMoney, spentBy } from "../../lib/tripBudget";
 import { addDaysIso, fmtDayDate } from "../../lib/itineraryFromCart";
 import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
@@ -76,10 +76,13 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
   const dates = useMemo(() => Array.from({ length: plan.nights + 1 }, (_, i) => addDaysIso(plan.startIso, i)), [plan.startIso, plan.nights]);
   const items: any[] = ((data && data.days) || []).flatMap((d: any) => d.items || []);
   const hotelsIn = items.filter((i) => i.type === "hotel");
-  // Flights and stays are booked from the Search desks: what is left of the budget after them is for the ground (meals, cars,
-  // sightseeing); before anything is booked, the usual quarter of it.
-  const booked = items.reduce((n: number, it: any) => n + (Number(it.price) || 0), 0);
-  const ground = booked > 0 ? Math.max(0, total - booked) : Math.round(total * BUDGET_SHARES.ground);
+  // The same 15 / 60 / 25 split as the budget card above: flights, stays (the nights in two stays) and the ground (meals, cars,
+  // sightseeing). Flights and stays are booked from the Search desks; what has been booked is shown against each share.
+  const roundTrip = !!plan.endIso && plan.endIso !== plan.startIso;
+  const shares = useMemo(() => budgetShares(total, plan.nights, roundTrip), [total, plan.nights, roundTrip]);
+  const booked = spentBy(data);
+  const ground = shares.ground;
+  const perNight = Math.round(shares.stays / Math.max(1, plan.nights) / Math.max(1, plan.rooms));
 
   // ---- places near the first hotel -------------------------------------------------------------------------------------------
   const base = hotelsIn.find((h) => typeof h.lat === "number" && typeof h.lng === "number") || null;
@@ -133,9 +136,17 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
         <button type="button" className="taw-btn taw-btn--sm" onClick={onHide}>Hide plan</button>
       </header>
 
-      <div className="taw-sp-split" aria-label="Budget">
-        <div><span>Budget</span><b>{inr(total)}</b><small>{basis || "for the trip"}{booked > 0 ? ` · ${inr(booked)} booked` : ""}</small></div>
-        <div><span>On the ground</span><b>{inr(ground)}</b><small>{booked > 0 ? "what is left after flights and stays" : "meals, cars, sightseeing"}</small></div>
+      <div className="taw-sp-split" aria-label="Budget split">
+        <div>
+          <span>Flights</span><b>{inr(shares.flights)}</b>
+          <small>{roundTrip ? `${inr(shares.perLeg)} each way` : "one way"} · {booked.flights > 0 ? `${inr(booked.flights)} booked` : "none booked"}</small>
+        </div>
+        <div>
+          <span>Hotels</span><b>{inr(shares.stays)}</b>
+          <small>about {inr(perNight)} a night for {plan.rooms} room{plan.rooms === 1 ? "" : "s"} · {booked.stays > 0 ? `${inr(booked.stays)} booked` : "none booked"}</small>
+        </div>
+        <div><span>On the ground</span><b>{inr(ground)}</b><small>meals, cars, sightseeing</small></div>
+        <div><span>Budget</span><b>{inr(total)}</b><small>{basis || "for the trip"}</small></div>
       </div>
 
       {/* places */}
