@@ -17,6 +17,54 @@ import { eatPlaceholder } from "../../lib/eatPlaceholder";
 
 type Kind = "eat" | "do" | "party";
 const KIND_LABEL: Record<Kind, string> = { eat: "Where to eat", do: "Things to do", party: "A night out" };
+/* The category chips of the city page ("Icons & views", "History & culture" ...), in its order, each with its icon. A label the page
+   adds later is still shown (after these, with the gem), so nothing is hidden because it is not listed here. */
+const TIER_ORDER = [
+  "icons & views", "history & culture", "nature & the outdoors", "food & wine", "experiences",
+  "destination", "fine", "smart", "casual",
+  "cocktail bars", "landmark bars", "late & loud", "rooftops",
+];
+const tierRank = (label: string) => {
+  const l = label.toLowerCase();
+  const i = TIER_ORDER.findIndex((t) => l === t || l.startsWith(t));
+  return i < 0 ? TIER_ORDER.length : i;
+};
+const TIER_PATHS: Record<string, string> = {
+  camera: "M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3zM12 10a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  landmark: "M3 22h18M6 18v-7M10 18v-7M14 18v-7M18 18v-7M12 2l8 5H4z",
+  mountain: "m8 3 4 8 5-5 5 15H2L8 3z",
+  wine: "M8 22h8M7 10h10M12 15v7M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5z",
+  ticket: "M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2zM13 5v2M13 11v2M13 17v2",
+  pin: "M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0zM12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  shirt: "M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z",
+  coffee: "M10 2v2M14 2v2M6 2v2M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1",
+  martini: "M8 22h8M12 11v11m7-19-7 8-7-8z",
+  music: "M12 18V2l7 4M8 14a4 4 0 1 0 0 8 4 4 0 0 0 0-8z",
+  sunset: "M12 10V2M4.93 10.93l1.41 1.41M2 18h2M20 18h2M19.07 10.93l-1.41 1.41M22 22H2M16 6l-4 4-4-4M16 18a4 4 0 0 0-8 0",
+  gem: "M6 3h12l4 6-10 13L2 9zM11 3 8 9l4 13 4-13-3-6M2 9h20",
+};
+function tierIconKey(label: string): string {
+  const l = label.toLowerCase();
+  if (l.startsWith("icons")) return "camera";
+  if (l.startsWith("history") || l.startsWith("landmark")) return "landmark";
+  if (l.startsWith("nature")) return "mountain";
+  if (l.startsWith("food") || l.startsWith("fine") || l.startsWith("cocktail")) return l.startsWith("cocktail") ? "martini" : "wine";
+  if (l.startsWith("experience")) return "ticket";
+  if (l.startsWith("destination")) return "pin";
+  if (l.startsWith("smart")) return "shirt";
+  if (l.startsWith("casual")) return "coffee";
+  if (l.startsWith("late")) return "music";
+  if (l.startsWith("rooftop")) return "sunset";
+  return "gem";
+}
+function TierIcon({ label }: { label: string }) {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d={TIER_PATHS[tierIconKey(label)]} />
+    </svg>
+  );
+}
+
 const money = (lo: number, hi: number) => (lo === hi ? inr(lo) : `${shortMoney(lo)}–${shortMoney(hi)}`);
 
 const mapsUrl = (name: string, area?: string | null, city?: string) =>
@@ -108,7 +156,12 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
   const planned = estimateTotals(((data && data.days) || []).flatMap((d: any) => [...(d.dining || []), ...(d.activities || [])]));
   const left = Math.max(0, ground - planned.high);
   const have = new Set<string>(((data && data.days) || []).flatMap((d: any) => [...(d.dining || []), ...(d.activities || [])].map((e: any) => e.id)));
-  const picks: any[] = (guide.value && guide.value[kind]) || [];
+  const allPicks: any[] = (guide.value && guide.value[kind]) || [];
+  // The city page's category chips: one category at a time, the first by default, as on the page.
+  const tiers = useMemo(() => Array.from(new Set(allPicks.map((p: any) => (p.tier ? String(p.tier) : "")).filter(Boolean))).sort((a, b) => tierRank(a) - tierRank(b)), [allPicks]);
+  const [tierSel, setTierSel] = useState<Partial<Record<Kind, string>>>({});
+  const tier = tiers.length > 1 ? (tiers.includes(tierSel[kind] || "") ? (tierSel[kind] as string) : tiers[0]) : null;
+  const picks: any[] = tier ? allPicks.filter((p: any) => String(p.tier || "") === tier) : allPicks;
   const fits = (p: any) => !p.est || p.est.totalHigh <= left || p.est.totalHigh === 0;
   const shown = fitOnly ? picks.filter(fits) : picks;
   const hidden = picks.length - shown.length;
@@ -191,6 +244,14 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
                 <button key={k} type="button" className={"taw-leg-tab" + (kind === k ? " is-active" : "")} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>
               ))}
             </div>
+            {tiers.length > 1 ? (
+              <div className="taw-tier-chips" role="radiogroup" aria-label="Filter by category">
+                {tiers.map((t) => (
+                  <button key={t} type="button" role="radio" aria-checked={t === tier} className={"taw-tier-chip" + (t === tier ? " is-active" : "")}
+                    onClick={() => setTierSel((m) => ({ ...m, [kind]: t }))}><TierIcon label={t} />{t}</button>
+                ))}
+              </div>
+            ) : null}
             <label className="taw-eat-drawer-day">
               <span>Add to</span>
               <select value={iso} onChange={(e) => setIso(e.target.value)}>
