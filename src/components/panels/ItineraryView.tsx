@@ -43,9 +43,7 @@
  * Still deliberately NOT in scope: editing occupancy/price/meal plan,
  * or a real financial-rollup visualization.
  * ===========================================================================*/
-import { BudgetBar } from "../BudgetBar";
 import { takePendingBudget } from "../../lib/pendingBudget";
-import { normalizeBudget } from "../../lib/tripBudget";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cx } from "../../lib/cx";
@@ -717,8 +715,6 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
             <div className="taw-itin-fin-seg taw-itin-fin-seg--unresolved" style={{ flexBasis: (unresolved / finTotal) * 100 + "%" }} />
           ) : null}
         </div>
-        <BudgetBar data={data} budget={normalizeBudget(data.budget)} pax={summary.pax || 0} spent={totals.grand}
-          onSave={(b) => setData((d: any) => { const { budget: _old, ...rest } = d || {}; return b ? { ...rest, budget: b } : rest; })} />
       </div>
 
       {searchPending ? (
