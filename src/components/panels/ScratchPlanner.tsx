@@ -90,6 +90,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
   // ---- flights ---------------------------------------------------------------------------------------------------------------
   const [flights, setFlights] = useState<Record<"out" | "back", Load<any[]>>>({ out: { state: "idle" }, back: { state: "idle" } });
   const [pricing, setPricing] = useState<string | null>(null);
+  const [moreLegs, setMoreLegs] = useState<Record<string, boolean>>({}); // legs opened to show more than the first few fares
   // The split follows the fares once they are known: a flat 15% cannot buy a long-haul flight, so the flights share is raised to the
   // cheapest fares (or the plan says the budget is too low), and stays and the ground share what is left.
   const cheapest = (["out", ...(roundTrip ? ["back"] : [])] as ("out" | "back")[]).map((leg) => {
@@ -100,6 +101,12 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
   const shares = useMemo(() => adjustedShares(total, plan.nights, roundTrip, cheapest), [total, plan.nights, roundTrip, cheapestSig]); // eslint-disable-line react-hooks/exhaustive-deps
   // Hotels are searched once the flights have said what is left for them.
   const flightsSettled = !plan.fromCode || !plan.toCode || (["out", ...(roundTrip ? ["back"] : [])] as ("out" | "back")[]).every((leg) => flights[leg].state === "done" || flights[leg].state === "error");
+  // True once a leg has fares and none of them fits the per-leg share: the section then says it is showing the closest, not "within".
+  const noneFit = (["out", ...(roundTrip ? ["back"] : [])] as ("out" | "back")[]).some((leg) => {
+    const l = flights[leg];
+    const prices = ((l.state === "done" && l.value) || []).map(offNet).filter((n: number) => n > 0);
+    return prices.length > 0 && Math.min(...prices) > shares.perLeg;
+  });
   const flightsFor = useRef("");
   function loadFlights(force = false) {
     if (!plan.fromCode || !plan.toCode) return;
@@ -109,7 +116,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
     // One after the other: a new search empties the offer cache that "Add" prices from, so the return keeps the outbound's.
     const run = (key: "out" | "back", from: string, to: string, date: string, keepCache: boolean) => {
       setFlights((f) => ({ ...f, [key]: { state: "loading" } }));
-      return fastapiFlightSearch({ originCode: from, destCode: to, date, pax: plan.adults, cabin: "economy", resultsLimit: 30, keepCache })
+      return fastapiFlightSearch({ originCode: from, destCode: to, date, pax: plan.adults, cabin: "economy", resultsLimit: 100, keepCache })
         .then((r: any) => setFlights((f) => ({ ...f, [key]: { state: "done", value: ((r && r.offers) || []).map((o: any) => ({ ...o, _searchDate: date })) } })))
         .catch((e: any) => setFlights((f) => ({ ...f, [key]: { state: "error", error: errText(e) } })));
     };
@@ -224,7 +231,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
 
       {/* flights */}
       <div className="taw-sp-sec">
-        <div className="taw-sp-sec-h">Flights <span className="taw-muted">within {inr(shares.perLeg)} {roundTrip ? "each way" : ""} · {plan.fromCode || "?"} → {plan.toCode || "?"}</span></div>
+        <div className="taw-sp-sec-h">Flights <span className="taw-muted">{noneFit ? "closest to " : "within "}{inr(shares.perLeg)} {roundTrip ? "each way" : ""} · {plan.fromCode || "?"} → {plan.toCode || "?"}</span></div>
         {!plan.fromCode || !plan.toCode ? (
           <div className="taw-sp-note">Couldn't tell the airport for {!plan.fromCode ? `“${plan.from}”` : `“${plan.city}”`}. Use the Flights desk on the right to search this route.</div>
         ) : (
@@ -233,14 +240,19 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
             const alreadyIn = flightsIn.some((f) => (leg === "out" ? f.origin === plan.fromCode : f.origin === plan.toCode));
             const list = [...((l.value as any[]) || [])].sort((a, b) => offNet(a) - offNet(b));
             const within = list.filter((o) => offNet(o) <= shares.perLeg);
-            const show = (within.length ? within : list).slice(0, 5);
+            const pool = within.length ? within : list;
+            const show = pool.slice(0, moreLegs[leg] ? 15 : 5);
             return (
               <div key={leg} className="taw-sp-leg">
                 <div className="taw-sp-leg-h">{leg === "out" ? `${plan.fromCode} → ${plan.toCode} · ${fmtDayDate(plan.startIso)}` : `${plan.toCode} → ${plan.fromCode} · ${fmtDayDate(plan.endIso)}`}{alreadyIn ? <span className="taw-chip taw-chip--ref">in the itinerary</span> : null}</div>
                 {l.state === "loading" ? <div className="taw-sp-load"><Spinner /> Searching flights…</div> : null}
                 {l.state === "error" ? <div className="taw-banner taw-banner--err"><Icon name="alert" size={14} /> {l.error} <button className="taw-btn taw-btn--sm" onClick={() => loadFlights(true)}>Retry</button></div> : null}
                 {l.state === "done" && !list.length ? <div className="taw-sp-note">No flights found for this day (TripSure sells flights up to about 350 days ahead).</div> : null}
-                {l.state === "done" && list.length && !within.length ? <div className="taw-sp-note">No flight is within {inr(shares.perLeg)} for {plan.adults}; the cheapest are shown.</div> : null}
+                {l.state === "done" && list.length && !within.length ? (
+                  <div className="taw-sp-note">
+                    Nothing is within {inr(shares.perLeg)} for {plan.adults}. The closest to your budget, cheapest first, from <b>{inr(offNet(list[0]))}</b> ({inr(offNet(list[0]) - shares.perLeg)} over), out of {list.length} flights found.
+                  </div>
+                ) : null}
                 {show.map((o: any) => {
                   const d = o.detail || {};
                   const ok = offNet(o) <= shares.perLeg;
@@ -252,7 +264,7 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
                       </div>
                       <div className="taw-sp-row-side">
                         <b className="ta-num">{inr(offNet(o))}</b>
-                        <span className={"taw-chip " + (ok ? "taw-chip--ref" : "taw-chip--noref")}>{ok ? "Within budget" : "Over by " + inr(offNet(o) - shares.perLeg)}</span>
+                        <span className={"taw-chip " + (ok ? "taw-chip--ref" : "taw-chip--noref")}>{ok ? "Within budget" : (o === pool[0] ? "Closest · " : "") + "Over by " + inr(offNet(o) - shares.perLeg)}</span>
                         <button className="taw-btn taw-btn--accent taw-btn--sm" disabled={pricing === String(o.id)} onClick={() => addFlight(o)}>
                           <Icon name="plus" size={13} /> {pricing === String(o.id) ? "Pricing…" : "Add"}
                         </button>
@@ -260,6 +272,11 @@ export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, adde
                     </div>
                   );
                 })}
+                {pool.length > 5 ? (
+                  <button type="button" className="taw-btn taw-btn--ghost taw-btn--sm" style={{ marginTop: 6 }} onClick={() => setMoreLegs((m) => ({ ...m, [leg]: !m[leg] }))}>
+                    {moreLegs[leg] ? "Show fewer" : `Show more (${Math.min(pool.length, 15) - 5} more)`}
+                  </button>
+                ) : null}
               </div>
             );
           })
