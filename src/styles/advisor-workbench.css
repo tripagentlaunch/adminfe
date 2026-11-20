@@ -2179,3 +2179,9 @@ body.taw-resizing{cursor:col-resize;user-select:none;}
 .taw-sp-load{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted,#7a7168);}
 .taw-sp-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13px;}
 .taw-sp-check{display:inline-flex;align-items:center;gap:6px;}
+
+/* The plan's places: the same cards as "Where to eat", in a grid. */
+.taw-sp-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;}
+.taw-eat-card-tag--far{margin-left:6px;color:#a02a2a;}
+.taw-eat-card-est{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px;margin-top:2px;padding-top:7px;border-top:1px dashed var(--line,#e5e0d8);font-size:12px;color:var(--taupe,#5c544b);}
+.taw-eat-card-est b{color:var(--ink,#171310);font-size:13px;}
