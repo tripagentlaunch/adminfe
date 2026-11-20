@@ -65,6 +65,7 @@ import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
 import { ScratchPlanner } from "./ScratchPlanner";
 import { DayActivities } from "./DayActivities";
+import { normalizePlan } from "../../lib/scratchPlan";
 import { FlightRecommendations } from "./FlightRecommendations";
 import { CityGuidePanel } from "./CityGuidePanel";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
@@ -451,6 +452,18 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, activities: (day.activities || []).filter((e: any) => e.id !== entryId) })) }));
   }
   const [planHidden, setPlanHidden] = useState(false);
+  // A plan saved before a place typed without spaces was understood ("newyork") is repaired once, here, so the trip's own name
+  // follows it (unless the advisor has already renamed the trip).
+  useEffect(() => {
+    const plan = data && data.scratchPlan;
+    if (!plan) return;
+    const fixed = normalizePlan(plan);
+    if (fixed === plan) return;
+    setData((d: any) => (d && d.scratchPlan === plan
+      ? { ...d, scratchPlan: fixed, ...(d.destination === plan.destination ? { destination: fixed.destination, cities: [fixed.destination] } : {}) }
+      : d));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data && data.scratchPlan]);
   // A hotel swap option can have an offline price of its own (the same 12-hour hold); swapping carries it with the hotel.
   const [editingAlt, setEditingAlt] = useState<{ itemId: string; ai: number } | null>(null);
   function setAltManualPrice(dayId: string, itemId: string, ai: number, v: { amount: number; vendor: string; note: string }) {

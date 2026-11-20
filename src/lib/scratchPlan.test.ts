@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blankItinerary, withTripSummary } from "./itineraryFromCart";
-import { arrivalCodeFor, budgetShares, knownCity, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
+import { airportCodeFor, arrivalCodeFor, budgetShares, knownCity, normalizePlan, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
 
 describe("parseDestination", () => {
   it("keeps the half of Goa and searches Goa", () => {
@@ -76,5 +76,22 @@ describe("a plan's trip keeps the place the customer asked for", () => {
     const out = withTripSummary({ ...seed, days: [day] });
     expect(out.destination).toBe("South Goa");
     expect(out.nights).toBe(4);
+  });
+});
+
+describe("a plan saved before the place was understood", () => {
+  const old: any = { destination: "newyork", city: "newyork", region: null, from: "Delhi", fromCode: "DEL", toCode: null, startIso: "2026-12-24", endIso: "2026-12-27", nights: 3, adults: 2, rooms: 1, budgetTotal: 50000 };
+  it("is repaired when opened: the city, the airport, nothing else", () => {
+    const p = normalizePlan(old);
+    expect(p).toMatchObject({ destination: "New York", city: "New York", fromCode: "DEL", budgetTotal: 50000, nights: 3 });
+    expect(["JFK", "EWR", "LGA", "NYC"]).toContain(p.toCode);
+  });
+  it("is returned as it is when it needs no repair", () => {
+    const good: any = { ...old, destination: "South Goa", city: "Goa", region: "south", toCode: "GOI" };
+    expect(normalizePlan(good)).toBe(good);
+  });
+  it("reads an airport from a name or a code", () => {
+    expect(airportCodeFor("del")).toBe("DEL");
+    expect(airportCodeFor("")).toBeNull();
   });
 });

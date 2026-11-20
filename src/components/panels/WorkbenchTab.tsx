@@ -76,9 +76,8 @@ import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
 import { tripDatesFor, addDaysIso } from "../../lib/itineraryFromCart";
 import { ScratchWizard, type ScratchAnswers } from "./ScratchWizard";
-import { arrivalCodeFor, knownCity, parseDestination, roomsFor, type ScratchPlan } from "../../lib/scratchPlan";
+import { airportCodeFor, arrivalCodeFor, parseDestination, roomsFor, type ScratchPlan } from "../../lib/scratchPlan";
 import { budgetRange } from "../../lib/tripBudget";
-import { searchAirports } from "../../lib/airports";
 
 // ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
 // request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
@@ -473,12 +472,7 @@ export function WorkbenchTab(props: any) {
   const [wizardOpen, setWizardOpen] = useState(false);
   const startPlanned = (a: ScratchAnswers) => {
     const place = parseDestination(a.destination);
-    const codeOf = (name: string) => {
-      const t = name.trim();
-      if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
-      const hit = searchAirports(knownCity(t) || t, 3)[0];
-      return hit ? hit.airport_code : null;
-    };
+    const codeOf = airportCodeFor;
     const plan: ScratchPlan = {
       destination: place.label, city: place.city, region: place.region,
       from: a.from, fromCode: codeOf(a.from), toCode: arrivalCodeFor(place.city, place.region, codeOf),

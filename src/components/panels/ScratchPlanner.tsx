@@ -11,7 +11,7 @@ import { fastapiFlightSearch, inr, scratchGuide, scratchHotels } from "../../ser
 import { autoPriceOffer } from "../orders/FlightQuoteDrawer";
 import { flightCartItem, errText, toast } from "../../lib/advisorHelpers";
 import { Icon, Spinner } from "../ui";
-import { budgetShares, estimateTotals, stayBases, type ScratchPlan, type StayBase } from "../../lib/scratchPlan";
+import { budgetShares, estimateTotals, normalizePlan, stayBases, type ScratchPlan, type StayBase } from "../../lib/scratchPlan";
 import { normalizeBudget, budgetRange, shortMoney } from "../../lib/tripBudget";
 import { addDaysIso, fmtDayDate } from "../../lib/itineraryFromCart";
 import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
@@ -23,7 +23,7 @@ const offNet = (o: any) => Number(o.base_net != null ? o.base_net : o.baseNet) |
 
 type Load<T> = { state: "idle" | "loading" | "done" | "error"; value?: T; error?: string };
 
-export function ScratchPlanner({ plan, data, enquiryId, enquiry, addedHotelKeys, onAddFlight, onAddHotel, onAddDining, onAddActivity, onHide }: {
+export function ScratchPlanner({ plan: savedPlan, data, enquiryId, enquiry, addedHotelKeys, onAddFlight, onAddHotel, onAddDining, onAddActivity, onHide }: {
   plan: ScratchPlan;
   data: any;
   enquiryId: string;
@@ -35,6 +35,7 @@ export function ScratchPlanner({ plan, data, enquiryId, enquiry, addedHotelKeys,
   onAddActivity: (iso: string, entry: any) => void;
   onHide: () => void;
 }) {
+  const plan = useMemo(() => normalizePlan(savedPlan), [savedPlan]);
   // The budget the advisor sets on the itinerary wins over the one typed at the start.
   const total = (budgetRange(normalizeBudget(data && data.budget)) || { max: plan.budgetTotal }).max || plan.budgetTotal;
   const roundTrip = !!plan.endIso && plan.endIso !== plan.startIso;

@@ -5,7 +5,7 @@
    looked for south of the Zuari river only. Goa's airports follow the half (Dabolim in the south, Mopa in the north). */
 import { budgetRange, normalizeBudget, parseMoney, spendable, type Budget } from "./tripBudget";
 import { addDaysIso } from "./itineraryFromCart";
-import { AIRPORTS } from "./airports";
+import { AIRPORTS, searchAirports } from "./airports";
 
 export type ScratchPlan = {
   /** As typed and shown to the customer: "South Goa". */
@@ -114,3 +114,22 @@ export function estimateTotals(picks: { est?: { totalLow: number; totalHigh: num
 }
 
 export { budgetRange };
+
+/** The airport code for what was typed: a 3-letter code as it is, else the directory's best match for the (spaces-tolerant) name. */
+export function airportCodeFor(name: string): string | null {
+  const t = String(name || "").trim();
+  if (!t) return null;
+  if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
+  const hit = searchAirports(knownCity(t) || t, 3)[0];
+  return hit ? hit.airport_code : null;
+}
+
+/** A plan saved before a place typed without spaces was understood ("newyork": no city page, no airport, a hotel in Thane) is read
+ *  again the way a new one is, so it works without being started over. Everything the advisor chose is kept. */
+export function normalizePlan(plan: ScratchPlan): ScratchPlan {
+  const place = parseDestination(plan.destination);
+  const fromCode = plan.fromCode || airportCodeFor(plan.from);
+  const toCode = plan.toCode || arrivalCodeFor(place.city, place.region, airportCodeFor);
+  if (place.city === plan.city && place.label === plan.destination && place.region === plan.region && fromCode === plan.fromCode && toCode === plan.toCode) return plan;
+  return { ...plan, destination: place.label, city: place.city, region: place.region, fromCode, toCode };
+}
