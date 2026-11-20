@@ -1788,6 +1788,21 @@ function whereToEatDistances(payload) {
   return fastapiHotelCall("/hotels/where-to-eat/distances", { method: "POST", body: payload });
 }
 
+// scratchHotels({ city, region, checkIn, checkOut, adults, rooms, budgetTotal, limit }) — POST /hotels/scratch-hotels: the from-scratch
+// auto-plan's hotels for one stay — up to `limit` real TripSure hotels in the half of the city asked for ("south"), those within
+// `budgetTotal` (this stay's share) first. { status, message?, hotels: [{hotelKey, name, stars, totalPrice, fits, over, ...}], withinBudget }.
+function scratchHotels(payload) {
+  return fastapiHotelCall("/hotels/scratch-hotels", { method: "POST", body: payload });
+}
+
+// scratchGuide({ city, region, lat, lng, km, pax }) — GET /hotels/scratch-guide: the website city page's where-to-eat / things to do /
+// after-dark places in that half of the city and within `km` of the hotel at (lat, lng), each with a per-person estimate `est`.
+function scratchGuide(p) {
+  var q = "city=" + encodeURIComponent(p.city) + (p.region ? "&region=" + encodeURIComponent(p.region) : "") +
+    (p.lat != null && p.lng != null ? "&lat=" + p.lat + "&lng=" + p.lng : "") + (p.km ? "&km=" + p.km : "") + (p.pax ? "&pax=" + p.pax : "");
+  return fastapiHotelCall("/hotels/scratch-guide?" + q, { method: "GET" });
+}
+
 // `limit` (default 8, max 20) is how many picks of each kind to return.
 function cityGuide(city, limit?: number) {
   return fastapiHotelCall("/hotels/city-guide?city=" + encodeURIComponent(city) + (limit ? "&limit=" + limit : ""), { method: "GET" });
@@ -3251,6 +3266,8 @@ export {
   cityGuide,
   whereToEat,
   whereToEatDistances,
+  scratchHotels,
+  scratchGuide,
   hotelPhoto,
   hotelRecommendations,
   hotelSetWebsite,

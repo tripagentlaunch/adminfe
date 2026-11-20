@@ -64,3 +64,12 @@ describe("hotel photos on the day cards", () => {
     expect(cards[0].stayPhoto).toBeNull();
   });
 });
+
+describe("proposal day cards: what to do", () => {
+  it("carries the day's activities, with their estimates", () => {
+    const withTodo: any = { ...data, dayPlan: [{ ...data.dayPlan[0], activities: [{ id: "goa:cruise", name: "Sal River cruise", est: { low: 600, high: 1500, totalLow: 4200, totalHigh: 10500, pax: 7 } }] }] };
+    const cards = buildDayCards(withTodo);
+    expect(cards[1].activities.map((a: any) => a.name)).toEqual(["Sal River cruise"]);
+    expect(cards[0].activities).toEqual([]);
+  });
+});

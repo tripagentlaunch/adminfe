@@ -74,7 +74,11 @@ import { ItineraryView } from "./ItineraryView";
 import { TaraItineraryLink } from "./TaraItineraryLink";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { buildRequirementRows, buildTripFields, emptyLabel } from "../../lib/tripFields";
-import { tripDatesFor } from "../../lib/itineraryFromCart";
+import { tripDatesFor, addDaysIso } from "../../lib/itineraryFromCart";
+import { ScratchWizard, type ScratchAnswers } from "./ScratchWizard";
+import { arrivalCodeFor, parseDestination, roomsFor, type ScratchPlan } from "../../lib/scratchPlan";
+import { budgetRange } from "../../lib/tripBudget";
+import { searchAirports } from "../../lib/airports";
 
 // ConversationSummaryPanel + ChatWithCustomerPanel (2026-10-05, direct
 // request) — a "Conversation Summary" step shown in columns 2+3 BEFORE
@@ -449,16 +453,41 @@ export function WorkbenchTab(props: any) {
   const ensureWithBudget = onEnsureEnquiry
     ? (m: any) => onEnsureEnquiry(m).then((e: any) => { if (e && e.id && startBudget) setPendingBudget(e.id, startBudget); return e; })
     : onEnsureEnquiry;
-  const startItinerary = (mode: "ai" | "scratch") => {
+  const startItinerary = (mode: "ai" | "scratch", scratchPlan?: ScratchPlan, budget?: Budget | null) => {
     if (selEnqId) {
-      initItinerary(selEnqId, mode, selectedEnquiryWithAsk);
+      if (budget) setPendingBudget(selEnqId, budget);
+      initItinerary(selEnqId, mode, scratchPlan ? { ...selectedEnquiryWithAsk, scratchPlan } : selectedEnquiryWithAsk);
       return;
     }
     if (ensureWithBudget && convoMember) {
       ensureWithBudget(convoMember)
-        .then((e: any) => initItinerary(e.id, mode, { ...e, ask: {} }))
+        .then((e: any) => {
+          if (budget) setPendingBudget(e.id, budget);
+          initItinerary(e.id, mode, scratchPlan ? { ...e, ask: {}, scratchPlan } : { ...e, ask: {} });
+        })
         .catch(() => {});
     }
+  };
+  // "Start from scratch" asks first (place, budget, from, dates, travellers); the answers become the plan the Itinerary Builder
+  // then searches for. The airport codes come from the built-in directory (Goa follows the half asked for: Dabolim south, Mopa north).
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const startPlanned = (a: ScratchAnswers) => {
+    const place = parseDestination(a.destination);
+    const codeOf = (name: string) => {
+      const t = name.trim();
+      if (/^[A-Za-z]{3}$/.test(t)) return t.toUpperCase();
+      const hit = searchAirports(t, 3)[0];
+      return hit ? hit.airport_code : null;
+    };
+    const plan: ScratchPlan = {
+      destination: place.label, city: place.city, region: place.region,
+      from: a.from, fromCode: codeOf(a.from), toCode: arrivalCodeFor(place.city, place.region, codeOf),
+      startIso: a.startIso, endIso: addDaysIso(a.startIso, a.nights), nights: a.nights,
+      adults: a.adults, rooms: roomsFor(a.adults),
+      budgetTotal: (budgetRange(a.budget) || { max: 0 }).max,
+    };
+    setWizardOpen(false);
+    startItinerary("scratch", plan, a.budget);
   };
   // The "start this itinerary" content — the Drafting… spinner while
   // generating, else the Generate AI / Start from scratch chooser. Rendered
@@ -489,6 +518,8 @@ export function WorkbenchTab(props: any) {
                 the draft is already on screen, so the copy says that instead. */}
             <div className="message">Aanya&apos;s AI is drafting your day-by-day plan — this takes about 10 seconds. Real flights and hotels are then searched city by city and fill in on their own in the background (a multi-city trip can take a minute or two more). No need to refresh or click again.</div>
           </div>
+  ) : wizardOpen ? (
+          <ScratchWizard ask={selectedEnquiryWithAsk?.ask} initialBudget={startBudget} onDone={startPlanned} onCancel={() => setWizardOpen(false)} />
   ) : (
           // The chooser (2026-09-02) — both paths seed the SAME real,
           // editable itinerary via WorkbenchContext's initItinerary; this
@@ -504,7 +535,7 @@ export function WorkbenchTab(props: any) {
               <BudgetFields key={startKey} initial={startBudget} defaultPax={selectedEnquiryWithAsk?.ask?.pax || 2} onChange={onStartBudget} />
             </div>
             <TaraItineraryLink variant="cards" member={taraMember} selEnqId={selEnqId} onEnsureEnquiry={ensureWithBudget}
-              onScratch={() => startItinerary("scratch")} />
+              onScratch={() => setWizardOpen(true)} />
           </div>
   );
 

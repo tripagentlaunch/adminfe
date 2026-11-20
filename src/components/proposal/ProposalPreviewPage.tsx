@@ -733,6 +733,16 @@ function DaysTab({ data, stays }: { data: any; stays?: any[] }) {
               <div className="pv-dcard-head">{[c.dateLabel, c.title].filter(Boolean).join(" · ")}</div>
               {c.description ? <div className="pv-dcard-text">{c.description}</div> : null}
               {c.facts.length ? <ul className="pv-dcard-facts">{c.facts.map((f, i) => <li key={i}>{f}</li>)}</ul> : null}
+              {c.activities && c.activities.length ? (
+                <ul className="pv-dcard-facts pv-dcard-todo">
+                  {c.activities.map((a: any) => (
+                    <li key={a.id}>
+                      <b>{a.name}</b>{a.area ? ` · ${a.area}` : ""}
+                      {a.est ? <span className="pv-dcard-est">{a.est.high === 0 ? " · free" : ` · about ₹${Math.round(a.est.low).toLocaleString("en-IN")}–${Math.round(a.est.high).toLocaleString("en-IN")} each (estimate)`}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </div>
           </div>
         ))}

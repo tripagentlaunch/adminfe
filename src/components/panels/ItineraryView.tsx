@@ -56,13 +56,15 @@ import { PaidTripHistory } from "./PaidTripHistory";
 import { requestLivePrice, requestLiveHotelPrice } from "../../lib/livePriceRequest";
 import { useWorkbench } from "../../lib/workbenchContext";
 import { STATUS_META, tierOf, type ItineraryItemStatus } from "../../lib/mockItinerary";
-import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, applyManualPriceToAlternative, clearManualPrice, clearManualPriceOfAlternative, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
+import { clockTime, fmtDayDate, resortDays, fmtDateRangeIso, nightsBetweenIso, addRecommendedHotelToItinerary, findOrCreateDay, withTripSummary, dayNumberOf, addDaysIso, itineraryTotals, applyManualPrice, applyManualPriceToAlternative, clearManualPrice, clearManualPriceOfAlternative, manualPriceState, offlineNoticeOf, refreshManualPrices } from "../../lib/itineraryFromCart";
 import { leftText, untilText } from "../../lib/offlineBanner";
 import { useMinuteClock } from "../../lib/deskMemory";
 import { toast } from "../../lib/advisorHelpers";
 import { ItinerarySummaryModal } from "./ItinerarySummaryModal";
 import { hasDraftHotel } from "./ItinerarySummaryContent";
 import { HotelRecommendations } from "./HotelRecommendations";
+import { ScratchPlanner } from "./ScratchPlanner";
+import { DayActivities } from "./DayActivities";
 import { FlightRecommendations } from "./FlightRecommendations";
 import { CityGuidePanel } from "./CityGuidePanel";
 import { itineraryCityTexts } from "../../lib/cityGuideText";
@@ -284,7 +286,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
+  const { sendItineraryToProposal, addSearchItemToItinerary, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -432,6 +434,23 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
     }));
     toast("Added to the day: " + entry.name, "success");
   }
+  // The plan's restaurants and activities land on a calendar date of the trip; that day is made if nothing has been booked on it.
+  function addToDate(iso: string, put: (day: any) => any) {
+    setData((d: any) => {
+      const { days, day } = findOrCreateDay(d.days || [], iso, d.destination || "");
+      return { ...d, days: days.map((x: any) => (x === day ? put(day) : x)) };
+    });
+  }
+  function addDiningToDate(iso: string, entry: DiningEntry) {
+    addToDate(iso, (day) => ((day.dining || []).some((e: DiningEntry) => e.id === entry.id) ? day : { ...day, dining: (day.dining || []).concat([entry]) }));
+  }
+  function addActivityToDate(iso: string, entry: any) {
+    addToDate(iso, (day) => ((day.activities || []).some((e: any) => e.id === entry.id) ? day : { ...day, activities: (day.activities || []).concat([entry]) }));
+  }
+  function removeActivity(dayId: string, entryId: string) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id !== dayId ? day : { ...day, activities: (day.activities || []).filter((e: any) => e.id !== entryId) })) }));
+  }
+  const [planHidden, setPlanHidden] = useState(false);
   // A hotel swap option can have an offline price of its own (the same 12-hour hold); swapping carries it with the hotel.
   const [editingAlt, setEditingAlt] = useState<{ itemId: string; ai: number } | null>(null);
   function setAltManualPrice(dayId: string, itemId: string, ai: number, v: { amount: number; vendor: string; note: string }) {
@@ -775,6 +794,16 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         dining={Object.fromEntries((data.days || []).map((d: any) => [d.id, (d.dining || []).map((e: DiningEntry) => e.id)]))}
         days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
       </div>
+
+      {data.scratchPlan ? (
+        planHidden ? (
+          <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPlanHidden(false)}><Icon name="sparkle" size={13} /> Show the trip plan</button>
+        ) : (
+          <ScratchPlanner plan={data.scratchPlan} data={data} enquiryId={enquiryId} addedHotelKeys={addedHotelKeys}
+            onAddFlight={(cart) => addSearchItemToItinerary(enquiryId, cart)} onAddHotel={addRecommendedHotel}
+            onAddDining={addDiningToDate} onAddActivity={addActivityToDate} onHide={() => setPlanHidden(true)} />
+        )
+      ) : null}
 
       {/* Category tabs (2026-09-03) — All/Flights/Hotels/Visa, same
           shape as the flight-search round-trip leg switcher. Exactly
@@ -1187,6 +1216,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                   );
                 })}
                 {category === "all" && day.dining && day.dining.length ? <DayDining entries={day.dining} onRemove={(id) => removeDining(day.id, id)} /> : null}
+                {category === "all" && day.activities && day.activities.length ? <DayActivities entries={day.activities} onRemove={(id) => removeActivity(day.id, id)} /> : null}
               </div>
             ) : null}
           </div>

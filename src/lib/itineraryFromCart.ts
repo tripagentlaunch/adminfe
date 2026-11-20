@@ -264,7 +264,7 @@ export function resortDays(days: any[]) {
 // Finds the day matching `iso` (by date, not by id) or creates+inserts one
 // in date order — a freshly added flight/hotel should land next to
 // whatever's already there, not always at the end.
-function findOrCreateDay(days: any[], iso: string, route: string) {
+export function findOrCreateDay(days: any[], iso: string, route: string) {
   const existing = days.find((d: any) => d._iso === iso);
   if (existing) return { days, day: existing };
   const day = { id: "day-" + uid(), _iso: iso, label: "", date: fmtDayDate(iso), route, subtotal: null, items: [] as any[] };
@@ -499,7 +499,8 @@ export function withTripSummary(data: any): any {
   const days: any[] = data.days || [];
   // A trip built from Search (not Tara's / the AI's plan): its dates are what's in it — Day 1 is the
   // first booking, a one-way flight is just its date — never dates seeded from the enquiry's ask.
-  const searchBuilt = data.source === "scratch" || (!data.taraPlan && !days.some((d: any) => d.description));
+  // A trip started with "Plan this trip" already has its dates (the customer's), so they are kept as they are.
+  const searchBuilt = !data.scratchPlan && (data.source === "scratch" || (!data.taraPlan && !days.some((d: any) => d.description)));
   if (searchBuilt && days.some((d: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(d._iso || "")))) {
     auto.startIso = auto.endIso = auto.dateRange = auto.nights = true;
   }

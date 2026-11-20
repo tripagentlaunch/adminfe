@@ -36,7 +36,7 @@ import {
 } from "../services/api";
 import { errText, toast } from "../lib/advisorHelpers";
 import { WorkbenchContext, type ProposalQueueEntry, type ProposalOutcome } from "../lib/workbenchContext";
-import { blankItinerary, addCartItemToItinerary, addSwapOption, boundFromDateRange, replacesExisting, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
+import { blankItinerary, addCartItemToItinerary, addSwapOption, boundFromDateRange, fmtDateRangeIso, replacesExisting, swapHotelAlternative, swapFlightAlternative, mergeRefreshedItinerary } from "../lib/itineraryFromCart";
 import { useWorkspacePersistence } from "../lib/useWorkspacePersistence";
 
 const PARKED_KEY = "taw.console.parked.v1";
@@ -482,6 +482,19 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
           seed.endIso = bound.endIso;
           seed.dateRange = enquiry.ask.dateRange;
           seed.nights = (enquiry.ask.dates && enquiry.ask.dates.nights) || 0;
+        }
+        // Started from the "Plan this trip" questions: the answers are the trip (place, dates, party) and what the planner searches.
+        const plan = enquiry?.scratchPlan;
+        if (plan) {
+          seed.scratchPlan = plan;
+          seed.destination = plan.destination;
+          seed.cities = [plan.destination];
+          seed.startIso = plan.startIso;
+          seed.endIso = plan.endIso;
+          seed.dateRange = fmtDateRangeIso(plan.startIso, plan.endIso);
+          seed.nights = plan.nights;
+          seed.pax = plan.adults;
+          seed.paxLabel = plan.adults + (plan.adults === 1 ? " adult" : " adults");
         }
         return { ...m, [enquiryId]: seed };
       });

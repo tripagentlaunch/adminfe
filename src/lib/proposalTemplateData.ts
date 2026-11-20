@@ -673,11 +673,13 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
     costRange: computeCostRange(days, data.pax || 1, data.costSummary?.budgetCap),
     // Day-by-day narrative of a generated itinerary — AI-drafted, unverified. Empty for cart-built ones.
     dayPlan: days
-      .filter((d: any) => d.title || d.description || (d.dining && d.dining.length))
+      .filter((d: any) => d.title || d.description || (d.dining && d.dining.length) || (d.activities && d.activities.length))
       .map((d: any) => ({
         iso: isIsoDate(d._iso) ? d._iso : null, label: d.label, date: d.date, title: d.title || null, description: d.description || null, photoQuery: d.photoQuery || null,
         // "Where to eat" for the day: restaurants the advisor took from our city guide (lib/diningPlan.ts)
         dining: Array.isArray(d.dining) ? d.dining : [],
+        // What to do / a night out, from the plan's city guide; each carries a per-person cost estimate (labelled as one).
+        activities: Array.isArray(d.activities) ? d.activities.map((a: any) => ({ id: a.id, kind: a.kind, name: a.name, area: a.area || null, description: a.description || null, est: a.est ? { low: a.est.low, high: a.est.high, totalLow: a.est.totalLow, totalHigh: a.est.totalHigh, pax: a.est.pax } : null })) : [],
       })),
     // The trip's restaurants grouped by city, for the Plan tab and the PDF (derived from the days' dining, nothing else)
     whereToEat: whereToEatByCity(days),

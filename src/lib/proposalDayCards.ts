@@ -14,6 +14,8 @@ export type DayCard = {
   /** The photo of the hotel the traveller sleeps at that night (TripSure's own gallery for the hotel), when there is one. */
   stayPhoto: { url: string; hotel: string } | null;
   dining: any[];
+  /** What to do / a night out that day, each with a per-person estimate. */
+  activities: any[];
 };
 
 const titleCase = (s: string) => s.toLowerCase().replace(/(^|[\s\-/(])([a-z])/g, (_m, a, b) => a + b.toUpperCase());
@@ -61,6 +63,7 @@ export function buildDayCards(data: any, stays?: any[]): DayCard[] {
         photoQuery: (p && p.photoQuery) || place(b) || (dining[0] && dining[0].city) || data.destination || null,
         stayPhoto: stayPhotoFor(stays || data.stays, c.iso),
         dining,
+        activities: (p && p.activities) || [],
       };
     });
   }
@@ -74,5 +77,6 @@ export function buildDayCards(data: any, stays?: any[]): DayCard[] {
     photoQuery: p.photoQuery || (p.dining && p.dining[0] && p.dining[0].city) || data.destination || null,
     stayPhoto: stayPhotoFor(stays || data.stays, p.iso || ""),
     dining: p.dining || [],
+    activities: p.activities || [],
   }));
 }
