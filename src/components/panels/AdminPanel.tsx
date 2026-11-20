@@ -549,7 +549,9 @@ function SuperKeysList({ keys, loading, onToggle, busyCode }: { keys: any[]; loa
 // api.ts's siteAccessRequests* calls, 2026-10-09), which re-check the
 // advisor's admin role server-side on every call — this panel's own
 // isAdmin() gate is only a UI convenience.
-function AccessRequestsSection() {
+// `limited` is the advisor's version (Approvals > Access requests): pending and approved only. Super keys, code sharing, sign-out and taking
+// access back stay with the admins.
+export function AccessRequestsSection({ limited = false }: { limited?: boolean }) {
   const [rows, setRows] = useState<any>(null);
   // noCode — approved before approval minted a code, so they can't sign in
   // (and their WhatsApp itinerary links can't open). approve() issues one.
@@ -603,9 +605,11 @@ function AccessRequestsSection() {
     siteAccessRequestsApproved()
       .then((list: any) => setApproved(Array.isArray(list) ? list : []))
       .catch(() => setApproved([]));
-    siteSuperKeys()
-      .then((list: any) => setSuperKeys(Array.isArray(list) ? list : []))
-      .catch(() => setSuperKeys([]));
+    if (!limited) {
+      siteSuperKeys()
+        .then((list: any) => setSuperKeys(Array.isArray(list) ? list : []))
+        .catch(() => setSuperKeys([]));
+    }
   }
   useEffect(load, []);
 
@@ -768,9 +772,11 @@ function AccessRequestsSection() {
           <button className={cx("taw-tab", tab === "approved" && "is-active")} role="tab" aria-selected={tab === "approved"} onClick={() => setTab("approved")}>
             Approved requests <span className="pill">{approvedShown.length}</span>
           </button>
+{limited ? null : (
           <button className={cx("taw-tab", tab === "superkey" && "is-active")} role="tab" aria-selected={tab === "superkey"} onClick={() => setTab("superkey")}>
             Super key <span className="pill">{needle ? superKeysShown.length : superKeys.reduce((n: number, k: any) => n + (k.total_entries || 0), 0)}</span>
           </button>
+)}
         </div>
         {/* FIXED (2026-09-17, direct request): rendered here, independent
             of `pending` — the old version of this lived inside
@@ -931,7 +937,7 @@ function AccessRequestsSection() {
         ) : null}
           </>
         ) : tab === "approved" ? (
-          <ApprovedRequestsList rows={approvedShown} loading={loading} onChanged={load} />
+          <ApprovedRequestsList rows={approvedShown} loading={loading} onChanged={load} limited={limited} />
         ) : (
           <>
             <NewSuperKeyForm onCreated={load} />

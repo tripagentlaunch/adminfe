@@ -281,7 +281,9 @@ function Note({ tone, text }: { tone: string; text: string }) {
 // ApprovedRequestsList: requests an advisor approved, each with whether the person has
 // claimed their code yet (Claimed / Pending / Expired / No code), and everything needed to
 // share it, chase it and widen it.
-export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]; loading: boolean; onChanged: () => void }) {
+// `limited`: an advisor's view. They can approve, resend, add people and see who claimed; code sharing, sign-out and taking access
+// back stay with the admins (the server refuses them for anyone else).
+export function ApprovedRequestsList({ rows, loading, onChanged, limited = false }: { rows: any[]; loading: boolean; onChanged: () => void; limited?: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const claimed = rows.filter((r) => r.claim_status === "claimed").length;
   const waiting = rows.filter((r) => r.claim_status === "pending").length;
@@ -359,7 +361,7 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
               {mail ? <Note tone={mail.tone} text={mail.text} /> : null}
               {remind ? <Note tone={remind.tone} text={remind.text} /> : null}
 
-              {r.claim_status === "claimed" && r.code ? <CodeAccess code={r.code} name={r.first_name || r.name} access={r.access} tracking={r.access_tracking !== false} onChanged={onChanged} /> : null}
+              {!limited && r.claim_status === "claimed" && r.code ? <CodeAccess code={r.code} name={r.first_name || r.name} access={r.access} tracking={r.access_tracking !== false} onChanged={onChanged} /> : null}
 
               {pending && r.link ? <ShareBar code={r.code} link={r.link} phone={r.phone} firstName={r.first_name} advisor={r.approved_by} /> : null}
 
@@ -433,16 +435,16 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
                               </span>
                               <span className={cx("taw-status", "taw-status--" + (st.tone === "ok" ? "success" : st.tone === "bad" ? "danger" : "warn"))}>{st.text}</span>
                             </div>
-                            {j.status === "redeemed" && j.access ? <CodeAccess code={j.code} name={j.first_name || j.name || "them"} access={j.access} onChanged={onChanged} /> : null}
+                            {!limited && j.status === "redeemed" && j.access ? <CodeAccess code={j.code} name={j.first_name || j.name || "them"} access={j.access} onChanged={onChanged} /> : null}
                             {j.status === "unused" && j.link && !j.expired ? <ShareBar code={j.code} link={j.link} phone={j.phone} firstName={j.first_name} advisor={r.approved_by} /> : null}
-                            {j.status !== "revoked" ? (
+                            {j.status !== "revoked" && (!limited || j.status === "unused") ? (
                               <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
                                 {j.status === "unused" && !j.expired ? (
                                   <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy === j.code + ":resend"} onClick={() => run(j.code + ":resend", () => siteResendInvitePerson(j.code), () => "Invitation emailed again to " + (j.email || j.name) + ".")}>
                                     {busy === j.code + ":resend" ? <Spinner /> : <Icon name="mail" size={12} />} Email again
                                   </button>
                                 ) : null}
-                                <button
+                                {limited ? null : <button
                                   className="taw-btn taw-btn--ghost taw-btn--sm"
                                   disabled={busy === j.code}
                                   onClick={() => {
@@ -452,7 +454,7 @@ export function ApprovedRequestsList({ rows, loading, onChanged }: { rows: any[]
                                   }}
                                 >
                                   {busy === j.code ? <Spinner /> : <Icon name="x" size={12} />} {j.status === "redeemed" ? "Take back" : "Remove"}
-                                </button>
+                                </button>}
                               </div>
                             ) : null}
                           </div>

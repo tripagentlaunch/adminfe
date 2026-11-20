@@ -10,6 +10,7 @@ import { advisorWorkbench, call as apiCall, inr } from "../../services/api";
 import { cx } from "../../lib/cx";
 import { errText, toast, shortId } from "../../lib/advisorHelpers";
 import { Card, Empty, Spinner, Icon } from "../ui";
+import { AccessRequestsSection } from "./AdminPanel";
 
 function tierMeta(tier: any) {
   const t = String(tier || "auto");
@@ -37,7 +38,7 @@ export function ApprovalsPanel(props: any) {
   const membersById = props.membersById || {};
   const onOpenOrder = props.onOpenOrder || (() => {});
 
-  const [sub, setSub] = useState("inbox"); // 'inbox' | 'workload'
+  const [sub, setSub] = useState("inbox"); // 'inbox' | 'workload' | 'access'
   const [scope, setScope] = useState("mine"); // inbox scope
 
   const [inbox, setInbox] = useState<any>(null); // {counts, items, scope, caller_*}
@@ -506,7 +507,7 @@ export function ApprovalsPanel(props: any) {
       <Card
         title="Approvals"
         icon={<Icon name="shield" size={18} />}
-        sub={sub === "workload" ? "Your workload & SLA" : "Decisions inbox"}
+        sub={sub === "workload" ? "Your workload & SLA" : sub === "access" ? "People asking to join" : "Decisions inbox"}
         actions={
           <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} disabled={loading} aria-label="Refresh approvals">
             {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
@@ -516,6 +517,7 @@ export function ApprovalsPanel(props: any) {
         <div className="taw-desk-tabs" role="tablist" aria-label="Approvals view" style={{ marginBottom: 16 }}>
           {SubBtn("inbox", "shield", "Inbox")}
           {SubBtn("workload", "sliders", "Workload")}
+          {SubBtn("access", "mail", "Access requests")}
         </div>
         {err ? (
           <div className="taw-banner taw-banner--err" style={{ marginBottom: 12 }}>
@@ -530,7 +532,9 @@ export function ApprovalsPanel(props: any) {
           </div>
         ) : null}
 
-        {loading && !inbox && !work ? (
+        {sub === "access" ? (
+          <AccessRequestsSection limited />
+        ) : loading && !inbox && !work ? (
           <div className="taw-skel" style={{ height: 160 }} />
         ) : sub === "workload" ? (
           renderWorkload()
