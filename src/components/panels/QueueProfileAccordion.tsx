@@ -76,7 +76,7 @@ export function QueueProfileAccordion(props: any) {
     onConvoTarget,
   } = props;
   const setConvo = (t: any) => { if (onConvoTarget) onConvoTarget(t); };
-  const { travellers } = useWorkbench();
+  const { travellers, travellersLoading, travellersError, inboxSlow, reloadInbox } = useWorkbench();
 
   // showList — true after "All travellers", until the next pick. With
   // nothing selected the list shows regardless.
@@ -160,7 +160,10 @@ export function QueueProfileAccordion(props: any) {
           {showTravellerList ? (
             <TravellerList
               travellers={travellers}
-              loading={inboxLoading}
+              loading={travellersLoading}
+              error={travellersError}
+              slow={inboxSlow}
+              onRetry={() => { reloadInbox(); }}
               enquiries={enquiries}
               selectedKey={picked ? picked.key : null}
               selectedMemberId={member && member.id}
@@ -345,8 +348,11 @@ function TravellerHoverPreview({ t, x, y, rows }: { t: any; x: number; y: number
   );
 }
 
-function TravellerList({ travellers, loading, enquiries, selectedKey, selectedMemberId, onSelect }: {
+function TravellerList({ travellers, loading, error, slow, onRetry, enquiries, selectedKey, selectedMemberId, onSelect }: {
   travellers: any[];
+  error?: string | null;
+  slow?: boolean;
+  onRetry?: () => void;
   enquiries: any[];
   loading: boolean;
   selectedKey: string | null;
@@ -394,8 +400,16 @@ function TravellerList({ travellers, loading, enquiries, selectedKey, selectedMe
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+      {error ? (
+        <div className="taw-banner taw-banner--warn" style={{ margin: "0 0 10px", whiteSpace: "normal" }}>
+          {error} {onRetry ? <button type="button" className="taw-btn taw-btn--sm" onClick={onRetry}>Try again</button> : null}
+        </div>
+      ) : null}
       {loading && !travellers.length ? (
-        <Empty icon={<Icon name="user" size={26} />}>Loading travellers…</Empty>
+        <Empty icon={<Icon name="user" size={26} />}>
+          Loading travellers…
+          {slow ? <div className="taw-muted" style={{ marginTop: 6 }}>The server is waking up — this can take up to a minute.</div> : null}
+        </Empty>
       ) : !filtered.length ? (
         <Empty icon={<Icon name="user" size={26} />}>{q ? "No travellers match that search." : "No travellers yet."}</Empty>
       ) : (

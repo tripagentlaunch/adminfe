@@ -36,6 +36,10 @@ export interface WorkbenchContextValue {
   setBackToSummaryFor: (id: string | null) => void;
   enquiries: any[];
   inboxLoading: boolean;
+  travellersLoading: boolean;
+  travellersError: string | null;
+  /** The inbox is taking long (a sleeping server): say so. */
+  inboxSlow: boolean;
   reloadInbox: () => Promise<void>;
   creating: boolean;
   justCreated: string | null;

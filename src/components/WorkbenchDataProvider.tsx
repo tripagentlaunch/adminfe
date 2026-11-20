@@ -58,6 +58,11 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   const [travellers, setTravellers] = useState<any[]>([]);
   const [enquiries, setEnquiries] = useState<any[]>([]);
   const [inboxLoading, setInboxLoading] = useState(true);
+  // The traveller list is built from its own three requests and appears as soon as they are in (it used to wait for all six of the
+  // inbox's requests, including the admin backend, which can be asleep for a minute). Each request has a time limit; a failure is said, not hidden.
+  const [travellersLoading, setTravellersLoading] = useState(true);
+  const [travellersError, setTravellersError] = useState<string | null>(null);
+  const [inboxSlow, setInboxSlow] = useState(false);
   const [creating, setCreating] = useState(false);
   const [justCreated, setJustCreated] = useState<string | null>(null);
   const [focusOrderId, setFocusOrderId] = useState<string | null>(null);
@@ -150,15 +155,38 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
   // in Queue and the Traveller Profile list without a page refresh.
   function reloadInbox() {
     setInboxLoading(true);
-    return Promise.all([
-      fetchAdvisors("select=*&order=name.asc").catch(() => []),
-      fetchMembers("select=*&order=name.asc&limit=500").catch(() => []),
-      fetchEnquiries("select=*&order=created_at.desc&limit=60").catch(() => []),
-      enquiryPipelineStatus().catch(() => null),
-      fetchSiteMembers("select=*&order=created_at.desc&limit=1000").catch(() => []),
-      fetchSiteInvitationCodes("select=*&order=created_at.desc&limit=1000").catch(() => []),
-    ]).then(([adv, mem, enq, pipeline, siteMem, invites]: any) => {
+    setTravellersLoading(true);
+    setTravellersError(null);
+    setInboxSlow(false);
+    const slowTimer = setTimeout(() => setInboxSlow(true), 6000);
+    // One request, at most REQUEST_LIMIT_MS: a stalled one counts as failed instead of holding the screen for good.
+    let travellersFailed = false;
+    const REQUEST_LIMIT_MS = 20000;
+    const limited = <T,>(p: Promise<T>): Promise<T> =>
+      new Promise<T>((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error("timeout")), REQUEST_LIMIT_MS);
+        p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+      });
+    const soft = <T,>(p: Promise<T>, fallback: T, counts?: boolean): Promise<T> =>
+      limited(p).catch(() => { if (counts) travellersFailed = true; return fallback; });
+
+    const advP = soft<any>(fetchAdvisors("select=*&order=name.asc"), []);
+    const memP = soft<any>(fetchMembers("select=*&order=name.asc&limit=500"), [], true);
+    const enqP = soft<any>(fetchEnquiries("select=*&order=created_at.desc&limit=60"), []);
+    const siteMemP = soft<any>(fetchSiteMembers("select=*&order=created_at.desc&limit=1000"), [], true);
+    const invP = soft<any>(fetchSiteInvitationCodes("select=*&order=created_at.desc&limit=1000"), [], true);
+
+    // The Traveller Profile list: as soon as members, site members and invitation codes are in.
+    Promise.all([memP, siteMemP, invP]).then(([mem, siteMem, invites]: any) => {
       setTravellers(buildTravellers(mem || [], siteMem || [], invites || []));
+      setTravellersLoading(false);
+      setTravellersError(travellersFailed ? "Some of the traveller details didn't load in time. Try again." : null);
+    });
+
+    // The queue: advisors, members and enquiries (not the pipeline status, which comes in on its own below).
+    const core = Promise.all([advP, memP, enqP]).then(([adv, mem, enq]: any) => {
+      clearTimeout(slowTimer);
+      setInboxSlow(false);
       setAdvisors(adv || []);
       if (!advisorId && adv && adv.length) setAdvisorId(adv[0].id);
       setMembers(mem || []);
@@ -182,14 +210,19 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         const last = lastId ? (enq || []).find((e: any) => e.id === lastId) : null;
         if (last) pickEnquiry(last, last.member_id ? byId[last.member_id] : undefined, true);
       }
+    });
 
+    // The trip statuses (the admin backend, which may be waking up) fill in whenever they arrive.
+    soft<any>(enquiryPipelineStatus(), null).then((pipeline: any) => {
       const statusByEnquiry: Record<string, any> = {};
-      ((pipeline && pipeline.statuses) || []).forEach((s: any) => {
-        statusByEnquiry[s.enquiry_id] = s;
+      ((pipeline && pipeline.statuses) || []).forEach((st: any) => {
+        statusByEnquiry[st.enquiry_id] = st;
       });
       setPipelineStatusByEnquiry(statusByEnquiry);
       pipelineReadAt.current = Date.now();
     });
+
+    return core;
   }
 
   useEffect(() => {
@@ -696,6 +729,9 @@ export function WorkbenchDataProvider({ advisorId: sessionAdvisorId, children }:
         setBackToSummaryFor,
         enquiries,
         inboxLoading,
+        travellersLoading,
+        travellersError,
+        inboxSlow,
         reloadInbox,
         creating,
         justCreated,
