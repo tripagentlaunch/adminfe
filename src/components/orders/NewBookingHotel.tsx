@@ -501,8 +501,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           // Tripsure lists some rates in the room list that it then can't price ("The selected room(s) are sold out."):
           // say what it said, and let the picker mark the rate instead of a vague "no rate".
           const why = String(r.partnerErrorMsg || "").trim();
-          const err: any = new Error(why || "Tripsure returned no rate for this room.");
+          // No reason given: TripSure answered with nothing to price. On this preprod that nearly always means the search it priced from has
+          // expired (or it is busy) - not that this room is gone - so say that, and offer a fresh search instead of a dead end.
+          const err: any = new Error(why || "TripSure gave no price for this room. Its search has probably expired or it is busy - try again, or search again for a fresh one.");
           err.soldOut = /sold out|no longer available|not available|unavailable/i.test(why);
+          err.noAnswer = !why;
           throw err;
         }
         return {
@@ -530,6 +533,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   }
 
   // Reserve: Tripsure's live check first, then the review page (nothing is added until Continue there).
+  const retriedCheck = useRef<Record<string, boolean>>({}); // rooms already asked a second time after an empty answer
   function reserve(opt: any) {
     const have = checks[opt.code];
     if (have && have.state === "ok") { setReviewing({ opt, chk: have }); return; }
@@ -539,7 +543,13 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         if (chk.changeInPrice || Math.round(chk.total) !== Math.round(chk.hotelsShown)) setPriceAlert({ title: opt.title, was: chk.hotelsShown, now: chk.total }); })
       .catch((e: any) => {
         const soldOut = !!(e && e.soldOut);
-        setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e), soldOut } }));
+        // TripSure sometimes answers empty once and fine a moment later: ask one more time by itself before giving up.
+        if (e && e.noAnswer && !retriedCheck.current[opt.code]) {
+          retriedCheck.current[opt.code] = true;
+          setTimeout(() => reserve(opt), 2000);
+          return;
+        }
+        setChecks((c) => ({ ...c, [opt.code]: { state: "err", msg: errText(e), soldOut, noAnswer: !!(e && e.noAnswer) } }));
         if (soldOut) {
           // Nothing else to do with this rate: select the cheapest rate that isn't known to be sold out
           // (the same room's other rates first), so the advisor can press Reserve again straight away.
@@ -1511,7 +1521,17 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
                 {changed ? `Price changed from ${inr(chk.listed)} to ${inr(chk.total)}. ` : ""}{chk.changes && chk.changes.length ? `${chk.changes.join("; ")}. ` : ""}Tell the customer before reserving.
               </div>
             ) : null}
-            {chk.state === "err" ? <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>{chk.soldOut ? `Tripsure says: ${chk.msg} Pick another rate or room - this one was marked sold out.` : chk.msg}</div> : null}
+            {chk.state === "err" ? (
+              <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
+                {chk.soldOut ? `Tripsure says: ${chk.msg} Pick another rate or room - this one was marked sold out.` : chk.msg}
+                {chk.noAnswer && sel ? (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <button type="button" className="taw-btn taw-btn--sm" onClick={() => { retriedCheck.current[sel.code] = false; setChecks((c) => { const n = { ...c }; delete n[sel.code]; return n; }); reserve(sel); }}>Try again</button>
+                    <button type="button" className="taw-btn taw-btn--sm" onClick={() => { leaveDetail(); runSearch(); }}>Search again</button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {overCapacity(roomsCfg, sel.sleeps).length ? (
               <div className="taw-banner taw-banner--warn" style={{ whiteSpace: "normal" }}>
                 This room sleeps {sel.sleeps}, but {overCapacity(roomsCfg, sel.sleeps).map((i) => `Room ${i + 1} has ${roomParty(roomsCfg[i])} guests`).join("; ")}. Pick a larger room, or change who is in each room.
