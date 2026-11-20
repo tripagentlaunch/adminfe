@@ -94,14 +94,15 @@ function CardDesc({ text }: { text: string }) {
   );
 }
 
-function EatCards({ entries, guideTab = "eat", compact = false }: { entries: any[]; guideTab?: "eat" | "do" | "party"; compact?: boolean }) {
+function EatCards({ entries, guideTab = "eat", compact = false, flat = false }: { entries: any[]; guideTab?: "eat" | "do" | "party"; compact?: boolean; flat?: boolean }) {
   const tiers = tiersOf(entries);
   const [picked, setPicked] = useState<string>("");
   const tier = tiers.includes(picked) ? picked : tiers[0];
-  const shown = tiers.length > 1 ? entries.filter((e) => (e.tier || "Picks") === tier) : entries;
+  // flat: every place in one list, no Fine / Smart tabs (the Suggestions tab shows the places the advisor picked, not the website's tiers)
+  const shown = !flat && tiers.length > 1 ? entries.filter((e) => (e.tier || "Picks") === tier) : entries;
   return (
     <>
-      {tiers.length > 1 ? (
+      {!flat && tiers.length > 1 ? (
         <div className="pv-eatt" role="tablist" aria-label="Kind of place">
           {tiers.map((t) => (
             <button key={t} type="button" role="tab" aria-selected={t === tier} className={"pv-eatt-btn" + (t === tier ? " is-active" : "")} onClick={() => setPicked(t)}>
@@ -799,7 +800,7 @@ function SuggestionsTab({ data }: { data: any }) {
               <span className="pv-recgroup-title">{g.city}</span>
               {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, cur.key)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
             </div>
-            <EatCards entries={g.picks} guideTab={cur.key} />
+            <EatCards entries={g.picks} guideTab={cur.key} flat />
           </div>
         ))}
       </div>
