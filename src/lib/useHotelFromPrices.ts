@@ -9,6 +9,8 @@ import { FROM_PRICES, fromKey } from "./hotelAlternatives";
 /** The rates call failed for this hotel (when): shown as "Price on selection", asked again after a minute. */
 export const FROM_FAILED = new Map<string, number>();
 const RETRY_FAILED_MS = 15_000;
+const BATCH = 3;
+const WORKERS = 5;
 const MAX_AUTO_RETRIES = 4; // a busy TripSure usually answers a little later: ask again by itself, a few times
 
 export function useHotelFromPrices(visibleOffers: any[], enabled: boolean): number {
@@ -24,7 +26,9 @@ export function useHotelFromPrices(visibleOffers: any[], enabled: boolean): numb
     todo.forEach((t: any) => FROM_FAILED.delete(fromKey(t)));
     let live = true;
     const batches: any[][] = [];
-    for (let i = 0; i < todo.length; i += 5) batches.push(todo.slice(i, i + 5));
+    // Small batches, more of them at once (same 15 hotels in flight as before): a price shows up as soon as its own few hotels answer
+    // instead of waiting for the slowest of five, and one slow hotel holds up two others, not four.
+    for (let i = 0; i < todo.length; i += BATCH) batches.push(todo.slice(i, i + BATCH));
     let next = 0;
     let stopped = false;
     const failRest = (from: number) => batches.slice(from).forEach((b) => b.forEach((t: any) => FROM_FAILED.set(fromKey(t), Date.now())));
@@ -52,7 +56,7 @@ export function useHotelFromPrices(visibleOffers: any[], enabled: boolean): numb
       }
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
-    Promise.all([worker(), worker(), worker()]).then(() => {
+    Promise.all(Array.from({ length: WORKERS }, () => worker())).then(() => {
       const missing = todo.some((t: any) => FROM_FAILED.has(fromKey(t)) && !FROM_PRICES.has(fromKey(t)));
       if (live && missing && autoRetries.current < MAX_AUTO_RETRIES) {
         autoRetries.current += 1;
