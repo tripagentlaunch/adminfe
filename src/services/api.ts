@@ -3054,6 +3054,25 @@ function adminUpdateAdvisor(id, updates) {
   return fastapiCall("/admin/advisors/" + encodeURIComponent(id), { method: "PATCH", body: updates });
 }
 
+// adminMe() -> { email, super_admin }: whether the signed-in admin is one of the super admins (the server re-checks every action).
+function adminMe() {
+  return fastapiCall("/admin/me", { method: "GET" });
+}
+// adminCreateAdvisor({ name, email, role: "advisor" | "admin", password? }) -> super admin only.
+// With a password the login exists at once ({ mode: "created" }); without one an invite email goes out ({ mode: "invited" }).
+function adminCreateAdvisor(body) {
+  return fastapiCall("/admin/advisors", { method: "POST", body: body });
+}
+function adminListAdvisorInvites() {
+  return fastapiCall("/admin/advisor-invites", { method: "GET" });
+}
+function adminCancelAdvisorInvite(id) {
+  return fastapiCall("/admin/advisor-invites/" + encodeURIComponent(id) + "/cancel", { method: "POST", body: {} });
+}
+function adminResendAdvisorInvite(id) {
+  return fastapiCall("/admin/advisor-invites/" + encodeURIComponent(id) + "/resend", { method: "POST", body: {} });
+}
+
 // adminListOrders() -> every order, unfiltered by advisor/member
 function adminListOrders() {
   return fastapiCall("/admin/orders", { method: "GET" });
@@ -3350,6 +3369,11 @@ export {
   // Admin oversight (admin-only; server re-checks role on every call)
   adminListAdvisors,
   adminUpdateAdvisor,
+  adminMe,
+  adminCreateAdvisor,
+  adminListAdvisorInvites,
+  adminCancelAdvisorInvite,
+  adminResendAdvisorInvite,
   adminListOrders,
   adminAssignEnquiry,
 

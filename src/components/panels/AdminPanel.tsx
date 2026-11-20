@@ -16,6 +16,11 @@ import { useEffect, useState } from "react";
 import {
   adminListAdvisors,
   adminUpdateAdvisor,
+  adminMe,
+  adminCreateAdvisor,
+  adminListAdvisorInvites,
+  adminCancelAdvisorInvite,
+  adminResendAdvisorInvite,
   adminListOrders,
   adminAssignEnquiry,
   enquiries as fetchEnquiries,
@@ -35,11 +40,93 @@ import { errText, toast, shortId, fmtDate, fmtTime } from "../../lib/advisorHelp
 import { Card, Empty, Spinner, Icon } from "../ui";
 import { ApiCostsSection } from "./ApiCostsSection";
 
+// "Add advisor" (super admins only): name, email and role, then either a password typed now (the login works at once) or no
+// password (an invite email lets them set their own).
+function AddAdvisorForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("advisor");
+  const [how, setHow] = useState<"password" | "invite">("password");
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const okEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const ready = name.trim() && okEmail && (how === "invite" || password.length >= 8);
+
+  function suggest() {
+    const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const buf = new Uint32Array(12);
+    window.crypto.getRandomValues(buf);
+    setPassword(Array.from(buf).map((n) => chars[n % chars.length]).join(""));
+    setShow(true);
+  }
+  function save() {
+    setBusy(true);
+    adminCreateAdvisor({ name: name.trim(), email: email.trim(), role, password: how === "password" ? password : undefined })
+      .then((r: any) => {
+        setBusy(false);
+        toast(r && r.mode === "created" ? name.trim() + " can log in now with " + email.trim() : "Invitation emailed to " + email.trim(), "success");
+        onDone();
+      })
+      .catch((e: any) => {
+        setBusy(false);
+        toast(errText(e), "error");
+      });
+  }
+  return (
+    <div style={{ padding: 14, border: "1px solid var(--line, rgba(0,0,0,.1))", borderRadius: 10, marginBottom: 14 }}>
+      <b>Add an advisor or admin</b>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginTop: 10 }}>
+        <label className="taw-field"><span>Name</span><input className="taw-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" /></label>
+        <label className="taw-field"><span>Email (their login)</span><input className="taw-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" /></label>
+        <label className="taw-field"><span>Role</span>
+          <select className="taw-input" value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="advisor">Advisor — works enquiries and orders</option>
+            <option value="admin">Admin — sees the Admin tab too</option>
+          </select>
+        </label>
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", margin: "12px 0 6px", fontSize: 13 }}>
+        <label><input type="radio" checked={how === "password"} onChange={() => setHow("password")} /> I set the password now</label>
+        <label><input type="radio" checked={how === "invite"} onChange={() => setHow("invite")} /> Email them an invitation to set their own</label>
+      </div>
+      {how === "password" ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input className="taw-input" style={{ maxWidth: 260 }} type={show ? "text" : "password"} placeholder="Password (8 or more characters)" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" />
+          <button type="button" className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => setShow((v) => !v)}>{show ? "Hide" : "Show"}</button>
+          <button type="button" className="taw-btn taw-btn--ghost taw-btn--sm" onClick={suggest}>Suggest a password</button>
+          {password && password.length < 8 ? <span style={{ fontSize: 12, color: "var(--danger, #a33)" }}>At least 8 characters</span> : null}
+        </div>
+      ) : (
+        <div style={{ fontSize: 12.5, color: "var(--taupe)" }}>They get an email with a link (valid 7 days) to choose their password.</div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <button type="button" className="taw-btn taw-btn--accent taw-btn--sm" disabled={!ready || busy} onClick={save}>
+          {busy ? <Spinner /> : <Icon name="check" size={13} />} {how === "password" ? "Create login" : "Send invitation"}
+        </button>
+        <button type="button" className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busy} onClick={onCancel}>Cancel</button>
+      </div>
+      {how === "password" ? <div style={{ fontSize: 12, color: "var(--taupe)", marginTop: 8 }}>Share the password with them yourself; it is not shown again.</div> : null}
+    </div>
+  );
+}
+
 function AgentsSection() {
   const [rows, setRows] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<any>(null);
   const [busyId, setBusyId] = useState<any>(null);
+  const [isSuper, setIsSuper] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [invites, setInvites] = useState<any[]>([]);
+
+  useEffect(() => {
+    adminMe().then((m: any) => setIsSuper(!!(m && m.super_admin))).catch(() => setIsSuper(false));
+  }, []);
+  function loadInvites() {
+    adminListAdvisorInvites().then((l: any) => setInvites(Array.isArray(l) ? l : [])).catch(() => setInvites([]));
+  }
+  useEffect(() => { if (isSuper) loadInvites(); }, [isSuper]);
 
   function load() {
     setLoading(true);
@@ -55,6 +142,21 @@ function AgentsSection() {
       });
   }
   useEffect(load, []);
+
+  function changeRole(advisor: any, role: string) {
+    if (!window.confirm("Make " + advisor.name + " " + (role === "admin" ? "an admin" : "an advisor") + "?")) return;
+    setBusyId(advisor.id);
+    adminUpdateAdvisor(advisor.id, { role })
+      .then(() => { setBusyId(null); toast(advisor.name + " is now " + role, "success"); load(); })
+      .catch((e: any) => { setBusyId(null); toast(errText(e), "error"); });
+  }
+  function inviteAction(inv: any, what: "resend" | "cancel") {
+    if (what === "cancel" && !window.confirm("Cancel the invitation to " + inv.email + "?")) return;
+    setBusyId(inv.id);
+    (what === "resend" ? adminResendAdvisorInvite(inv.id) : adminCancelAdvisorInvite(inv.id))
+      .then(() => { setBusyId(null); toast(what === "resend" ? "Invitation sent again to " + inv.email : "Invitation cancelled", "success"); loadInvites(); })
+      .catch((e: any) => { setBusyId(null); toast(errText(e), "error"); });
+  }
 
   function toggleStatus(advisor: any) {
     const nextStatus = advisor.status === "active" ? "inactive" : "active";
@@ -77,12 +179,45 @@ function AgentsSection() {
       icon={<Icon name="user" size={18} />}
       sub={rows ? rows.length + " advisors" : ""}
       actions={
-        <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} disabled={loading} aria-label="Refresh advisors">
-          {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
-        </button>
+        <>
+          {isSuper ? (
+            <button className="taw-btn taw-btn--accent taw-btn--sm" onClick={() => setAdding((v) => !v)}>
+              <Icon name="user" size={13} /> Add advisor
+            </button>
+          ) : null}
+          <button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={() => { load(); if (isSuper) loadInvites(); }} disabled={loading} aria-label="Refresh advisors">
+            {loading ? <Spinner /> : <Icon name="refresh" size={14} />}
+          </button>
+        </>
       }
     >
       <div style={{ padding: 16 }}>
+        {isSuper && adding ? <AddAdvisorForm onCancel={() => setAdding(false)} onDone={() => { setAdding(false); load(); loadInvites(); }} /> : null}
+        {isSuper && invites.length ? (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--taupe)", marginBottom: 6 }}>Waiting to join</div>
+            <div className="taw-qlist">
+              {invites.map((inv: any) => (
+                <div key={inv.id} className="taw-qrow">
+                  <div className="taw-qrow-main">
+                    <div className="taw-qrow-top">
+                      <span className="taw-qtype taw-icrow"><Icon name="user" size={13} />{inv.name}</span>
+                      <span className="taw-qbadge">{inv.role}</span>
+                    </div>
+                    <div className="taw-qrow-meta">
+                      <span>{inv.email}</span>
+                      <span className="taw-status taw-status--PENDING">{inv.status === "email_failed" ? "email failed" : "invited"}</span>
+                    </div>
+                  </div>
+                  <div className="taw-qrow-actions" style={{ display: "flex", gap: 8 }}>
+                    <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busyId === inv.id} onClick={() => inviteAction(inv, "resend")}>Resend</button>
+                    <button className="taw-btn taw-btn--ghost taw-btn--sm" disabled={busyId === inv.id} onClick={() => inviteAction(inv, "cancel")}>Cancel</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {err ? (
           <div className="taw-banner taw-banner--err">
             <Icon name="alert" size={16} />
@@ -106,22 +241,31 @@ function AgentsSection() {
                       {a.name}
                     </span>
                     <span className="taw-qbadge">{a.role}</span>
+                    {a.super_admin ? <span className="taw-qbadge" style={{ background: "var(--ink, #171310)", color: "#fff" }}>Super admin</span> : null}
                   </div>
                   <div className="taw-qrow-meta">
                     <span>{a.email}</span>
                     <span className={cx("taw-status", "taw-status--" + (a.status === "active" ? "BOOKED" : "CANCELLED"))}>{a.status}</span>
                   </div>
                 </div>
-                <div className="taw-qrow-actions">
-                  <button
-                    className={cx("taw-btn", "taw-btn--sm", a.status === "active" ? "taw-btn--danger" : "taw-btn--accent")}
-                    disabled={busyId === a.id}
-                    onClick={() => toggleStatus(a)}
-                  >
-                    {busyId === a.id ? <Spinner /> : <Icon name={a.status === "active" ? "alert" : "check"} size={13} />}
-                    {a.status === "active" ? "Deactivate" : "Activate"}
-                  </button>
-                </div>
+                {isSuper && !a.super_admin ? (
+                  <div className="taw-qrow-actions" style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <select className="taw-input" style={{ width: 120 }} value={a.role === "admin" ? "admin" : a.role === "advisor" ? "advisor" : ""} disabled={busyId === a.id}
+                      onChange={(e) => e.target.value && e.target.value !== a.role && changeRole(a, e.target.value)} aria-label={"Role of " + a.name}>
+                      {a.role !== "admin" && a.role !== "advisor" ? <option value="">{a.role}</option> : null}
+                      <option value="advisor">Advisor</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                    <button
+                      className={cx("taw-btn", "taw-btn--sm", a.status === "active" ? "taw-btn--danger" : "taw-btn--accent")}
+                      disabled={busyId === a.id}
+                      onClick={() => toggleStatus(a)}
+                    >
+                      {busyId === a.id ? <Spinner /> : <Icon name={a.status === "active" ? "alert" : "check"} size={13} />}
+                      {a.status === "active" ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
