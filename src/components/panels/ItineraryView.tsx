@@ -363,6 +363,21 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
   // the same way inserting a new Search-added day already does, or the
   // displayed date and the day's real identity would silently drift
   // apart the moment an advisor corrects one.
+  // The place the day is headed (the "Arpora" next to Day 1): TripSure names a stay by its locality, but the
+  // customer asked for "South Goa" — the advisor types the name that belongs on the plan and the proposal.
+  function updateDayRoute(dayId: string, place: string) {
+    setData((d: any) => ({ ...d, days: d.days.map((day: any) => (day.id === dayId ? { ...day, route: place } : day)) }));
+  }
+  // The trip's own name ("South Goa"). Typed by hand, so withTripSummary never recomputes it from the flight/stay.
+  function updateDestination(place: string) {
+    setData((d: any) => ({
+      ...d,
+      destination: place,
+      cities: (d.cities || []).length <= 1 ? [place] : d.cities,
+      _autoSummary: { ...(d._autoSummary || {}), destination: false },
+    }));
+  }
+
   function updateDayDate(dayId: string, newIso: string) {
     setData((d: any) => {
       const patched = d.days.map((day: any) => (day.id === dayId ? { ...day, _iso: newIso, date: fmtDayDate(newIso) } : day));
@@ -615,7 +630,8 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         <div className="taw-itin-summary-head">
           <div>
             <div className="taw-itin-summary-title">
-              {[summary.destination, summary.dateRange].filter(Boolean).join(" · ") || "New itinerary"}
+              <EditableText value={summary.destination || ""} placeholder="New itinerary" onCommit={updateDestination} />
+              {summary.dateRange ? " · " + summary.dateRange : ""}
             </div>
             <div className="taw-itin-summary-sub">
               {[
@@ -927,7 +943,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
                   <span className="taw-status taw-status--warn">Outside itinerary dates</span>
                 </>
               )}
-              <span className="taw-itin-day-route">{day.route}</span>
+              <EditableText className="taw-itin-day-route" value={day.route || ""} placeholder="Add place" onCommit={(v) => updateDayRoute(day.id, v)} />
               <span className="taw-itin-day-total">{dayTotalLabel(day)}</span>
             </div>
             {open ? (
