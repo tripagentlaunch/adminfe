@@ -287,7 +287,7 @@ function IncludeDayControl({ day, suggested, onInclude }: { day: any; suggested:
 
 export function ItineraryView({ enquiryId, member }: { enquiryId: string; member: any }) {
   const router = useRouter();
-  const { sendItineraryToProposal, addSearchItemToItinerary, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
+  const { sendItineraryToProposal, itinerariesByEnquiry, updateItineraryData, travellerProfile, retryingSearch, retryItinerarySearch, unlockItinerary, startNewTrip, advisors } = useWorkbench();
   // Sourced from WorkbenchContext now, not local state (2026-09-03) —
   // this used to be a useState clone of MOCK_ITINERARY, gone the moment
   // you navigated away; now it's keyed by enquiryId in shared context so
@@ -812,9 +812,7 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         planHidden ? (
           <button type="button" className="taw-btn taw-btn--sm" onClick={() => setPlanHidden(false)}><Icon name="sparkle" size={13} /> Show the trip plan</button>
         ) : (
-          <ScratchPlanner plan={data.scratchPlan} data={data} enquiryId={enquiryId} addedHotelKeys={addedHotelKeys}
-            onAddFlight={(cart) => addSearchItemToItinerary(enquiryId, cart)} onAddHotel={addRecommendedHotel}
-            onAddDining={addDiningToDate} onAddActivity={addActivityToDate} onHide={() => setPlanHidden(true)} />
+          <ScratchPlanner plan={data.scratchPlan} data={data} onAddDining={addDiningToDate} onAddActivity={addActivityToDate} onHide={() => setPlanHidden(true)} />
         )
       ) : null}
 

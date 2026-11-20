@@ -1,17 +1,19 @@
 "use client";
-/* "Start from scratch", asked as a short conversation instead of a blank itinerary: where, how much, from where, when, how many.
+/* "Start from scratch", asked as a short conversation instead of a blank itinerary: where, how many, how much, when.
    What the advisor already knows from the enquiry is filled in (press Enter to accept it). No LLM: the answers are the search —
-   the planner (ScratchPlanner) turns them into flights, hotels, places to eat and things to do. */
+   the planner (ScratchPlanner) lists where to eat, things to do and a night out from the city page. */
 import { useMemo, useRef, useState } from "react";
 import { Icon } from "../ui";
 import { boundFromDateRange, addDaysIso } from "../../lib/itineraryFromCart";
-import { parseBudgetText, parseDestination } from "../../lib/scratchPlan";
-import { shortMoney, type Budget } from "../../lib/tripBudget";
+import { budgetBasisIn, budgetOnBasis, parseBudgetText, parseDestination } from "../../lib/scratchPlan";
+import { budgetRange, shortMoney, type Budget } from "../../lib/tripBudget";
 import { todayISO } from "../../lib/advisorHelpers";
+
+const inr = (n: number) => "₹" + Math.round(n).toLocaleString("en-IN");
 
 export type ScratchAnswers = { destination: string; budget: Budget | null; from: string; startIso: string; nights: number; adults: number };
 
-type StepKey = "destination" | "budget" | "from" | "dates" | "adults";
+type StepKey = "destination" | "adults" | "budget" | "dates";
 
 export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
   ask: any;
@@ -36,8 +38,9 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
 
   const [step, setStep] = useState<StepKey>("destination");
   const [destination, setDestination] = useState(known.destination);
-  const [budgetText, setBudgetText] = useState(initialBudget ? String(initialBudget.max) + (initialBudget.per === "person" ? " per person" : "") : "");
-  const [from, setFrom] = useState(known.from);
+  const [budgetText, setBudgetText] = useState(initialBudget ? String(initialBudget.max) : "");
+  // Whether the figure is for each traveller or for the whole trip: "20k" for seven people is 20k or 1.4 lakh, so it is asked, not guessed.
+  const [per, setPer] = useState<"total" | "person">(initialBudget ? initialBudget.per : "total");
   const [startIso, setStartIso] = useState(known.startIso);
   const [nights, setNights] = useState(known.nights ? String(known.nights) : "");
   const [adults, setAdults] = useState(String(known.adults));
@@ -45,22 +48,20 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
   const done = useRef<Set<StepKey>>(new Set());
 
   const adultsN = Math.max(1, parseInt(adults, 10) || 1);
-  const budget = parseBudgetText(budgetText, adultsN);
+  const budget = budgetOnBasis(parseBudgetText(budgetText, adultsN), per, adultsN);
   const place = parseDestination(destination);
   const nightsN = parseInt(nights, 10) || 0;
 
-  const order: StepKey[] = ["destination", "budget", "from", "dates", "adults"];
+  const order: StepKey[] = ["destination", "adults", "budget", "dates"];
   const answers: Record<StepKey, string> = {
     destination: place.label,
-    budget: budget ? shortMoney(budget.max) + (budget.per === "person" ? " per person" : " total") : "",
-    from,
+    budget: budget ? (budget.per === "person" ? `${shortMoney(budget.max)} per person × ${budget.pax} = ${shortMoney(budgetRange(budget)!.max)}` : `${shortMoney(budget.max)} for the whole trip`) : "",
     dates: startIso && nightsN ? `${startIso} · ${nightsN} night${nightsN === 1 ? "" : "s"}` : "",
     adults: `${adultsN} traveller${adultsN === 1 ? "" : "s"}`,
   };
   const questions: Record<StepKey, string> = {
     destination: "Where is the customer going? (Type the part too, like “South Goa”.)",
-    budget: "What is the customer's budget for the whole trip? (like 2.5 lakh, or 40k per person)",
-    from: "Which city are they flying from?",
+    budget: "What is the customer's budget? Type the amount, then choose whether it is for each traveller or for the whole trip.",
     dates: "When do they travel? Pick the first day and the number of nights.",
     adults: "How many travellers?",
   };
@@ -68,7 +69,6 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
   function check(k: StepKey): string | null {
     if (k === "destination") return place.label ? null : "Enter the place the customer is going to.";
     if (k === "budget") return budget ? null : "Enter an amount, like 2.5 lakh or 40k per person.";
-    if (k === "from") return from.trim() ? null : "Enter the city they fly from.";
     if (k === "dates") {
       if (!startIso) return "Pick the first day of the trip.";
       if (startIso < todayISO()) return "That day has passed — pick a later one.";
@@ -90,7 +90,7 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
       const why = check(k);
       if (why) { setStep(k); setProblem(why); return; }
     }
-    onDone({ destination, budget, from: from.trim(), startIso, nights: nightsN, adults: adultsN });
+    onDone({ destination, budget, from: known.from, startIso, nights: nightsN, adults: adultsN });
   }
   const onKey = (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); next(); } };
 
@@ -99,9 +99,21 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
       case "destination":
         return <input className="taw-input" autoFocus value={destination} onChange={(e) => setDestination(e.target.value)} onKeyDown={onKey} placeholder="e.g. South Goa" />;
       case "budget":
-        return <input className="taw-input" autoFocus value={budgetText} onChange={(e) => setBudgetText(e.target.value)} onKeyDown={onKey} placeholder="e.g. 2.5 lakh" />;
-      case "from":
-        return <input className="taw-input" autoFocus value={from} onChange={(e) => setFrom(e.target.value)} onKeyDown={onKey} placeholder="e.g. Bengaluru" />;
+        return (
+          <>
+            <input className="taw-input" autoFocus value={budgetText} placeholder="e.g. 20k or 2.5 lakh" onKeyDown={onKey}
+              onChange={(e) => { setBudgetText(e.target.value); const named = budgetBasisIn(e.target.value); if (named) setPer(named); }} />
+            <div className="taw-sw-basis" role="radiogroup" aria-label="What the amount is for">
+              <button type="button" role="radio" aria-checked={per === "person"} className={"taw-sw-basis-btn" + (per === "person" ? " is-on" : "")} onClick={() => setPer("person")}>Per person</button>
+              <button type="button" role="radio" aria-checked={per === "total"} className={"taw-sw-basis-btn" + (per === "total" ? " is-on" : "")} onClick={() => setPer("total")}>Whole trip</button>
+            </div>
+            {budget ? (
+              <div className="taw-sw-note taw-muted">
+                {budget.per === "person" ? `${inr(budget.max)} each × ${adultsN} traveller${adultsN === 1 ? "" : "s"} = ` : "The whole trip: "}<b>{inr(budgetRange(budget)!.max)}</b>
+              </div>
+            ) : null}
+          </>
+        );
       case "dates":
         return (
           <div className="taw-sw-pair">
@@ -120,13 +132,13 @@ export function ScratchWizard({ ask, initialBudget, busy, onDone, onCancel }: {
         <Icon name="sparkle" size={20} />
         <div>
           <div className="title">Plan this trip</div>
-          <div className="taw-muted">A few answers, then the flights, hotels and places are found for you — no AI guesswork, only live prices and the city guide.</div>
+          <div className="taw-muted">A few answers, then where to eat, what to do and where to go out are listed from the city guide, within your budget — no AI guesswork. Flights and hotels you search on the right, as always.</div>
         </div>
       </div>
       <div className="taw-sw-done">
         {order.filter((k) => done.current.has(k) && k !== step).map((k) => (
           <button key={k} type="button" className="taw-sw-chip" onClick={() => { setStep(k); setProblem(null); }} title="Change this answer">
-            <span>{k === "destination" ? "Going to" : k === "budget" ? "Budget" : k === "from" ? "Flying from" : k === "dates" ? "Travel" : "Travellers"}</span>
+            <span>{k === "destination" ? "Going to" : k === "budget" ? "Budget" : k === "dates" ? "Travel" : "Travellers"}</span>
             <b>{answers[k]}</b>
             <Icon name="edit" size={11} />
           </button>

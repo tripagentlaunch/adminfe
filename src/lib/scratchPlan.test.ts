@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { blankItinerary, withTripSummary } from "./itineraryFromCart";
-import { adjustedShares, airportCodeFor, arrivalCodeFor, budgetShares, knownCity, normalizePlan, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
+import { budgetRange } from "./tripBudget";
+import { adjustedShares, airportCodeFor, budgetBasisIn, budgetOnBasis, arrivalCodeFor, budgetShares, knownCity, normalizePlan, estimateTotals, parseBudgetText, parseDestination, roomsFor, splitNights, stayBases } from "./scratchPlan";
 
 describe("parseDestination", () => {
   it("keeps the half of Goa and searches Goa", () => {
@@ -119,5 +120,19 @@ describe("the budget split follows the real fares", () => {
     expect(adjustedShares(100000, 3, true, [20000]).need).toBe(40000);
     expect(adjustedShares(100000, 3, false, [20000]).need).toBe(20000);
     expect(adjustedShares(100000, 3, true, []).need).toBe(0);
+  });
+});
+
+describe("the budget basis", () => {
+  it("20k per person for 7 is 1.4 lakh for the trip; 20k whole trip is 20k", () => {
+    const typed = parseBudgetText("20k", 7);
+    expect(budgetRange(budgetOnBasis(typed, "person", 7))!.max).toBe(140000);
+    expect(budgetRange(budgetOnBasis(typed, "total", 7))!.max).toBe(20000);
+    expect(budgetOnBasis(null, "person", 7)).toBeNull();
+  });
+  it("reads a basis the text names", () => {
+    expect(budgetBasisIn("20k per person")).toBe("person");
+    expect(budgetBasisIn("2 lakh total")).toBe("total");
+    expect(budgetBasisIn("20k")).toBeNull();
   });
 });

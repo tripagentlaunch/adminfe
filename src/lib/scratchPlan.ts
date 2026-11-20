@@ -63,6 +63,20 @@ export function parseBudgetText(text: string, pax: number): Budget | null {
   return normalizeBudget({ min: n, max: n, per, pax });
 }
 
+/** The typed figure on the chosen basis: 20k "per person" for 7 travellers is 1.4 lakh for the trip, 20k "whole trip" is 20k. */
+export function budgetOnBasis(parsed: Budget | null, per: "total" | "person", pax: number): Budget | null {
+  if (!parsed) return null;
+  return normalizeBudget({ min: parsed.max, max: parsed.max, per, pax });
+}
+
+/** Whether the typed text names its own basis ("40k per person", "3 lakh total"), and which. */
+export function budgetBasisIn(text: string): "total" | "person" | null {
+  const s = String(text || "").toLowerCase();
+  if (/(per\s*(person|head|pax|traveller|traveler)|\/\s*(person|head|pax)|\bpp\b|each)/.test(s)) return "person";
+  if (/(\btotal\b|in all|overall|whole trip|for the trip)/.test(s)) return "total";
+  return null;
+}
+
 /** The trip's nights as one or two stays: 5 -> [3, 2], 4 -> [2, 2], 1 -> [1]. */
 export function splitNights(nights: number): number[] {
   const n = Math.max(1, Math.floor(nights || 1));

@@ -14,4 +14,8 @@ describe("ScratchWizard", () => {
     const html = renderToStaticMarkup(createElement(ScratchWizard, { ask: {}, onDone: () => {}, onCancel: () => {} }));
     expect(html).toContain('placeholder="e.g. South Goa"');
   });
+  it("asks the travellers before the budget, so the budget can say what it comes to", () => {
+    const html = renderToStaticMarkup(createElement(ScratchWizard, { ask: { destinations: ["South Goa"] }, onDone: () => {}, onCancel: () => {} }));
+    expect(html).not.toContain("Per person");   // the destination question comes first; the basis choice is on the budget step
+  });
 });
