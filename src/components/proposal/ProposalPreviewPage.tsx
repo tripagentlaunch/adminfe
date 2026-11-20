@@ -54,6 +54,7 @@ import type { AddonTable } from "../../lib/flightAddons";
 import { LiveCheckTrace } from "./LiveCheckTrace";
 import { cardTags, distanceText, eatGuideUrl, tiersOf } from "../../lib/diningPlan";
 import { buildDayCards } from "../../lib/proposalDayCards";
+import { suggestionCost, suggestionKinds, type SuggestionKind } from "../../lib/suggestions";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 import { leftText, untilText } from "../../lib/offlineBanner";
 import { payCheckWords } from "../../lib/payCheckWords";
@@ -79,7 +80,21 @@ function EatCardPhoto({ src, name }: { src: string | null; name: string }) {
 
 // "Where to eat" as the website's city page draws it: the tier tabs (when more than one tier was picked), then a grid of cards, each with
 // the restaurant's name, one headline tag, every award in its own box, the description, and the area; ours adds how far it is from the hotel.
-function EatCards({ entries, guideTab = "eat" }: { entries: any[]; guideTab?: "eat" | "do" | "party" }) {
+// A card's text: two lines, with More / Less (inside a link card the toggle must not open the page).
+function CardDesc({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 90;
+  return (
+    <>
+      <p className={"pv-eatc-desc" + (open ? " is-open" : "")}>{text}</p>
+      {long ? (
+        <button type="button" className="pv-eatc-more" onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); setOpen((v) => !v); }}>{open ? "Less" : "More"}</button>
+      ) : null}
+    </>
+  );
+}
+
+function EatCards({ entries, guideTab = "eat", compact = false }: { entries: any[]; guideTab?: "eat" | "do" | "party"; compact?: boolean }) {
   const tiers = tiersOf(entries);
   const [picked, setPicked] = useState<string>("");
   const tier = tiers.includes(picked) ? picked : tiers[0];
@@ -95,7 +110,7 @@ function EatCards({ entries, guideTab = "eat" }: { entries: any[]; guideTab?: "e
           ))}
         </div>
       ) : null}
-      <div className="pv-eatg">
+      <div className={"pv-eatg" + (compact ? " pv-eatg--compact" : "")}>
         {shown.map((e: any) => {
           const { headline, rest } = cardTags(e);
           // A card opens the city page it comes from on our website (the Goa page for a Goa restaurant), in a new tab.
@@ -112,7 +127,7 @@ function EatCards({ entries, guideTab = "eat" }: { entries: any[]; guideTab?: "e
                     {rest.map((c: string, i: number) => <li key={i}>{c}</li>)}
                   </ul>
                 ) : null}
-                {e.description ? <p className="pv-eatc-desc">{e.description}</p> : null}
+                {e.description ? (compact ? <CardDesc text={e.description} /> : <p className="pv-eatc-desc">{e.description}</p>) : null}
               </div>
               {e.area || e.distance || e.est ? (
                 <div className="pv-eatc-foot">
@@ -746,6 +761,52 @@ function DaysTab({ data, stays }: { data: any; stays?: any[] }) {
   );
 }
 
+// The Suggestions tab: a pill per kind (Where to eat / Things to do / A night out, with how many), one list at a time as compact cards,
+// and what they add up to on the ground. Everything is a suggestion: nothing here is booked.
+function SuggestionsTab({ data }: { data: any }) {
+  const kinds: SuggestionKind[] = suggestionKinds(data);
+  const [pick, setPick] = useState<string>("");
+  const cur = kinds.find((k) => k.key === pick) || kinds[0];
+  const cost = suggestionCost(kinds);
+  if (!cur) return null;
+  const cities = Array.from(new Set(kinds.flatMap((k) => k.groups.map((g) => g.city)).filter(Boolean)));
+  return (
+    <>
+      <h2 className="pv-section-title">Suggestions</h2>
+      <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
+        Our picks from the {cities.join(" and ")} city guide: suggestions only, not booked.
+      </div>
+      {cost ? (
+        <div className="pv-sugg-cost">
+          <span>On the ground{cost.pax ? ` for ${cost.pax}` : ""}</span>
+          <b>About {inr(cost.low)}–{inr(cost.high)}</b>
+          <small>estimate · from {cost.counted} of {cost.total} suggestion{cost.total === 1 ? "" : "s"}</small>
+        </div>
+      ) : null}
+      {kinds.length > 1 ? (
+        <div className="pv-dtabs pv-sugg-tabs" role="tablist" aria-label="Kind of suggestion">
+          {kinds.map((k) => (
+            <button key={k.key} type="button" role="tab" aria-selected={k.key === cur.key} className={"pv-dtab" + (k.key === cur.key ? " is-active" : "")} onClick={() => setPick(k.key)}>
+              {k.label} <span className="pv-sugg-count">{k.count}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div key={cur.key} className="pv-dcards">
+        {cur.groups.map((g) => (
+          <div className="pv-recgroup" key={cur.key + "-" + g.city}>
+            <div className="pv-recgroup-head">
+              <span className="pv-recgroup-title">{g.city}</span>
+              {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, cur.key)} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
+            </div>
+            <EatCards entries={g.picks} guideTab={cur.key} compact />
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function ProposalPreviewPage({
   data,
   onSwapHotel,
@@ -1298,41 +1359,7 @@ export function ProposalPreviewPage({
 
               {activeTab === "Days" ? <DaysTab data={data} stays={enrichedStays} /> : null}
 
-              {activeTab === "Suggestions" && hasEat ? (
-                <>
-                  <h2 className="pv-section-title">Suggestions</h2>
-                  <div className="pv-costrange-note" style={{ marginBottom: 12 }}>
-                    Our picks from the {Array.from(new Set([...(data.whereToEat || []).map((g: any) => g.city), ...(data.placesToGo || []).map((g: any) => g.city)].filter(Boolean))).join(" and ")} city guide: suggestions only, not booked.
-                  </div>
-                  {data.whereToEat?.length ? <h3 className="pv-sugg-title">Where to eat</h3> : null}
-                  {(data.whereToEat || []).map((g: any) => (
-                    <div className="pv-recgroup" key={"eat-" + g.city}>
-                      <div className="pv-recgroup-head">
-                        <span className="pv-recgroup-title">{g.city}</span>
-                        {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, "eat")} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
-                      </div>
-                      <EatCards entries={g.picks} guideTab="eat" />
-                    </div>
-                  ))}
-                  {["do", "party"].map((kind) => {
-                    const groups = (data.placesToGo || []).filter((g: any) => g.kind === kind);
-                    return groups.length ? (
-                      <Fragment key={kind}>
-                        <h3 className="pv-sugg-title">{groups[0].label}</h3>
-                        {groups.map((g: any) => (
-                          <div className="pv-recgroup" key={kind + "-" + g.city}>
-                            <div className="pv-recgroup-head">
-                              <span className="pv-recgroup-title">{g.city}</span>
-                              {g.url ? <a className="pv-recgroup-sub" href={eatGuideUrl(g.url, kind as "do" | "party")} target="_blank" rel="noopener noreferrer">The full {g.city} guide</a> : <span className="pv-recgroup-sub">From our city guide</span>}
-                            </div>
-                            <EatCards entries={g.picks} guideTab={kind as "do" | "party"} />
-                          </div>
-                        ))}
-                      </Fragment>
-                    ) : null;
-                  })}
-                </>
-              ) : null}
+              {activeTab === "Suggestions" && hasEat ? <SuggestionsTab data={data} /> : null}
               {activeTab === "Decisions" && hasVisa ? (
                 <>
                   <h2 className="pv-section-title">Before money moves</h2>
