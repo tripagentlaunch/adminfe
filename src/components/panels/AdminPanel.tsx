@@ -17,6 +17,8 @@ import {
   adminListAdvisors,
   adminUpdateAdvisor,
   adminMe,
+  adminAdvisorWork,
+  adminAdvisorWorkDetail,
   adminCreateAdvisor,
   adminListAdvisorInvites,
   adminCancelAdvisorInvite,
@@ -272,6 +274,112 @@ function AgentsSection() {
         ) : (
           <Empty icon={<Icon name="user" size={28} />}>No advisors on the platform yet.</Empty>
         )}
+      </div>
+    </Card>
+  );
+}
+
+// "Advisor work": what every advisor is working on. A row per advisor (enquiries, orders, people approved, itineraries, last active);
+// open one to see their enquiries with the customer, their orders and the people they approved. Read-only.
+function AdvisorWorkSection() {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [err, setErr] = useState<any>(null);
+  const [pick, setPick] = useState<any>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const when = (t: any) => (t ? fmtDate(t) + " " + fmtTime(t) : "—");
+
+  function load() {
+    setErr(null);
+    adminAdvisorWork().then((l: any) => setRows(Array.isArray(l) ? l : [])).catch((e: any) => { setErr(errText(e)); setRows([]); });
+  }
+  useEffect(load, []);
+  function open(a: any) {
+    if (pick && pick.id === a.id) { setPick(null); setDetail(null); return; }
+    setPick(a); setDetail(null); setBusy(true);
+    adminAdvisorWorkDetail(a.id).then((d: any) => { setDetail(d); setBusy(false); }).catch((e: any) => { setBusy(false); toast(errText(e), "error"); });
+  }
+  return (
+    <Card
+      title="Advisor work"
+      icon={<Icon name="trend" size={18} />}
+      sub="What each advisor is handling"
+      actions={<button className="taw-btn taw-btn--ghost taw-btn--sm" onClick={load} aria-label="Refresh advisor work"><Icon name="refresh" size={14} /></button>}
+    >
+      <div style={{ padding: 16 }}>
+        {err ? <div className="taw-banner taw-banner--err"><Icon name="alert" size={16} />{err}</div> : null}
+        {rows == null ? <div className="taw-skel" style={{ height: 120 }} /> : !rows.length ? <Empty icon={<Icon name="user" size={28} />}>No advisors yet.</Empty> : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="taw-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+              <thead>
+                <tr style={{ textAlign: "left", fontSize: 11, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--taupe)" }}>
+                  <th style={{ padding: "6px 8px" }}>Advisor</th><th>Enquiries</th><th>Open</th><th>Orders</th><th>Order value</th><th>Approved people</th><th>Itineraries</th><th>Last active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((a: any) => (
+                  <tr key={a.id} onClick={() => open(a)} style={{ cursor: "pointer", borderTop: "1px solid var(--line, rgba(0,0,0,.08))", background: pick && pick.id === a.id ? "var(--card, rgba(0,0,0,.03))" : undefined }}>
+                    <td style={{ padding: "10px 8px" }}>
+                      <b>{a.name}</b> <span className="taw-qbadge">{a.role}</span>
+                      {a.status !== "active" ? <span className="taw-status taw-status--CANCELLED" style={{ marginLeft: 6 }}>{a.status}</span> : null}
+                      <div style={{ fontSize: 12, color: "var(--taupe)" }}>{a.email}</div>
+                    </td>
+                    <td>{a.enquiries}</td><td>{a.open_enquiries}</td><td>{a.orders}</td><td>{a.orders_value ? inr(a.orders_value) : "—"}</td><td>{a.approved_people}</td><td>{a.itineraries}</td>
+                    <td style={{ fontSize: 12.5 }}>{when(a.last_active)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {pick ? (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>{pick.name}&apos;s work</div>
+            {busy || !detail ? <div className="taw-skel" style={{ height: 90 }} /> : (
+              <>
+                <div style={{ fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--taupe)", margin: "6px 0" }}>Enquiries ({detail.enquiries.length})</div>
+                {detail.enquiries.length ? (
+                  <div className="taw-qlist">
+                    {detail.enquiries.map((e: any) => (
+                      <div key={e.id} className="taw-qrow">
+                        <div className="taw-qrow-main">
+                          <div className="taw-qrow-top">
+                            <span className="taw-qtype taw-icrow"><Icon name="user" size={13} />{e.customer}</span>
+                            <span className="taw-qbadge">{e.status}</span>
+                            {e.has_itinerary ? <span className="taw-qbadge">itinerary</span> : null}
+                          </div>
+                          <div className="taw-qrow-meta"><span>{e.message || "No message"}</span><span>{when(e.created_at)}</span></div>
+                          {e.last_saved_at ? <div style={{ fontSize: 12, color: "var(--taupe)" }}>Itinerary last saved {when(e.last_saved_at)}</div> : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="taw-muted">No enquiries assigned.</div>}
+                <div style={{ fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--taupe)", margin: "14px 0 6px" }}>Orders ({detail.orders.length})</div>
+                {detail.orders.length ? (
+                  <div className="taw-qlist">
+                    {detail.orders.map((o: any) => (
+                      <div key={o.id} className="taw-qrow">
+                        <div className="taw-qrow-main">
+                          <div className="taw-qrow-top"><span className="taw-qtype">{o.order_number || shortId(o.id)} · {o.customer_name || "Customer"}</span><span className="taw-qbadge">{o.status}</span></div>
+                          <div className="taw-qrow-meta"><span>{o.total_amount ? inr(o.total_amount) : "—"}</span><span>{when(o.created_at)}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : <div className="taw-muted">No orders.</div>}
+                <div style={{ fontSize: 12, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--taupe)", margin: "14px 0 6px" }}>People they approved to join ({detail.approvals.length})</div>
+                {detail.approvals.length ? (
+                  <div className="taw-qlist">
+                    {detail.approvals.map((p: any) => (
+                      <div key={p.id} className="taw-qrow"><div className="taw-qrow-main"><div className="taw-qrow-top"><span className="taw-qtype">{p.full_name}</span></div><div className="taw-qrow-meta"><span>{p.destination || ""}</span><span>{when(p.reviewed_at)}</span></div></div></div>
+                    ))}
+                  </div>
+                ) : <div className="taw-muted">None.</div>}
+              </>
+            )}
+          </div>
+        ) : <div style={{ fontSize: 12.5, color: "var(--taupe)", marginTop: 12 }}>Click an advisor to see their enquiries, orders and approvals.</div>}
       </div>
     </Card>
   );
@@ -973,6 +1081,7 @@ export function AdminPanel(props: any) {
       <Card title="Admin" icon={<Icon name="shield" size={18} />} sub="Agents · orders · enquiry assignment · access requests · API costs — admin only">
         <div className="taw-desk-tabs" role="tablist" aria-label="Admin view" style={{ marginBottom: 16 }}>
           {SubBtn("agents", "user", "Agents")}
+          {SubBtn("advisor-work", "trend", "Advisor work")}
           {SubBtn("orders", "luggage", "Orders")}
           {SubBtn("enquiries", "inbox", "Enquiry assignment")}
           {SubBtn("access-requests", "mail", "Access requests")}
@@ -980,6 +1089,8 @@ export function AdminPanel(props: any) {
         </div>
         {sub === "agents" ? (
           <AgentsSection />
+        ) : sub === "advisor-work" ? (
+          <AdvisorWorkSection />
         ) : sub === "orders" ? (
           <AdminOrdersSection membersById={membersById} advisorsById={advisorsById} />
         ) : sub === "enquiries" ? (

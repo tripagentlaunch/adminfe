@@ -3073,6 +3073,13 @@ function adminResendAdvisorInvite(id) {
   return fastapiCall("/admin/advisor-invites/" + encodeURIComponent(id) + "/resend", { method: "POST", body: {} });
 }
 
+// adminAdvisorWork() -> one row per advisor with their counts; adminAdvisorWorkDetail(id) -> their enquiries, orders and approvals.
+function adminAdvisorWork() {
+  return fastapiCall("/admin/advisor-work", { method: "GET" });
+}
+function adminAdvisorWorkDetail(id) {
+  return fastapiCall("/admin/advisor-work/" + encodeURIComponent(id), { method: "GET" });
+}
 // adminListOrders() -> every order, unfiltered by advisor/member
 function adminListOrders() {
   return fastapiCall("/admin/orders", { method: "GET" });
@@ -3370,6 +3377,8 @@ export {
   adminListAdvisors,
   adminUpdateAdvisor,
   adminMe,
+  adminAdvisorWork,
+  adminAdvisorWorkDetail,
   adminCreateAdvisor,
   adminListAdvisorInvites,
   adminCancelAdvisorInvite,
