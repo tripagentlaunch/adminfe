@@ -798,10 +798,14 @@ export function ItineraryView({ enquiryId, member }: { enquiryId: string; member
         </div>
       ) : null}
       <div className="taw-itin-diningbar">
-      <CityGuidePanel texts={itineraryCityTexts(data)} onAddDining={addDiningToDay}
+      {/* A trip started with "Plan this trip" has its own places drawer (Where to eat / Things to do / A night out in the plan), so the
+          separate Where to eat button is only for the other itineraries. */}
+      {data.scratchPlan ? null : (
+        <CityGuidePanel texts={itineraryCityTexts(data)} onAddDining={addDiningToDay}
         dayTexts={Object.fromEntries((data.days || []).map((d: any) => [d.id, dayCityTexts(d)]))} hotelForDay={(id) => hotelForDay(data.days || [], id)}
         dining={Object.fromEntries((data.days || []).map((d: any) => [d.id, (d.dining || []).map((e: DiningEntry) => e.id)]))}
         days={(data.days || []).filter((d: any) => d._iso && d._iso !== "unscheduled").map((d: any) => ({ id: d.id, label: [d.date || d._iso, d.route].filter(Boolean).join(" · ") }))} />
+      )}
       </div>
 
       {data.scratchPlan ? (

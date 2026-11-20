@@ -5,6 +5,7 @@
    prices; see the backend's rate table). Flights and hotels are searched in the Search desks on the right, as always.
    Everything is a suggestion: nothing goes into the itinerary until the advisor adds it. */
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { inr, scratchGuide } from "../../services/api";
 import { errText, toast } from "../../lib/advisorHelpers";
 import { Icon, Spinner } from "../ui";
@@ -101,6 +102,7 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
   const [kind, setKind] = useState<Kind>("eat");
   const [iso, setIso] = useState(dates[1] || dates[0]);
   const [fitOnly, setFitOnly] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false); // the places open in a drawer on the right, like "Where to eat" always did
 
   // What is already planned on the ground, from the estimates carried on the day entries.
   const planned = estimateTotals(((data && data.days) || []).flatMap((d: any) => [...(d.dining || []), ...(d.activities || [])]));
@@ -110,6 +112,13 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
   const fits = (p: any) => !p.est || p.est.totalHigh <= left || p.est.totalHigh === 0;
   const shown = fitOnly ? picks.filter(fits) : picks;
   const hidden = picks.length - shown.length;
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawerOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
 
   function addPick(p: any) {
     if (kind === "eat") {
@@ -160,30 +169,53 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
         <div className="taw-sp-sec-h">Around {base ? String(base.title || "the hotel").split(",")[0] : plan.destination} <span className="taw-muted">{base ? "within 15 km of your hotel" : "add a hotel to see what is within 15 km of it"} · from the city page</span></div>
         <div className="taw-leg-switch">
           {(["eat", "do", "party"] as Kind[]).map((k) => (
-            <button key={k} className={"taw-leg-tab" + (kind === k ? " is-active" : "")} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>
+            <button key={k} className={"taw-leg-tab" + (drawerOpen && kind === k ? " is-active" : "")} aria-expanded={drawerOpen && kind === k}
+              onClick={() => { if (drawerOpen && kind === k) setDrawerOpen(false); else { setKind(k); setDrawerOpen(true); } }}>{KIND_LABEL[k]}</button>
           ))}
         </div>
-        <div className="taw-sp-bar">
-          <label>Add to <select className="taw-select-plain" value={iso} onChange={(e) => setIso(e.target.value)}>
-            {dates.map((d, i) => <option key={d} value={d}>Day {i + 1} · {fmtDayDate(d)}</option>)}
-          </select></label>
-          <label className="taw-sp-check"><input type="checkbox" checked={fitOnly} onChange={(e) => setFitOnly(e.target.checked)} /> Only what the ground budget still covers</label>
+        <div className="taw-sp-note">
+          {guide.state === "loading" ? "Reading the city page…" : "Open Where to eat, Things to do or A night out to see the places on the right and add them to a day."}
+          {" "}
           <span className={"taw-chip " + (planned.high > ground ? "taw-chip--noref" : "taw-chip--ref")} title="The estimates of what is added to the days, against the on-the-ground share">
             Planned {money(planned.low, planned.high)} of {inr(ground)}
           </span>
         </div>
-        {guide.state === "loading" ? <div className="taw-sp-load"><Spinner /> Reading the city page…</div> : null}
-        {guide.state === "error" ? <div className="taw-banner taw-banner--err"><Icon name="alert" size={14} /> {guide.error}</div> : null}
-        {guide.state === "done" && !guide.value ? <div className="taw-sp-note">The website has no city page for {plan.city}, so there is nothing to suggest.</div> : null}
-        {guide.state === "done" && guide.value && guide.value.note ? <div className="taw-sp-note">{guide.value.note}</div> : null}
-        {guide.state === "done" && guide.value && !shown.length ? <div className="taw-sp-note">{picks.length ? "Everything listed is above what is left of the ground budget." : `Nothing in this list within reach${plan.region ? " in " + plan.destination : ""}.`}</div> : null}
-        <div className="taw-sp-cards">
-          {shown.map((p: any) => (
-            <PlaceCard key={p.id} place={p} city={(guide.value && guide.value.city) || plan.city} added={have.has(p.id)} dayLabel={`Day ${dates.indexOf(iso) + 1}`}
-              hotelName={base ? String(base.title || "").split(",")[0] : null} onAdd={() => addPick(p)} />
-          ))}
-        </div>
-        {hidden > 0 ? <div className="taw-sp-note">{hidden} more above what is left ({inr(left)}). <button className="taw-btn taw-btn--sm" onClick={() => setFitOnly(false)}>Show them</button></div> : null}
+        {drawerOpen && typeof document !== "undefined" ? createPortal(
+          <aside className="taw-eat-drawer" role="dialog" aria-label={KIND_LABEL[kind]}>
+            <div className="taw-eat-drawer-head">
+              <b>{KIND_LABEL[kind]}</b>
+              <button type="button" className="taw-btn taw-btn--sm" aria-label="Close" onClick={() => setDrawerOpen(false)}><Icon name="x" size={13} /> Close</button>
+            </div>
+            <div className="taw-eat-drawer-day" style={{ gap: 6 }}>
+              {(["eat", "do", "party"] as Kind[]).map((k) => (
+                <button key={k} type="button" className={"taw-leg-tab" + (kind === k ? " is-active" : "")} onClick={() => setKind(k)}>{KIND_LABEL[k]}</button>
+              ))}
+            </div>
+            <label className="taw-eat-drawer-day">
+              <span>Add to</span>
+              <select value={iso} onChange={(e) => setIso(e.target.value)}>
+                {dates.map((d, i) => <option key={d} value={d}>Day {i + 1} · {fmtDayDate(d)}</option>)}
+              </select>
+            </label>
+            <div className="taw-eat-drawer-note" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <label className="taw-sp-check"><input type="checkbox" checked={fitOnly} onChange={(e) => setFitOnly(e.target.checked)} /> Only what the ground budget still covers</label>
+              <span className={"taw-chip " + (planned.high > ground ? "taw-chip--noref" : "taw-chip--ref")}>Planned {money(planned.low, planned.high)} of {inr(ground)}</span>
+            </div>
+            <div className="taw-eat-drawer-body">
+              {guide.state === "loading" ? <div className="taw-sp-load"><Spinner /> Reading the city page…</div> : null}
+              {guide.state === "error" ? <div className="taw-banner taw-banner--err"><Icon name="alert" size={14} /> {guide.error}</div> : null}
+              {guide.state === "done" && !guide.value ? <div className="taw-sp-note">The website has no city page for {plan.city}, so there is nothing to suggest.</div> : null}
+              {guide.state === "done" && guide.value && guide.value.note ? <div className="taw-sp-note">{guide.value.note}</div> : null}
+              {guide.state === "done" && guide.value && !shown.length ? <div className="taw-sp-note">{picks.length ? "Everything listed is above what is left of the ground budget." : `Nothing in this list within reach${plan.region ? " in " + plan.destination : ""}.`}</div> : null}
+              {shown.map((p: any) => (
+                <PlaceCard key={p.id} place={p} city={(guide.value && guide.value.city) || plan.city} added={have.has(p.id)} dayLabel={`Day ${dates.indexOf(iso) + 1}`}
+                  hotelName={base ? String(base.title || "").split(",")[0] : null} onAdd={() => addPick(p)} />
+              ))}
+              {hidden > 0 ? <div className="taw-sp-note">{hidden} more above what is left ({inr(left)}). <button className="taw-btn taw-btn--sm" onClick={() => setFitOnly(false)}>Show them</button></div> : null}
+            </div>
+          </aside>,
+          document.body,
+        ) : null}
       </div>
     </section>
   );
