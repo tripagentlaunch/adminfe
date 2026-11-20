@@ -329,7 +329,13 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     return itinerary ? keepWithinBudget(fit, budgetNum, totalOf, noRoomsFor) : fit;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown, fitsOnly, budgetOn, budgetFit, nights, pricedTick, budgetNum]);
-  const priceTick = useHotelFromPrices(useMemo(() => hotelsShown.slice(0, visible), [hotelsShown, visible]), !!itinerary && !findName && sub === "results");
+  const [priceRetry, setPriceRetry] = useState(0); // "Try again" on prices that did not load
+  const priceTick = useHotelFromPrices(useMemo(() => hotelsShown.slice(0, visible), [hotelsShown, visible, priceRetry]), !!itinerary && !findName && sub === "results");
+  const noPriceYet = hotelsShown.slice(0, visible).filter((o: any) => o._tripsure && o._tripsure.hotelId && FROM_FAILED.has(fromKey(o._tripsure)) && !FROM_PRICES.has(fromKey(o._tripsure))).length;
+  function retryPrices() {
+    hotelsShown.slice(0, visible).forEach((o: any) => { if (o._tripsure && o._tripsure.hotelId) FROM_FAILED.delete(fromKey(o._tripsure)); });
+    setPriceRetry((n) => n + 1);
+  }
   useEffect(() => setPricedTick(priceTick), [priceTick]);
 
   // The website's stay picks for the searched city, once per city.
@@ -806,6 +812,13 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
             {chip(view.amenities.indexOf("freeWiFi") >= 0, "WiFi", () => toggleAmenity("freeWiFi"), "wifi")}
             {chip(filtersOpen || nFilters > 0, `Filters${nFilters ? ` (${nFilters})` : ""}`, () => setFiltersOpen(!filtersOpen), "sliders")}
             {nFilters > 0 || budgetNum > 0 ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
+          </div>
+        ) : null}
+
+        {itinerary && noPriceYet > 0 ? (
+          <div className="ow-sub" style={{ margin: "2px 0 6px" }}>
+            Prices for {noPriceYet} hotel{noPriceYet === 1 ? "" : "s"} didn&apos;t load (TripSure is busy); trying again by itself.{" "}
+            <button type="button" className="ow-link" onClick={retryPrices}>Try again now</button>
           </div>
         ) : null}
 

@@ -2,16 +2,19 @@
 /* Live "from" prices for the hotels on screen in the Add-a-hotel popup. TripSure's listing often carries no price, so the hotels
    being drawn are priced from their cheapest live room (POST /hotels/rates, 5 per call, three calls at a time), once per hotel and
    search, into the same FROM_PRICES cache the Hotels desk uses. Returns a counter that changes as prices arrive so the caller re-renders. */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { hotelRates } from "../services/api";
 import { FROM_PRICES, fromKey } from "./hotelAlternatives";
 
 /** The rates call failed for this hotel (when): shown as "Price on selection", asked again after a minute. */
 export const FROM_FAILED = new Map<string, number>();
-const RETRY_FAILED_MS = 60_000;
+const RETRY_FAILED_MS = 15_000;
+const MAX_AUTO_RETRIES = 4; // a busy TripSure usually answers a little later: ask again by itself, a few times
 
 export function useHotelFromPrices(visibleOffers: any[], enabled: boolean): number {
   const [tick, setTick] = useState(0);
+  const [retryTick, setRetryTick] = useState(0);
+  const autoRetries = useRef(0);
   useEffect(() => {
     if (!enabled) return;
     const todo = visibleOffers
@@ -48,9 +51,18 @@ export function useHotelFromPrices(visibleOffers: any[], enabled: boolean): numb
         if (live) setTick((n) => n + 1);
       }
     };
-    Promise.all([worker(), worker(), worker()]);
-    return () => { live = false; };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    Promise.all([worker(), worker(), worker()]).then(() => {
+      const missing = todo.some((t: any) => FROM_FAILED.has(fromKey(t)) && !FROM_PRICES.has(fromKey(t)));
+      if (live && missing && autoRetries.current < MAX_AUTO_RETRIES) {
+        autoRetries.current += 1;
+        timer = setTimeout(() => { if (live) setRetryTick((n) => n + 1); }, RETRY_FAILED_MS + 500);
+      } else if (!missing) {
+        autoRetries.current = 0;
+      }
+    });
+    return () => { live = false; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleOffers, enabled]);
+  }, [visibleOffers, enabled, retryTick]);
   return tick;
 }
