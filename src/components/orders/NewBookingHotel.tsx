@@ -18,6 +18,7 @@ import { hotelBudgetPicks,
 } from "../../services/api";
 import { cityGuide, hotelRatings } from "../../services/api";
 import { errText } from "../../lib/errText";
+import { HotelToolbar } from "./HotelToolbar";
 import { hotelCartItem } from "../../lib/advisorHelpers";
 import { FROM_PRICES, fromKey, hotelAlternatives, pricedAlternatives } from "../../lib/hotelAlternatives";
 import { FitChip, useBudgetFit } from "../BudgetFit";
@@ -271,9 +272,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // `hotels` are TripSure's hotels, each carrying the docKey/token of the response it came from
   // (`_session`): the first screen and every later page have their own, and details / price check
   // need the pair that came with the hotel.
-  // The advisor building an itinerary starts on the system's recommendation, luxury only (5-star, guests rate it very highly);
-  // both can be switched off from the chips below.
-  const initialView: HotelView = itinerary ? { ...DEFAULT_HOTEL_VIEW, sort: "recommended", luxury: true } : DEFAULT_HOTEL_VIEW;
+  // The advisor building an itinerary starts on the system's recommendation. The controls are TripSure's own (HotelToolbar).
+  const initialView: HotelView = itinerary ? { ...DEFAULT_HOTEL_VIEW, sort: "recommended" } : DEFAULT_HOTEL_VIEW;
   const [view, setView] = useState<HotelView>(initialView);
   // Where the search is centred, Google's guest ratings for the leading hotels, and the website's stay picks for the city:
   // what the recommendation ranks on (lib/hotelRank.ts).
@@ -283,7 +283,6 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const askedRatings = useRef<Set<string>>(new Set());
   const setV = (k: keyof HotelView, v: any) => setView((f) => ({ ...f, [k]: v }));
   const [layout, setLayout] = useState<"list" | "map">("list");
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [visible, setVisible] = useState(HOTEL_PAGE_SIZE);
   const [moreInfo, setMoreInfo] = useState<{ loaded: number; failed?: boolean } | null>(null);
   const moreRef = useRef<MoreHandle | null>(null);
@@ -298,6 +297,20 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
     [pool, nights, nRooms, intl]
   );
   const facets = useMemo(() => hotelFacets(offers, inr), [offers]);
+  // What the Filters panel lists, with counts (TripSure shows them): property types and exact star levels.
+  const toolbarFacets = useMemo(() => {
+    const types: Record<string, number> = {}, stars: Record<string, number> = {};
+    offers.forEach((o: any) => {
+      const d = o.detail || {};
+      if (d.stayType) types[d.stayType] = (types[d.stayType] || 0) + 1;
+      const k = String(Math.round(d.stars || 0));
+      if (k !== "0") stars[k] = (stars[k] || 0) + 1;
+    });
+    return {
+      stayTypes: Object.keys(types).sort((a, b) => types[b] - types[a]).map((name) => ({ name, count: types[name] })),
+      stars: Object.keys(stars).sort((a, b) => Number(b) - Number(a)).map((k) => ({ k, count: stars[k] })),
+    };
+  }, [offers]);
   const rankCtx: HotelRankCtx = useMemo(
     () => ({ lat: center && center.lat, lon: center && center.lon, where: form.city, nights, rooms: nRooms, ratings, guide: guideStays, luxury: view.luxury }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,29 +322,22 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // stay budget, and "Within budget" keeps only the hotels that fit. Hotels the listing didn't price get their live "from" price.
   const budgetFit = useBudgetFit();
   const budgetOn = itinerary && budgetFit.active;
-  const [fitsOnly, setFitsOnly] = useState(false);
-  // With a budget set, the list opens on what the customer can pay: hotels over it are hidden (the "Within budget" chip) and the
-  // luxury-only filter is off, otherwise the first screen is five-star hotels at several times the nightly budget. Done once per
-  // picker, so switching either back on is not undone.
+  // The Price menu's range is TripSure's: per night, per room. The picker works in whole-stay terms (all rooms, all nights): a hotel whose
+  // price has arrived is kept when it is inside the range, and one still waiting for a price stays until it has one. The server finds the
+  // hotels under the maximum across the whole city (see the effect below). With a budget in the itinerary, the maximum starts at what
+  // is left of it, per room per night; the Price menu's Clear removes it.
+  const [priceRange, setPriceRange] = useState<{ min: number | null; max: number | null }>({ min: null, max: null });
   const budgetDefaulted = useRef(false);
-  const typedDefaulted = useRef(false);
   useEffect(() => {
     if (!budgetOn || budgetDefaulted.current) return;
+    const cap = (budgetFit.hotel(1) || { cap: 0 }).cap || 0;
+    if (!(cap > 0)) return;
     budgetDefaulted.current = true;
-    setFitsOnly(true);
-    setView((f) => (f.luxury ? { ...f, luxury: false } : f));
-  }, [budgetOn]);
-  // A budget typed in the picker for the whole stay ("my customer said 50,000"): all rooms, all nights. Hotels are priced as they are
-  // listed (the "from" price), those over it drop out, and the next ones come up to be priced in their place.
-  const [stayBudget, setStayBudget] = useState("");
-  const [budgetOpen, setBudgetOpen] = useState(false);
-  const budgetNum = Math.round(Number(String(stayBudget).replace(/[^\d.]/g, ""))) || 0;
-  // A budget typed in the picker is not for five-star hotels either: the luxury-only filter goes off the first time one is typed.
-  useEffect(() => {
-    if (!(budgetNum > 0) || typedDefaulted.current) return;
-    typedDefaulted.current = true;
-    setView((f) => (f.luxury ? { ...f, luxury: false } : f));
-  }, [budgetNum]);
+    setPriceRange((r) => (r.max == null ? { ...r, max: Math.max(500, Math.floor(cap / Math.max(1, nRooms) / 100) * 100) } : r));
+  }, [budgetOn, budgetFit, nRooms]);
+  const stayFactor = Math.max(1, nights) * Math.max(1, nRooms);
+  const budgetNum = priceRange.max ? Math.round(priceRange.max * stayFactor) : 0;
+  const minTotal = priceRange.min ? Math.round(priceRange.min * stayFactor) : 0;
   const fromOf = (o: any) => (o._tripsure && o._tripsure.hotelId ? FROM_PRICES.get(fromKey(o._tripsure)) : undefined);
   const nightlyOf = (o: any): number | null => {
     const fp = fromOf(o);
@@ -347,19 +353,12 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   };
   const noRoomsFor = (o: any) => offerNet(o) <= 0 && fromOf(o) === null;
   const hotelsShown = useMemo(() => {
-    const fit = fitsOnly && budgetOn
-      ? shown.filter((o: any) => {
-          const n = nightlyOf(o);
-          if (n == null) return !noRoomsFor(o); // still pricing / price failed: stay; no rooms at all: out
-          const f = budgetFit.hotel(n);
-          return !f || f.fits;
-        })
-      : shown;
-    const kept = itinerary ? keepWithinBudget(fit, budgetNum, totalOf, noRoomsFor) : fit;
+    const aboveMin = minTotal > 0 ? shown.filter((o: any) => { const t = totalOf(o); return t == null || t >= minTotal; }) : shown;
+    const kept = keepWithinBudget(aboveMin, budgetNum, totalOf, noRoomsFor);
     // With a budget, the hotels known to fit come first and the ones still waiting for a price come after them, nearest the star level
     // that budget buys first (so those are priced first). Otherwise the top of the list is hotels nobody has priced yet, at any price.
-    if (!itinerary || !(budgetNum > 0 || (fitsOnly && budgetOn))) return kept;
-    const cap = budgetNum > 0 ? budgetNum / Math.max(1, nights) : ((budgetFit.hotel(1) || { cap: 0 }).cap || 0);
+    if (!(budgetNum > 0)) return kept;
+    const cap = budgetNum / Math.max(1, nights);
     const target = starsFor(cap / Math.max(1, nRooms));
     const known = kept.filter((o: any) => totalOf(o) != null);
     const pending = kept.filter((o: any) => totalOf(o) == null)
@@ -367,7 +366,16 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       .sort((a, b) => a.d - b.d || a.i - b.i).map((x) => x.o);
     return known.concat(pending);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shown, fitsOnly, budgetOn, budgetFit, nights, pricedTick, budgetNum]);
+  }, [shown, nights, nRooms, pricedTick, budgetNum, minTotal]);
+  // The Price menu's ends: the cheapest and dearest hotel priced so far (per night, per room), widened to hold the maximum chosen.
+  const priceBounds = useMemo(() => {
+    const per = offers.map((o: any) => totalOf(o)).filter((t: any) => t != null).map((t: any) => (t as number) / stayFactor);
+    const lo = per.length ? Math.max(0, Math.floor(Math.min(...per) / 500) * 500) : 0;
+    let hi = per.length ? Math.ceil(Math.max(...per) / 500) * 500 : 100000;
+    hi = Math.max(hi, priceRange.max || 0, priceRange.min || 0, lo + 1000);
+    return { lo: Math.min(lo, priceRange.min || lo), hi };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [offers, pricedTick, stayFactor, priceRange.max, priceRange.min]);
   const [priceRetry, setPriceRetry] = useState(0); // "Try again" on prices that did not load
   const priceTick = useHotelFromPrices(useMemo(() => hotelsShown.slice(0, visible), [hotelsShown, visible, priceRetry]), !!itinerary && !findName && sub === "results");
   const noPriceYet = hotelsShown.slice(0, visible).filter((o: any) => o._tripsure && o._tripsure.hotelId && FROM_FAILED.has(fromKey(o._tripsure)) && !FROM_PRICES.has(fromKey(o._tripsure))).length;
@@ -379,7 +387,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
 
   // The customer's budget for the whole stay (typed here, or what is left in the itinerary's): the server finds the hotels that fit
   // across the whole city and prices them in one go, instead of this screen pricing the best-known (mostly five-star) hotels first.
-  const stayBudgetTotal = budgetNum > 0 ? budgetNum : (budgetOn && fitsOnly ? Math.round(((budgetFit.hotel(1) || { cap: 0 }).cap || 0) * Math.max(1, nights)) : 0);
+  const stayBudgetTotal = budgetNum;
   const askedPicks = useRef("");
   const [picksRetry, setPicksRetry] = useState(0);
   useEffect(() => {
@@ -412,7 +420,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           askedPicks.current = "";
           setPicksInfo({ state: "error", error: errText(e), budget: stayBudgetTotal });
         });
-    }, budgetNum > 0 ? 700 : 0); // a typed budget waits for the typing to stop
+    }, 600); // a price typed or dragged waits for the hand to stop
     return () => { clearTimeout(timer); ctl.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stayBudgetTotal, sub, session && session.token, itinerary, findName, picksRetry]);
@@ -428,7 +436,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   // Google's guest rating for the hotels that lead the ranking (up to 12 at a time, each hotel asked once), so the ranking
   // and the "very good only" filter have it. Hotels arrive page by page, so this runs again as they do.
   useEffect(() => {
-    if (!itinerary || sub !== "results" || !offers.length || (view.sort !== "recommended" && !view.luxury)) return;
+    if (!itinerary || sub !== "results" || !offers.length || (view.sort !== "recommended" && view.sort !== "guest")) return;
     const lead = rankHotels(offers.filter((o) => (o.detail.stars || 0) >= 4), { ...rankCtx, luxury: true }).slice(0, 12)
       .map((o) => String(o.detail.hotelName || "")).filter((n) => n && !askedRatings.current.has(n));
     if (!lead.length) return;
@@ -437,7 +445,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       .then((r: any) => setRatings((m) => ({ ...m, ...lead.reduce((acc: any, n) => { acc[n] = (r && r[n]) || null; return acc; }, {}) })))
       .catch(() => lead.forEach((n) => askedRatings.current.delete(n)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [offers.length, sub, view.sort, view.luxury]);
+  }, [offers.length, sub, view.sort]);
   const filterKey = viewKey(view);
   const nFilters = activeFilterCount(view);
   useEffect(() => setVisible(HOTEL_PAGE_SIZE), [filterKey]);
@@ -452,9 +460,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
   const [places, setPlaces] = useState<MapPlace[]>([]); // the city's neighbourhoods and landmarks (the map's chips)
   const sessOf = (h: any) => (h && h._session) || session;
   const toggleAmenity = (k: string) => setV("amenities", view.amenities.indexOf(k) >= 0 ? view.amenities.filter((x) => x !== k) : view.amenities.concat([k]));
-  // Reset clears every filter, including "5-star, top-rated" (which the itinerary builder starts with): putting it back on would
-  // keep hiding hotels and make "Reset filters" on an empty list do nothing. The advisor can switch it on again from its chip.
-  const hReset = () => { setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort })); setStayBudget(""); };
+  const hReset = () => { setView((f) => ({ ...DEFAULT_HOTEL_VIEW, sort: f.sort })); setPriceRange({ min: null, max: null }); };
 
   function runSearch() {
     onError(null);
@@ -502,7 +508,7 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
       })
       .then((out: any) => {
         stopMore();
-        setView(initialView); setLayout("list"); setFiltersOpen(false); setVisible(HOTEL_PAGE_SIZE);
+        setView(initialView); setLayout("list"); setPriceRange({ min: null, max: null }); setVisible(HOTEL_PAGE_SIZE);
         if (out.kept) {
           setSession(out.kept.session); setSearched(out.kept.searched); setPlaces(out.kept.places || []); setIntl(!!out.kept.international); setHotels(out.kept.hotels); setSub("results");
           return;
@@ -854,7 +860,6 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         {icon ? <Icon name={icon} size={13} /> : null}{label}
       </button>
     );
-    const starOpts = [{ k: "any", l: "Any" }, { k: "3", l: "3★+" }, { k: "4", l: "4★+" }, { k: "5", l: "5★" }];
     return (
       <>
         <div className="ow-modal-foot" style={{ marginTop: 0 }}>
@@ -870,40 +875,14 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </div>
         ) : null}
         {offers.length > 0 ? (
-          <div className="ow-hsearch" style={{ position: "relative", margin: "0 0 10px" }}>
-            <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--muted)", display: "inline-flex" }}>
-              <Icon name="search" size={15} />
-            </span>
-            <input
-              className="taw-input"
-              type="search"
-              style={{ width: "100%", paddingLeft: 36 }}
-              placeholder="Search for a specific hotel by name"
-              aria-label="Search for a specific hotel by name"
-              value={view.name || ""}
-              onChange={(e) => setV("name", e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-        ) : null}
-        {offers.length > 0 ? (
-          <div className="ow-fchips">
-            {chip(layout === "list", "List", () => setLayout("list"), "list")}
-            {chip(layout === "map", "Map", () => setLayout("map"), "pin")}
-            <select className="taw-input ow-sort-sel" aria-label="Sort hotels" value={view.sort} onChange={(e) => setV("sort", e.target.value)}>
-              {itinerary ? <option value="recommended">Sort: Recommended</option> : null}
-              <option value="best">Sort: Best value</option>
-              <option value="cheapest">Sort: Price, low to high</option>
-              <option value="priceDesc">Sort: Price, high to low</option>
-              <option value="toprated">Sort: Star rating</option>
-            </select>
-            {budgetOn ? chip(fitsOnly, "Within budget", () => setFitsOnly((v) => !v), "check") : null}
-            {itinerary ? chip(budgetNum > 0 || budgetOpen, budgetNum > 0 ? `Budget ${inr(budgetNum)}` : "Budget", () => setBudgetOpen((v) => !v)) : null}
-            {chip(view.refundable, "Free cancellation", () => setV("refundable", !view.refundable))}
-            {chip(view.breakfast, "Breakfast included", () => setV("breakfast", !view.breakfast))}
-            {chip(filtersOpen || nFilters > 0, `Filters${nFilters ? ` (${nFilters})` : ""}`, () => setFiltersOpen(!filtersOpen), "sliders")}
-            {nFilters > 0 || budgetNum > 0 ? <button type="button" className="ow-link" onClick={hReset}>Reset</button> : null}
-          </div>
+          <HotelToolbar
+            layout={layout} onLayout={setLayout}
+            sort={view.sort} onSort={(v) => setV("sort", v)} showRecommended={!!itinerary}
+            price={priceRange} onPrice={setPriceRange} priceBounds={priceBounds}
+            view={view} onView={(patch) => setView((f) => ({ ...f, ...patch }))}
+            facets={toolbarFacets} filterCount={nFilters + (priceRange.min != null || priceRange.max != null ? 1 : 0)}
+            onClearAll={hReset} nights={nights} rooms={nRooms}
+          />
         ) : null}
 
         {itinerary && noPriceYet > 0 ? (
@@ -913,95 +892,15 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </div>
         ) : null}
 
-        {itinerary && stayBudgetTotal > 0 && offers.length > 0 ? (
+        {stayBudgetTotal > 0 && offers.length > 0 ? (
           <div className="ow-sub ow-budget-status" role="status" style={{ margin: "2px 0 6px" }}>
-            Budget <b>{inr(stayBudgetTotal)}</b> for the stay ({nightsTxt}, {guestsTxt}): about <b>{inr(Math.round(stayBudgetTotal / Math.max(1, nights) / Math.max(1, nRooms)))}</b> a night per room.{" "}
-            {picksInfo.state === "loading" ? <><Spinner /> Finding the hotels that fit across the whole city… (up to 40 seconds)</> : null}
+            {picksInfo.state === "loading" ? <><Spinner /> Finding the hotels under {inr(priceRange.max || 0)} a night across the whole city… (up to 40 seconds)</> : null}
             {picksInfo.state === "done" ? (
-              picksInfo.fits ? <>Found <b>{picksInfo.fits}</b> that fit, from {picksInfo.checked} priced of {picksInfo.read} in the city. They are at the top.</>
-                : <>None of the {picksInfo.checked} hotels priced for this budget fit. Raise the budget, or try another area or dates.</>
+              picksInfo.fits ? <>Found <b>{picksInfo.fits}</b> under {inr(priceRange.max || 0)} a night, from {picksInfo.checked} priced of {picksInfo.read} in the city. They are at the top.</>
+                : <>None of the {picksInfo.checked} hotels priced fit under {inr(priceRange.max || 0)} a night. Raise the maximum in Price, or try another area or dates.</>
             ) : null}
             {picksInfo.state === "error" ? <>Couldn&apos;t search the whole city ({picksInfo.error}); showing what has loaded. <button type="button" className="ow-link" onClick={() => { askedPicks.current = ""; setPicksInfo({ state: "idle" }); setPicksRetry((n) => n + 1); }}>Try again</button></> : null}
-            {nRooms === 1 && tot.adults >= 3 ? <> One room for {tot.adults} adults needs a triple room, which fewer hotels offer: also try two rooms (Rooms & guests above).</> : null}
-          </div>
-        ) : null}
-
-        {itinerary && budgetOpen && offers.length > 0 ? (() => {
-          const quick = [25000, 50000, 75000, 100000, 150000];
-          const priced = shown.filter((o: any) => totalOf(o) != null);
-          const within = budgetNum > 0 ? priced.filter((o: any) => (totalOf(o) as number) <= budgetNum).length : priced.length;
-          const pending = shown.filter((o: any) => totalOf(o) == null && !noRoomsFor(o)).length;
-          const perNight = budgetNum > 0 ? Math.round(budgetNum / Math.max(1, nights)) : 0;
-          return (
-            <div className="ow-gpanel" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-              <div className="ow-fchips">
-                <span className="ow-sub">Stay budget</span>
-                <input
-                  className="taw-input"
-                  style={{ width: 150 }}
-                  inputMode="numeric"
-                  placeholder="e.g. 50000"
-                  aria-label="Budget for the whole stay in rupees"
-                  value={stayBudget}
-                  onChange={(e) => setStayBudget(e.target.value.replace(/[^\d]/g, ""))}
-                />
-                {quick.map((v) => chip(budgetNum === v, inr(v), () => setStayBudget(String(v))))}
-                {budgetNum > 0 ? <button type="button" className="ow-link" onClick={() => setStayBudget("")}>Clear budget</button> : null}
-              </div>
-              <div className="ow-sub">
-                {budgetNum > 0 ? (
-                  <>
-                    Hotels whose whole stay costs up to <b>{inr(budgetNum)}</b> — {nightsTxt}, {guestsTxt}: about <b>{inr(perNight)}</b> a night for all {nRooms} room{nRooms === 1 ? "" : "s"}.
-                    {" "}{within} of {priced.length} priced hotel{priced.length === 1 ? "" : "s"} fit{pending ? ` · ${pending} still being priced` : ""}.
-                  </>
-                ) : (
-                  <>Type what the customer can spend on the whole stay (all rooms, all {nights >= 1 ? nights : 1} night{nights === 1 ? "" : "s"}). Hotels are priced as they load; those over the budget drop out.</>
-                )}
-              </div>
-            </div>
-          );
-        })() : null}
-
-        {filtersOpen && offers.length > 0 ? (
-          <div className="ow-gpanel" style={{ flexDirection: "column", alignItems: "stretch", gap: 10 }}>
-            <div className="ow-fchips">
-              <span className="ow-sub">Star rating</span>
-              {starOpts.map((o) => chip(view.stars === o.k, o.l, () => setV("stars", o.k)))}
-              {itinerary ? chip(view.luxury, "Top-rated 5-star only", () => setV("luxury", !view.luxury)) : null}
-            </div>
-            {facets.amenities.some((a) => a.key === "freeWiFi") ? (
-              <div className="ow-fchips">
-                <span className="ow-sub">Wi-Fi</span>
-                {chip(view.amenities.indexOf("freeWiFi") >= 0, "Free WiFi", () => toggleAmenity("freeWiFi"), "wifi")}
-              </div>
-            ) : null}
-            {facets.hasPrices && facets.priceBands.length ? (
-              <div className="ow-fchips">
-                <span className="ow-sub">Price</span>
-                {chip(view.price === "any", "Any price", () => setV("price", "any"))}
-                {facets.priceBands.map((b) => chip(view.price === b.key, b.label, () => setV("price", view.price === b.key ? "any" : b.key)))}
-              </div>
-            ) : null}
-            {facets.stayTypes.length > 1 ? (
-              <div className="ow-fchips">
-                <span className="ow-sub">Property type</span>
-                {chip(view.stayType === "all", "Any", () => setV("stayType", "all"))}
-                {facets.stayTypes.map((t) => chip(view.stayType === t, t, () => setV("stayType", view.stayType === t ? "all" : t)))}
-              </div>
-            ) : null}
-            {facets.boards.length > 1 ? (
-              <div className="ow-fchips">
-                <span className="ow-sub">Board</span>
-                {chip(view.board === "all", "Any", () => setV("board", "all"))}
-                {facets.boards.map((b) => chip(view.board === b, b, () => setV("board", view.board === b ? "all" : b)))}
-              </div>
-            ) : null}
-            {facets.amenities.length ? (
-              <div className="ow-fchips">
-                <span className="ow-sub">Amenities</span>
-                {facets.amenities.slice(0, 12).map((a) => chip(view.amenities.indexOf(a.key) >= 0, a.label, () => toggleAmenity(a.key)))}
-              </div>
-            ) : null}
+            {nRooms === 1 && tot.adults >= 3 ? <> One room for {tot.adults} adults needs a triple room, which fewer hotels offer: also try two rooms.</> : null}
           </div>
         ) : null}
 
@@ -1012,9 +911,8 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
         {offers.length === 0 && !(moreInfo && !moreInfo.failed) ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
         {offers.length > 0 && hotelsShown.length === 0 ? (
           <div className="ow-empty">
-            <b>{(fitsOnly || budgetNum > 0) && shown.length ? "No hotel fits the budget" : "No hotels match these filters"}</b>
-            {(fitsOnly || budgetNum > 0) && shown.length ? <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setFitsOnly(false); setStayBudget(""); }}>Show all hotels</button> : null}
-            <button type="button" className="taw-btn taw-btn--sm" onClick={() => { setFitsOnly(false); hReset(); }}>Reset filters</button>
+            <b>{budgetNum > 0 && shown.length ? "No hotel fits this price range" : "No hotels match these filters"}</b>
+            <button type="button" className="taw-btn taw-btn--sm" onClick={hReset}>Clear all</button>
           </div>
         ) : null}
 

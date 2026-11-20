@@ -24,6 +24,10 @@ export type HotelView = {
   amenities: string[];
   stayType: string;
   name?: string; // hotel-name search within the loaded results
+  /** Exact star levels ticked in the Filters panel ("5", "4", ...); empty = any. Alongside `stars` (the older "this many or more"). */
+  starSet?: string[];
+  /** Property types ticked in the Filters panel; empty = any. Alongside `stayType`. */
+  stayTypes?: string[];
 };
 
 export const DEFAULT_HOTEL_VIEW: HotelView = {
@@ -146,6 +150,8 @@ export function filterHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx)
     }
     const stars = d.stars || 0;
     if (view.stars !== "any" && stars < Number(view.stars)) return false;
+    if (view.starSet && view.starSet.length && view.starSet.indexOf(String(Math.round(stars))) < 0) return false;
+    if (view.stayTypes && view.stayTypes.length && view.stayTypes.indexOf(String(d.stayType || "")) < 0) return false;
     if (view.refundable && !(d.refundable || d.freeCancellation)) return false;
     if (view.breakfast && !hasBreakfast(d)) return false;
     if (view.board !== "all" && d.board !== view.board) return false;
@@ -179,6 +185,11 @@ export function sortHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx): 
     return byStars(a, b);
   };
   const out = offers.slice();
+  if (view.sort === "guest") {
+    // Google's guest rating (looked up for the leading hotels); hotels without one follow, by stars.
+    const rate = (o: any) => { const r = ctx && ctx.ratings && ctx.ratings[name(o)]; return r && r.rating ? r.rating : 0; };
+    return out.sort((a, b) => rate(b) - rate(a) || byStars(a, b));
+  }
   if (view.sort === "cheapest") return out.sort((a, b) => pricedFirst(a, b, (x, y) => x - y));
   if (view.sort === "priceDesc") return out.sort((a, b) => pricedFirst(a, b, (x, y) => y - x));
   if (view.sort === "toprated") return out.sort((a, b) => stars(b) - stars(a) || pricedFirst(a, b, (x, y) => x - y));
@@ -194,7 +205,7 @@ export function sortHotels(offers: any[], view: HotelView, ctx?: HotelRankCtx): 
 
 /** Changes whenever the advisor changes a filter or the sort, but not when more hotels arrive. */
 export function viewKey(view: HotelView): string {
-  return JSON.stringify([view.sort, view.luxury, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType, view.name || ""]);
+  return JSON.stringify([view.sort, view.luxury, view.stars, view.refundable, view.board, view.breakfast, view.price, view.amenities.slice().sort(), view.stayType, view.name || "", (view.starSet || []).slice().sort(), (view.stayTypes || []).slice().sort()]);
 }
 
 /** Number of filters switched on (the sort order is not a filter). */
@@ -208,6 +219,8 @@ export function activeFilterCount(view: HotelView): number {
     (view.board !== "all" ? 1 : 0) +
     (view.price !== "any" ? 1 : 0) +
     (view.stayType !== "all" ? 1 : 0) +
+    (view.starSet ? view.starSet.length : 0) +
+    (view.stayTypes ? view.stayTypes.length : 0) +
     view.amenities.length
   );
 }
