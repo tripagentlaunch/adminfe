@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { placesToGoOf } from "./proposalTemplateData";
-import { eatGuideUrl } from "./diningPlan";
+import { eatGuideUrl, fullTag } from "./diningPlan";
 
 const days = [
   { activities: [
@@ -26,5 +26,15 @@ describe("things to do and a night out in the proposal", () => {
     expect(eatGuideUrl("https://x.vip/city-goa", "do")).toBe("https://x.vip/city-goa?guide=do");
     expect(eatGuideUrl("https://x.vip/city-goa", "party")).toBe("https://x.vip/city-goa?guide=party");
     expect(eatGuideUrl("https://x.vip/city-goa")).toBe("https://x.vip/city-goa?guide=eat");
+  });
+
+  it("a tag the website cut short is completed from the credentials, and the kind of place is the headline", () => {
+    const d = [{ activities: [{ id: "c1", kind: "do", name: "St Mary's Basilica", tier: "Icons & views", tag: "The first church in", credentials: ["The first church in Karnataka to be elevated to a minor basilica"], city: "Bengaluru" }] }];
+    const [grp] = placesToGoOf(d, "Bengaluru");
+    expect(grp.picks[0].tag).toBe("Icons & views");
+    expect(grp.picks[0].credentials).toEqual(["The first church in Karnataka to be elevated to a minor basilica"]);
+    expect(fullTag("The Bombay Canteen /", ["The Bombay Canteen / Bombay Sweet Shop group: recognised hospitality house"])).toBe("The Bombay Canteen / Bombay Sweet Shop group: recognised hospitality house");
+    expect(fullTag("Condé Nast Traveller India", ["Condé Nast Traveller India: New restaurants in 2026"])).toBe("Condé Nast Traveller India: New restaurants in 2026");
+    expect(fullTag(null, [])).toBeNull();
   });
 });

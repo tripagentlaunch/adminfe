@@ -12,7 +12,7 @@ import { Icon, Spinner } from "../ui";
 import { budgetShares, estimateTotals, normalizePlan, type ScratchPlan } from "../../lib/scratchPlan";
 import { normalizeBudget, budgetRange, shortMoney, spentBy } from "../../lib/tripBudget";
 import { addDaysIso, fmtDayDate } from "../../lib/itineraryFromCart";
-import { diningEntry, type DiningEntry } from "../../lib/diningPlan";
+import { diningEntry, fullTag, type DiningEntry } from "../../lib/diningPlan";
 import { eatPlaceholder } from "../../lib/eatPlaceholder";
 
 type Kind = "eat" | "do" | "party";
@@ -26,7 +26,7 @@ const mapsUrl = (name: string, area?: string | null, city?: string) =>
  *  a labelled per-person estimate. The "+" puts it on the selected day. */
 function PlaceCard({ place: p, city, added, dayLabel, hotelName, onAdd }: { place: any; city: string; added: boolean; dayLabel: string; hotelName: string | null; onAdd: () => void }) {
   const [photoOk, setPhotoOk] = useState(true);
-  const headline = p.tag || (p.credentials && p.credentials[0]) || null;
+  const headline = fullTag(p.tag, p.credentials);
   return (
     <article className="taw-eat-card">
       <div className="taw-eat-card-photo">
@@ -130,7 +130,7 @@ export function ScratchPlanner({ plan: savedPlan, data, onAddDining, onAddActivi
     } else {
       const g = guide.value || {};
       onAddActivity(iso, {
-        id: p.id, kind, name: p.name, area: p.area || null, tag: p.tag || null, tier: p.tier || null, description: p.description || null, photo: p.photo || null,
+        id: p.id, kind, name: p.name, area: p.area || null, tag: p.tag || null, tier: p.tier || null, credentials: Array.isArray(p.credentials) ? p.credentials.slice(0, 3) : [], description: p.description || null, photo: p.photo || null,
         km: p.km ?? null, est: p.est, far: !!p.far,
         // the city page it comes from, so the proposal can open it on the right tab
         city: g.city || plan.city, url: g.url || "",

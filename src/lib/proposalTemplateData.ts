@@ -22,7 +22,7 @@ import { clockTime, tripPaxLabel, withTripSummary } from "./itineraryFromCart";
 import type { HotelEnrichment } from "./useHotelWebsites";
 import { addonCount, addonLines, addonTable } from "./flightAddons";
 import { flightKeyOf } from "./itineraryFromCart";
-import { whereToEatByCity } from "./diningPlan";
+import { fullTag, whereToEatByCity } from "./diningPlan";
 import { manualPriceState, offlineNoticeOf } from "./itineraryFromCart";
 
 // Stay-block tones (2026-09-08) — same dark-ink → olive → sage sequence
@@ -60,7 +60,9 @@ export function placesToGoOf(days: any[], destination?: string): { kind: string;
         if (!g) byCity.set(city, (g = { kind, label, city, url: a.url || null, picks: [] }));
         if (g.picks.some((p) => p.id === a.id)) continue;
         g.picks.push({
-          id: a.id, name: a.name, area: a.area || null, tier: null, tag: a.tag || a.tier || null, credentials: [], description: a.description || null,
+          // The kind of place is the headline (Icons & views, Landmark bars...); the website's own short tag is often cut mid-sentence
+          // ("The first church in"), so what it recognises the place for comes from the full credentials, not from the tag.
+          id: a.id, name: a.name, area: a.area || null, tier: null, tag: a.tier || fullTag(a.tag, a.credentials), credentials: Array.isArray(a.credentials) ? a.credentials.slice(0, 2) : [], description: a.description || null,
           photo: a.photo || null, city, url: a.url || null, distance: null, est: a.est || null,
         });
       }
@@ -704,7 +706,7 @@ export function buildProposalTemplateData(itinerary: any, pricing: any, member: 
         // "Where to eat" for the day: restaurants the advisor took from our city guide (lib/diningPlan.ts)
         dining: Array.isArray(d.dining) ? d.dining : [],
         // What to do / a night out, from the plan's city guide; each carries a per-person cost estimate (labelled as one).
-        activities: Array.isArray(d.activities) ? d.activities.map((a: any) => ({ id: a.id, kind: a.kind, name: a.name, area: a.area || null, description: a.description || null, photo: a.photo || null, tag: a.tag || a.tier || null, city: a.city || null, url: a.url || null, est: a.est ? { low: a.est.low, high: a.est.high, totalLow: a.est.totalLow, totalHigh: a.est.totalHigh, pax: a.est.pax } : null })) : [],
+        activities: Array.isArray(d.activities) ? d.activities.map((a: any) => ({ id: a.id, kind: a.kind, name: a.name, area: a.area || null, description: a.description || null, photo: a.photo || null, tag: a.tag || null, tier: a.tier || null, credentials: Array.isArray(a.credentials) ? a.credentials.slice(0, 3) : [], city: a.city || null, url: a.url || null, est: a.est ? { low: a.est.low, high: a.est.high, totalLow: a.est.totalLow, totalHigh: a.est.totalHigh, pax: a.est.pax } : null })) : [],
       })),
     // The trip's restaurants grouped by city, for the Plan tab and the PDF (derived from the days' dining, nothing else)
     whereToEat: whereToEatByCity(days),

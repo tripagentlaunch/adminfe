@@ -73,6 +73,16 @@ export function eatGuideUrl(url: string | null | undefined, tab: "eat" | "do" | 
   return base + (base.includes("?") ? "&" : "?") + "guide=" + tab + (hash ? "#" + hash : "");
 }
 
+/** The city page's short tag can be cut mid-sentence at the source ("The first church in", "The Bombay Canteen /"). When the tag is only
+ *  the start of one of the place's credentials, the whole credential is the tag. */
+export function fullTag(tag: string | null | undefined, credentials: string[] | null | undefined): string | null {
+  const t = String(tag || "").trim();
+  const creds = (credentials || []).filter((c) => typeof c === "string" && c.trim());
+  if (!t) return creds[0] || null;
+  const whole = creds.find((c) => c.length > t.length && c.toLowerCase().startsWith(t.toLowerCase()));
+  return whole || t;
+}
+
 /** "3.2 km from Taj West End · 11 min drive", or "about 7.1 km (straight line) from ..." when there is no road answer. */
 export function distanceText(d: DiningEntry["distance"] | (EatDistance & { hotel?: string }) | null | undefined, hotelName?: string): string {
   if (!d) return "";
