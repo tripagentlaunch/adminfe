@@ -912,7 +912,11 @@ export function NewBookingHotel({ customer: customerProp, orderId, itineraryId, 
           </div>
         ) : null}
 
-        {offers.length === 0 ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
+        {offers.length === 0 && moreInfo && !moreInfo.failed ? (
+          // The first batch can come back empty while the rest of the city is still arriving (TripSure is slow some days): say so instead of "none".
+          <div className="ow-sub" style={{ padding: "28px 0", textAlign: "center" }}><Spinner /> Still loading hotels from TripSure… this can take up to a minute.</div>
+        ) : null}
+        {offers.length === 0 && !(moreInfo && !moreInfo.failed) ? <Empty icon="hotel" title="No hotels found" message="Try other dates or a nearby city." /> : null}
         {offers.length > 0 && hotelsShown.length === 0 ? (
           <div className="ow-empty">
             <b>{(fitsOnly || budgetNum > 0) && shown.length ? "No hotel fits the budget" : "No hotels match these filters"}</b>

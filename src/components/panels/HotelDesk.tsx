@@ -997,6 +997,21 @@ export function HotelDesk(props: any) {
   }
   const tripStart = props.tripDates && props.tripDates.startIso;
   const tripEnd = props.tripDates && props.tripDates.endIso;
+  // A new "Plan this trip" plan for this enquiry while the desk is open: take its place, dates and travellers (and drop the place picked
+  // for the old plan, "South Goa"), instead of keeping the search of the plan before it.
+  const planSig = (props.tripDates && props.tripDates.planSig) || "";
+  const lastPlanSig = useRef(planSig);
+  useEffect(() => {
+    if (!planSig || planSig === lastPlanSig.current) return;
+    lastPlanSig.current = planSig;
+    const td = props.tripDates;
+    if (!td) return;
+    touched.current = {};
+    setSelectedLocation(null);
+    setForm((f) => ({ city: td.city || f.city, checkIn: td.startIso || f.checkIn, checkOut: td.endIso || f.checkOut }));
+    if (td.persons && td.persons.length) setOcc(occFromPersons(td.persons));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planSig]);
   useEffect(() => {
     if (!tripStart) return;
     setForm((f) => ({
